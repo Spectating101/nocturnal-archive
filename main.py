@@ -62,5 +62,13 @@ async def test_endpoint():
     }
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
+    # Get port from environment variable, default to 8000
+    port_str = os.getenv("PORT", "8000")
+    try:
+        port = int(port_str)
+    except ValueError:
+        port = 8000
+        print(f"Warning: Invalid PORT value '{port_str}', using default 8000")
+    
+    print(f"Starting Nocturnal Archive API on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)

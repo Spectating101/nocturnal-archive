@@ -1,0 +1,30 @@
+# Core FastAPI dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# Database dependencies
+motor==3.3.2
+redis==5.0.1
+pymongo==4.6.0
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.0
+
+# HTTP requests
+httpx==0.25.2
+requests==2.31.0
+
+# Data processing
+pandas==2.1.4
+numpy==1.25.2
+
+# Monitoring
+sentry-sdk[fastapi]==1.38.0
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3

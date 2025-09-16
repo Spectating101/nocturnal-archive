@@ -1,247 +1,128 @@
-# 🚀 Nocturnal Archive - Advanced Academic Research System
+# Nocturnal Archive
 
-**A comprehensive, production-ready academic research platform with real-time AI-powered analysis, citation management, and interactive visualizations.**
+**AI-Powered Academic Research Platform**
 
-## 🎯 **System Overview**
+A comprehensive research automation system that combines advanced AI with academic databases to provide intelligent literature reviews, citation analysis, and knowledge synthesis.
 
-Nocturnal Archive is a sophisticated research automation platform that transforms hours of manual academic research into minutes of automated analysis. The system performs **real academic research** using multiple databases, generates proper citations, creates interactive visualizations, and provides comprehensive research reports.
+## 🚀 Live Demo
 
-### ✨ **Key Features**
+**Frontend:** [nocturnal-archive-frontend.vercel.app](https://nocturnal-archive-frontend.vercel.app)
 
-- 🔬 **Real Academic Research**: Deep integration with OpenAlex, Google Scholar, and web sources
-- 📚 **Automatic Citation Management**: APA, MLA, Chicago, IEEE formats with proper metadata
-- 📊 **Interactive Visualizations**: Charts, graphs, and dashboards for research insights
-- 🤖 **AI-Powered Analysis**: Content synthesis, key findings extraction, and recommendations
-- ⚡ **High Performance**: Rust-optimized modules for fast processing
-- 🔒 **Enterprise Security**: Authentication, rate limiting, and data protection
-- 💳 **SaaS Ready**: Stripe integration, subscription management, usage tracking
-
-## 🏗️ **Architecture**
+## 🏗️ Architecture
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Frontend UI   │    │   FastAPI API   │    │   Research      │
-│   (Next.js)     │◄──►│   (Python)      │◄──►│   Engine        │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         │              ┌─────────────────┐              │
-         │              │   Performance   │              │
-         │              │   (Rust)        │              │
-         │              └─────────────────┘              │
-         │                       │                       │
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Supabase      │    │   MongoDB       │    │   Redis Cache   │
-│   (Auth)        │    │   (Data)        │    │   (Performance) │
+│   Frontend      │    │   Backend       │    │   Database      │
+│   (Next.js)     │◄──►│   (FastAPI)     │◄──►│   (Supabase)    │
+│   Vercel        │    │   Railway       │    │   PostgreSQL    │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-## 🚀 **Quick Start**
+## 📁 Project Structure
 
-### Prerequisites
-- Python 3.11+
-- Node.js 18+
-- MongoDB
-- Redis
-- Docker (optional)
-
-### Installation
-
-1. **Clone and Setup**
-```bash
-git clone <repository>
-cd Nocturnal-Archive
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or
-venv\Scripts\activate     # Windows
+```
+Nocturnal-Archive/
+├── chatbot-ui/              # Next.js frontend application
+│   ├── app/                 # App router pages and API routes
+│   ├── components/          # React components
+│   ├── lib/                 # Utilities and configurations
+│   └── supabase/           # Database schema and migrations
+├── src/                     # FastAPI backend application
+├── deployment/              # Deployment configurations
+├── monitoring/              # Monitoring and observability
+├── nginx/                   # Web server configuration
+├── rust_performance/        # Performance optimization modules
+└── cleanup_archive/         # Archived development artifacts
+    ├── documentation/       # Historical documentation
+    ├── development_artifacts/ # Old scripts and images
+    ├── old_deployments/     # Legacy deployment configs
+    └── testing_scripts/     # Development testing tools
 ```
 
-2. **Install Dependencies**
-```bash
-pip install -r requirements.txt
-cd chatbot-ui && npm install
-```
+## 🛠️ Tech Stack
 
-3. **Environment Configuration**
-```bash
-cp env.example .env
-# Edit .env with your API keys and database URLs
-```
+### Frontend
+- **Next.js 14** - React framework with App Router
+- **TypeScript** - Type-safe development
+- **Tailwind CSS** - Utility-first styling
+- **Supabase** - Database and authentication
+- **Vercel** - Deployment and hosting
 
-4. **Start Services**
-```bash
-# Backend (Terminal 1)
-source venv/bin/activate
-python -m uvicorn src.main:app --host 127.0.0.1 --port 8002 --reload
+### Backend
+- **FastAPI** - High-performance Python API
+- **Python 3.11+** - Core language
+- **Pydantic** - Data validation
+- **Railway** - Backend hosting
 
-# Frontend (Terminal 2)
+### Database
+- **Supabase** - PostgreSQL with real-time features
+- **Row Level Security** - Data protection
+- **Real-time subscriptions** - Live updates
+
+## 🚀 Quick Start
+
+### Frontend Development
+```bash
 cd chatbot-ui
+npm install
 npm run dev
 ```
 
-5. **Access the System**
-- Frontend: http://localhost:3000
-- API: http://127.0.0.1:8002
-- API Docs: http://127.0.0.1:8002/docs
-
-## 🔬 **Real Research Capabilities**
-
-### Academic Database Integration
-- **OpenAlex**: 200M+ academic papers with full metadata
-- **Google Scholar**: Web-based academic search
-- **DOI Resolution**: Automatic citation extraction
-- **Content Scraping**: High-performance web scraping
-
-### Research Workflow
-1. **Query Processing**: Intelligent topic extraction and query optimization
-2. **Multi-Source Search**: Parallel academic and web search
-3. **Content Analysis**: AI-powered text processing and summarization
-4. **Citation Generation**: Automatic citation formatting in 4 formats
-5. **Visualization**: Interactive charts and research dashboards
-6. **Report Generation**: Comprehensive research reports with insights
-
-### Example Research Query
-```
-"Research quantum computing breakthroughs in 2024"
+### Backend Development
+```bash
+cd src
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload
 ```
 
-**System Response:**
-- ✅ 10+ academic papers with DOIs
-- ✅ 5+ web sources with analysis
-- ✅ Proper citations in APA/MLA/Chicago/IEEE
-- ✅ Interactive visualizations
-- ✅ Comprehensive research summary
-- ✅ Key findings and recommendations
+## 🔧 Environment Variables
 
-## 📊 **Performance Metrics**
-
-- **Research Speed**: 2-3 minutes for comprehensive analysis
-- **Source Processing**: 20+ sources per research session
-- **Citation Accuracy**: 100% proper formatting
-- **System Uptime**: 99.9% availability
-- **Response Time**: <500ms for API calls
-
-## 🔧 **Technical Stack**
+### Frontend (.env.local)
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+NEXT_PUBLIC_BACKEND_URL=your_backend_url
+```
 
 ### Backend
-- **FastAPI**: High-performance async API framework
-- **Python 3.11+**: Core application logic
-- **Rust**: Performance-critical modules (scraping, processing)
-- **MongoDB**: Document storage and caching
-- **Redis**: Session management and caching
-- **Uvicorn**: ASGI server
-
-### Frontend
-- **Next.js 14**: React framework with SSR
-- **TypeScript**: Type-safe development
-- **Tailwind CSS**: Modern styling
-- **Chart.js**: Interactive visualizations
-- **PWA**: Progressive web app capabilities
-
-### Infrastructure
-- **Docker**: Containerization
-- **Supabase**: Authentication and user management
-- **Stripe**: Payment processing
-- **Vercel/Railway**: Deployment platforms
-
-## 📚 **API Endpoints**
-
-### Research Endpoints
-- `POST /api/research` - Start comprehensive research
-- `POST /api/chat` - Interactive research chat
-- `GET /api/citations/{format}` - Get citations in specific format
-- `POST /api/visualize` - Generate research visualizations
-
-### Authentication
-- `POST /api/auth/signup` - User registration
-- `POST /api/auth/signin` - User login
-- `GET /api/auth/profile` - User profile
-
-### Management
-- `GET /api/status` - System status
-- `GET /api/health` - Health check
-- `GET /api/metrics` - Usage metrics
-
-## 🎯 **SaaS Features**
-
-### Subscription Tiers
-- **Free**: 5 research sessions/month
-- **Pro ($9.99/month)**: 50 research sessions, advanced features
-- **Enterprise**: Custom pricing, dedicated support
-
-### Revenue Model
-- Subscription-based pricing
-- Usage-based billing
-- Enterprise licensing
-- API access for developers
-
-## 🚀 **Deployment**
-
-### Production Deployment
-```bash
-# Using Docker
-docker-compose -f docker-compose.prod.yml up -d
-
-# Using deployment scripts
-./deploy.sh
+```env
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+OPENAI_API_KEY=your_openai_key
 ```
 
-### Cloud Platforms
-- **Vercel**: Frontend deployment
-- **Railway**: Backend deployment
-- **Render**: Full-stack deployment
-- **AWS/GCP**: Enterprise deployment
+## 📊 Features
 
-## 📈 **Current Status**
+- **Intelligent Research** - AI-powered literature analysis
+- **Citation Management** - Automated reference tracking
+- **Real-time Collaboration** - Multi-user research sessions
+- **Knowledge Synthesis** - Cross-paper insights
+- **Academic Database Integration** - arXiv, PubMed, etc.
 
-### ✅ **Completed Features**
-- Real academic research with OpenAlex integration
-- Comprehensive citation management system
-- Interactive data visualizations
-- AI-powered content analysis
-- High-performance Rust modules
-- Production-ready API
-- Modern React frontend
-- Authentication and user management
-- Subscription and billing system
-- Docker containerization
-- Multi-platform deployment
+## 🔒 Security
 
-### 🎯 **Ready for Beta Launch**
-- All core features implemented and tested
-- Real research capabilities verified
-- Performance optimizations complete
-- Security measures in place
-- Documentation comprehensive
-- Deployment pipelines ready
+- Row-level security in Supabase
+- Environment variable protection
+- CORS configuration
+- API rate limiting
 
-## 📖 **Documentation**
+## 📈 Deployment Status
 
-- [System Architecture](SAAS_ARCHITECTURE.md)
-- [Production Deployment](PRODUCTION_DEPLOYMENT_GUIDE.md)
-- [Commercial Launch](COMMERCIAL_LAUNCH_SUMMARY.md)
-- [Performance Upgrades](PERFORMANCE_UPGRADES_SUMMARY.md)
-- [Citations & Visualizations](CITATIONS_AND_VISUALIZATION_SUMMARY.md)
+- ✅ **Frontend**: Deployed on Vercel
+- ✅ **Database**: Configured on Supabase
+- 🔄 **Backend**: Ready for Railway deployment
+- 🔄 **Monitoring**: Sentry integration pending
 
-## 🤝 **Contributing**
+## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+This is a private research project. For access or collaboration, please contact the maintainer.
 
-## 📄 **License**
+## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🆘 **Support**
-
-- **Documentation**: Check the docs folder
-- **Issues**: GitHub Issues
-- **Discussions**: GitHub Discussions
-- **Email**: support@nocturnal-archive.com
+Private - All rights reserved
 
 ---
 
-**Nocturnal Archive** - Transforming academic research through intelligent automation. 🚀
+**Status**: Beta - In active development
+**Last Updated**: September 2024

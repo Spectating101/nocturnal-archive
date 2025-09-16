@@ -1,0 +1,69 @@
+version: "3.8"
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017/nocturnal_archive
+      - REDIS_URL=redis://redis:6379
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - CEREBRAS_API_KEY=${CEREBRAS_API_KEY}
+      - COHERE_API_KEY=${COHERE_API_KEY}
+      - OPENALEX_EMAIL=${OPENALEX_EMAIL}
+      - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY}
+      - CORE_API_KEY=${CORE_API_KEY}
+    depends_on:
+      - mongodb
+      - redis
+      - qdrant
+      - neo4j
+    ports:
+      - "8000:8000"
+    command: uvicorn nocturnal_api:app --host 0.0.0.0 --port 8000 --workers 2
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017/nocturnal_archive
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongodb
+      - redis
+    command: arq src.services.workers.research_worker.WorkerSettings
+
+  redis:
+    image: redis:alpine
+    ports: ["6379:6379"]
+
+  mongodb:
+    image: mongo:latest
+    ports: ["27017:27017"]
+    environment:
+      MONGO_INITDB_DATABASE: nocturnal_archive
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  neo4j:
+    image: neo4j:5.25
+    environment:
+      - NEO4J_AUTH=neo4j/test1234
+      - NEO4J_dbms_memory_pagecache_size=512M
+      - NEO4J_dbms_memory_heap_initial__size=512m
+      - NEO4J_dbms_memory_heap_max__size=1G
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+
+volumes:
+  qdrant_data:
+  neo4j_data:

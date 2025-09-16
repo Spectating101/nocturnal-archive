@@ -1,0 +1,23 @@
+{
+  "score": 86,
+  "issues": [
+    "Dark theme applied"
+  ],
+  "checks": {
+    "No horizontal scroll": true,
+    "All images loaded": true,
+    "Buttons have proper size": true,
+    "No overlapping elements": true,
+    "Responsive design": true,
+    "Chat interface present": true,
+    "Dark theme applied": false
+  },
+  "pageInfo": {
+    "title": "Nocturnal Archive - AI Research Platform",
+    "url": "http://localhost:3000/research",
+    "viewport": {
+      "width": 1920,
+      "height": 1080
+    }
+  }
+}

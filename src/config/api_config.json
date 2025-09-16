@@ -1,0 +1,39 @@
+{
+  "llm_services": {
+    "mistral": {
+      "enabled": true,
+      "api_key": "${MISTRAL_API_KEY}",
+      "priority": 1,
+      "models": {
+        "default": "mistral-large-latest",
+        "synthesis": "mistral-large-latest"
+      }
+    },
+    "cerebras": {
+      "enabled": true,
+      "api_key": "${CEREBRAS_API_KEY}",
+      "priority": 2,
+      "models": {
+        "default": "llama-3.3-70b",
+        "synthesis": "llama-3.3-70b"
+      }
+    },
+    "cohere": {
+      "enabled": true,
+      "api_key": "${COHERE_API_KEY}",
+      "priority": 3,
+      "models": {
+        "default": "command-light",
+        "synthesis": "command"
+      }
+    }
+  },
+  "database": {
+    "mongodb": {
+      "url": "${MONGODB_URL}"
+    },
+    "redis": {
+      "url": "${REDIS_URL}"
+    }
+  }
+}

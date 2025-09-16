@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nocturnal Archive</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+        background-color: #f9fafb;
+      }
+      .chat-container {
+        height: calc(100vh - 140px);
+        overflow-y: auto;
+        scroll-behavior: smooth;
+        padding-bottom: 20px;
+      }
+      .user-message {
+        background-color: #f0f9ff;
+        border-left: 4px solid #3b82f6;
+      }
+      .assistant-message {
+        background-color: #ffffff;
+        border-left: 4px solid #10b981;
+      }
+      .typing-indicator span {
+        animation: blink 1.4s infinite both;
+      }
+      .typing-indicator span:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      .typing-indicator span:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+      .sidebar {
+        width: 260px;
+        background-color: #1a1a1a;
+        color: white;
+        transition: all 0.3s;
+      }
+      .sidebar-collapsed {
+        width: 0;
+        overflow: hidden;
+      }
+      pre {
+        background-color: #f1f5f9;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        overflow-x: auto;
+      }
+      code {
+        font-family: "Menlo", "Monaco", "Courier New", monospace;
+        font-size: 0.9rem;
+      }
+      blockquote {
+        border-left: 4px solid #e5e7eb;
+        padding-left: 1rem;
+        color: #4b5563;
+        margin: 1rem 0;
+      }
+      @keyframes blink {
+        0% {
+          opacity: 0.2;
+        }
+        20% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0.2;
+        }
+      }
+      .new-chat-btn {
+        transition: all 0.3s ease;
+      }
+      .new-chat-btn:hover {
+        background-color: #2563eb;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="flex h-screen">
+      <!-- Sidebar -->
+      <div id="sidebar" class="sidebar flex flex-col">
+        <div class="p-4 flex items-center justify-between">
+          <h1 class="text-xl font-bold">Nocturnal Archive</h1>
+          <button id="collapse-sidebar" class="text-gray-400 hover:text-white">
+            <i class="fas fa-chevron-left"></i>
+          </button>
+        </div>
+
+        <button
+          id="new-chat-btn"
+          class="new-chat-btn mx-3 mb-4 flex items-center gap-3 rounded-md px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white"
+        >
+          <i class="fas fa-plus"></i>
+          <span>New Research</span>
+        </button>
+
+        <div class="flex-1 overflow-y-auto px-3">
+          <div class="py-2 text-gray-400 text-xs uppercase">
+            Research History
+          </div>
+          <div id="history-list" class="space-y-2">
+            <!-- Chat history will be populated here -->
+          </div>
+        </div>
+
+        <div class="p-4 border-t border-gray-700">
+          <div class="flex items-center gap-3 text-sm">
+            <div
+              class="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center"
+            >
+              <i class="fas fa-book"></i>
+            </div>
+            <div>
+              <div class="font-medium">Nocturnal Archive</div>
+              <div class="text-gray-400 text-xs">Research Assistant</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main content -->
+      <div class="flex-1 flex flex-col">
+        <header
+          class="bg-white border-b border-gray-200 p-4 flex items-center justify-between"
+        >
+          <button
+            id="expand-sidebar"
+            class="text-gray-600 hover:text-gray-900 hidden"
+          >
+            <i class="fas fa-bars"></i>
+          </button>
+          <div class="text-center flex-1">
+            <h1 class="text-xl font-semibold text-gray-800">
+              Academic Research Assistant
+            </h1>
+          </div>
+          <div class="w-6"></div>
+          <!-- Spacer for balance -->
+        </header>
+
+        <div id="chat-container" class="chat-container px-4 py-6 flex-1">
+          <!-- Initial message -->
+          <div class="assistant-message p-4 rounded-lg mb-4 shadow-sm">
+            <div class="flex items-start">
+              <div
+                class="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white mr-4"
+              >
+                <i class="fas fa-robot"></i>
+              </div>
+              <div>
+                <p class="text-gray-800">
+                  Hello! I'm Nocturnal Archive, your academic research
+                  assistant. Ask me to research any topic and I'll find and
+                  analyze relevant papers for you.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-4 border-t border-gray-200 bg-white">
+          <div class="flex items-center relative">
+            <input
+              id="message-input"
+              type="text"
+              placeholder="Ask me to research a topic..."
+              class="flex-1 p-3 pr-12 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              id="send-button"
+              class="absolute right-3 text-blue-600 hover:text-blue-800"
+            >
+              <i class="fas fa-paper-plane"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // DOM elements
+      const chatContainer = document.getElementById("chat-container");
+      const messageInput = document.getElementById("message-input");
+      const sendButton = document.getElementById("send-button");
+      const sidebar = document.getElementById("sidebar");
+      const collapseSidebarBtn = document.getElementById("collapse-sidebar");
+      const expandSidebarBtn = document.getElementById("expand-sidebar");
+      const newChatBtn = document.getElementById("new-chat-btn");
+      const historyList = document.getElementById("history-list");
+
+      // Chat history
+      let chatHistory = [];
+      let currentChatId = Date.now().toString();
+
+      // Event listeners
+      sendButton.addEventListener("click", sendMessage);
+      messageInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") sendMessage();
+      });
+      collapseSidebarBtn.addEventListener("click", toggleSidebar);
+      expandSidebarBtn.addEventListener("click", toggleSidebar);
+      newChatBtn.addEventListener("click", startNewChat);
+
+      // Check for saved chats in localStorage
+      loadChatHistory();
+
+      function toggleSidebar() {
+        sidebar.classList.toggle("sidebar-collapsed");
+        expandSidebarBtn.classList.toggle("hidden");
+      }
+
+      function startNewChat() {
+        // Save current chat if it has messages
+        if (chatHistory.length > 0) {
+          saveChatToHistory();
+        }
+
+        // Clear chat
+        chatContainer.innerHTML = "";
+        addMessage(
+          "assistant",
+          "Hello! I'm Nocturnal Archive, your academic research assistant. Ask me to research any topic and I'll find and analyze relevant papers for you."
+        );
+
+        // Generate new chat ID
+        currentChatId = Date.now().toString();
+        chatHistory = [];
+
+        // Update UI
+        updateChatHistoryUI();
+      }
+
+      function addMessage(role, content) {
+        const div = document.createElement("div");
+        div.className =
+          role === "user"
+            ? "user-message p-4 rounded-lg mb-4 shadow-sm"
+            : "assistant-message p-4 rounded-lg mb-4 shadow-sm";
+
+        const iconClass = role === "user" ? "fas fa-user" : "fas fa-robot";
+        const iconBgColor = role === "user" ? "bg-blue-600" : "bg-green-600";
+
+        // Format content with markdown
+        const formattedContent = marked.parse(content);
+
+        div.innerHTML = `
+                <div class="flex items-start">
+                    <div class="w-8 h-8 rounded-full ${iconBgColor} flex items-center justify-center text-white mr-4">
+                        <i class="${iconClass}"></i>
+                    </div>
+                    <div class="markdown-content">${formattedContent}</div>
+                </div>
+            `;
+
+        chatContainer.appendChild(div);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        // Add to history
+        if (role !== "loading") {
+          chatHistory.push({ role, content });
+        }
+      }
+
+      function sendMessage() {
+        const content = messageInput.value.trim();
+        if (!content) return;
+
+        // Add user message
+        addMessage("user", content);
+        messageInput.value = "";
+
+        // Add loading indicator
+        const loadingDiv = document.createElement("div");
+        loadingDiv.className =
+          "assistant-message p-4 rounded-lg mb-4 shadow-sm";
+        loadingDiv.innerHTML = `
+                <div class="flex items-start">
+                    <div class="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white mr-4">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="typing-indicator">
+                        Researching<span>.</span><span>.</span><span>.</span>
+                    </div>
+                </div>
+            `;
+        loadingDiv.id = "loading";
+        chatContainer.appendChild(loadingDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        // Send to API
+        fetch("http://localhost:8000/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: [{ role: "user", content }],
+          }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            // Remove loading indicator
+            document.getElementById("loading").remove();
+
+            // Add response
+            const response = data.choices[0].message.content;
+            addMessage("assistant", response);
+
+            // Update chat in history
+            saveChatToHistory();
+          })
+          .catch((err) => {
+            document.getElementById("loading").remove();
+            addMessage(
+              "assistant",
+              `Error: ${err.message}\n\nPlease make sure the API server is running at http://localhost:8000 and CORS is enabled.`
+            );
+          });
+      }
+
+      function saveChatToHistory() {
+        if (chatHistory.length === 0) return;
+
+        // Generate title from first user message
+        const firstUserMessage = chatHistory.find((msg) => msg.role === "user");
+        const title = firstUserMessage
+          ? firstUserMessage.content.length > 25
+            ? firstUserMessage.content.substring(0, 25) + "..."
+            : firstUserMessage.content
+          : "New Research";
+
+        // Save to localStorage
+        const savedChats = JSON.parse(
+          localStorage.getItem("nocturnal-chats") || "{}"
+        );
+        savedChats[currentChatId] = {
+          title,
+          timestamp: Date.now(),
+          messages: chatHistory,
+        };
+        localStorage.setItem("nocturnal-chats", JSON.stringify(savedChats));
+
+        // Update UI
+        updateChatHistoryUI();
+      }
+
+      function loadChatHistory() {
+        const savedChats = JSON.parse(
+          localStorage.getItem("nocturnal-chats") || "{}"
+        );
+        updateChatHistoryUI();
+      }
+
+      function updateChatHistoryUI() {
+        historyList.innerHTML = "";
+
+        const savedChats = JSON.parse(
+          localStorage.getItem("nocturnal-chats") || "{}"
+        );
+
+        // Sort chats by timestamp (newest first)
+        const sortedChats = Object.entries(savedChats).sort(
+          (a, b) => b[1].timestamp - a[1].timestamp
+        );
+
+        for (const [id, chat] of sortedChats) {
+          const chatItem = document.createElement("div");
+          chatItem.className = `p-2 rounded-md hover:bg-gray-800 cursor-pointer text-gray-300 ${
+            id === currentChatId ? "bg-gray-800" : ""
+          }`;
+          chatItem.innerHTML = `
+                    <div class="flex items-center">
+                        <i class="fas fa-comments mr-2"></i>
+                        <span class="truncate">${chat.title}</span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1">
+                        ${new Date(chat.timestamp).toLocaleDateString()}
+                    </div>
+                `;
+
+          chatItem.addEventListener("click", () => loadChat(id));
+          historyList.appendChild(chatItem);
+        }
+      }
+
+      function loadChat(chatId) {
+        const savedChats = JSON.parse(
+          localStorage.getItem("nocturnal-chats") || "{}"
+        );
+        if (!savedChats[chatId]) return;
+
+        // Update current chat
+        currentChatId = chatId;
+        chatHistory = savedChats[chatId].messages;
+
+        // Clear chat
+        chatContainer.innerHTML = "";
+
+        // Add messages
+        for (const msg of chatHistory) {
+          addMessage(msg.role, msg.content);
+        }
+
+        // Update UI
+        updateChatHistoryUI();
+      }
+    </script>
+  </body>
+</html>

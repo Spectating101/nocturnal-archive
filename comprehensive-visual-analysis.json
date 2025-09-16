@@ -1,0 +1,104 @@
+{
+  "timestamp": "2025-09-10T09:42:24.952Z",
+  "overallScore": 100,
+  "pages": {
+    "Home": {
+      "score": 100,
+      "issues": [],
+      "checks": {
+        "noHorizontalScroll": true,
+        "allImagesLoaded": true,
+        "buttonsLargeEnough": true,
+        "chatInterfacePresent": true,
+        "buttonsClickable": true,
+        "formsHaveValidation": true,
+        "noOverlapping": true,
+        "darkThemeApplied": true,
+        "mobileReady": true
+      },
+      "elementDetails": {
+        "buttonCount": 1,
+        "inputCount": 1,
+        "linkCount": 2,
+        "imageCount": 0,
+        "formCount": 0,
+        "buttonSizes": [
+          {
+            "width": 73,
+            "height": 44,
+            "text": "Ask"
+          }
+        ]
+      },
+      "pageInfo": {
+        "title": "Nocturnal Archive - AI Research Platform",
+        "url": "http://localhost:3000/",
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "scrollDimensions": {
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    },
+    "Research": {
+      "score": 100,
+      "issues": [],
+      "checks": {
+        "noHorizontalScroll": true,
+        "allImagesLoaded": true,
+        "buttonsLargeEnough": true,
+        "chatInterfacePresent": true,
+        "buttonsClickable": true,
+        "formsHaveValidation": true,
+        "noOverlapping": true,
+        "darkThemeApplied": true,
+        "mobileReady": true
+      },
+      "elementDetails": {
+        "buttonCount": 4,
+        "inputCount": 1,
+        "linkCount": 0,
+        "imageCount": 0,
+        "formCount": 1,
+        "buttonSizes": [
+          {
+            "width": 271,
+            "height": 46,
+            "text": "Start New Research"
+          },
+          {
+            "width": 271,
+            "height": 48,
+            "text": "View Recent Research"
+          },
+          {
+            "width": 271,
+            "height": 48,
+            "text": "Export Results"
+          },
+          {
+            "width": 48,
+            "height": 48,
+            "text": "No text"
+          }
+        ]
+      },
+      "pageInfo": {
+        "title": "Nocturnal Archive - AI Research Platform",
+        "url": "http://localhost:3000/research",
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "scrollDimensions": {
+          "width": 1920,
+          "height": 1080
+        }
+      }
+    }
+  },
+  "recommendations": []
+}

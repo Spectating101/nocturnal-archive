@@ -1,8 +1,0 @@
-{
-  "buildCommand": "cd chatbot-ui && npm run build",
-  "outputDirectory": "chatbot-ui/.next",
-  "installCommand": "cd chatbot-ui && npm install",
-  "framework": "nextjs",
-  "rootDirectory": "chatbot-ui"
-}
-

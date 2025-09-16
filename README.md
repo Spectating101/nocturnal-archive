@@ -32,11 +32,6 @@ Nocturnal-Archive/
 ├── monitoring/              # Monitoring and observability
 ├── nginx/                   # Web server configuration
 ├── rust_performance/        # Performance optimization modules
-└── cleanup_archive/         # Archived development artifacts
-    ├── documentation/       # Historical documentation
-    ├── development_artifacts/ # Old scripts and images
-    ├── old_deployments/     # Legacy deployment configs
-    └── testing_scripts/     # Development testing tools
 ```
 
 ## 🛠️ Tech Stack

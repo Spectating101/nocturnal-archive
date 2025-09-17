@@ -1,0 +1,724 @@
+openapi: 3.0.3
+info:
+  title: Nocturnal Archive API
+  description: |
+    API-first backend for academic research. Provides clean endpoints for finding, 
+    formatting, and synthesizing academic papers from trusted sources.
+    
+    **Core Features:**
+    - Search academic papers from OpenAlex, PubMed, arXiv
+    - Format citations in BibTeX, APA, MLA styles
+    - Synthesize findings across multiple papers using LLMs
+    - No hallucinations - only real papers with verified metadata
+    
+    **Use Cases:**
+    - AI research assistants
+    - Academic workflow tools (Zotero, Overleaf integrations)
+    - Research note-taking apps
+    - Internal research team pipelines
+  version: 1.0.0
+  contact:
+    name: Nocturnal Archive Support
+    email: support@nocturnal-archive.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.nocturnal-archive.com
+    description: Production server
+  - url: https://staging-api.nocturnal-archive.com
+    description: Staging server
+  - url: http://localhost:8000
+    description: Development server
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /api/search:
+    post:
+      summary: Search academic papers
+      description: |
+        Find academic papers from trusted sources (OpenAlex, PubMed, arXiv).
+        Returns real papers with verified metadata - no hallucinations.
+      operationId: searchPapers
+      tags:
+        - Search
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+            examples:
+              basic_search:
+                summary: Basic search
+                value:
+                  query: "CRISPR base editing efficiency"
+                  limit: 10
+                  sources: ["openalex"]
+              advanced_search:
+                summary: Advanced search with filters
+                value:
+                  query: "machine learning in healthcare"
+                  limit: 20
+                  sources: ["openalex", "pubmed"]
+                  filters:
+                    year_min: 2020
+                    year_max: 2024
+                    open_access: true
+                    min_citations: 10
+      responses:
+        '200':
+          description: Successful search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+              examples:
+                success:
+                  summary: Successful search
+                  value:
+                    papers:
+                      - id: "W2981234567"
+                        title: "Improved CRISPR base editing efficiency in human cells"
+                        authors:
+                          - name: "Smith, J."
+                            orcid: "0000-0000-0000-0000"
+                          - name: "Doe, A."
+                            orcid: "0000-0000-0000-0001"
+                        year: 2023
+                        doi: "10.1038/s41586-023-xxxxx"
+                        abstract: "Recent advances in CRISPR base editing have shown..."
+                        citations_count: 45
+                        open_access: true
+                        pdf_url: "https://www.nature.com/articles/s41586-023-xxxxx.pdf"
+                        source: "openalex"
+                        venue: "Nature"
+                        keywords: ["CRISPR", "base editing", "gene therapy"]
+                    count: 10
+                    query_id: "q_123"
+                    trace_id: "trace_456"
+        '400':
+          description: Bad request - invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/format:
+    post:
+      summary: Format citations
+      description: |
+        Convert a list of paper IDs into formatted citations.
+        Supports multiple citation styles including BibTeX, APA, and MLA.
+      operationId: formatCitations
+      tags:
+        - Format
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FormatRequest'
+            examples:
+              bibtex_format:
+                summary: BibTeX formatting
+                value:
+                  paper_ids: ["W2981234567", "W2981234568"]
+                  style: "bibtex"
+                  options:
+                    include_abstract: false
+                    include_keywords: true
+              apa_format:
+                summary: APA formatting
+                value:
+                  paper_ids: ["W2981234567"]
+                  style: "apa"
+                  options:
+                    include_abstract: true
+      responses:
+        '200':
+          description: Successfully formatted citations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormatResponse'
+              examples:
+                bibtex_success:
+                  summary: BibTeX formatting result
+                  value:
+                    formatted: |
+                      @article{smith2023improved,
+                        title={Improved CRISPR base editing efficiency in human cells},
+                        author={Smith, J. and Doe, A.},
+                        journal={Nature},
+                        year={2023},
+                        doi={10.1038/s41586-023-xxxxx}
+                      }
+                    format: "bibtex"
+                    count: 1
+                    trace_id: "trace_789"
+        '400':
+          description: Bad request - invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: One or more paper IDs not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/synthesize:
+    post:
+      summary: Synthesize research findings
+      description: |
+        Summarize findings across multiple academic papers using LLMs.
+        Provides key findings, synthesis, and proper citations.
+      operationId: synthesizePapers
+      tags:
+        - Synthesis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SynthesizeRequest'
+            examples:
+              basic_synthesis:
+                summary: Basic synthesis
+                value:
+                  paper_ids: ["W2981234567", "W2981234568"]
+                  max_words: 300
+                  focus: "key_findings"
+                  style: "academic"
+              detailed_synthesis:
+                summary: Detailed synthesis
+                value:
+                  paper_ids: ["W2981234567", "W2981234568", "W2981234569"]
+                  max_words: 500
+                  focus: "comprehensive"
+                  style: "technical"
+                  custom_prompt: "Focus on clinical applications and safety considerations"
+      responses:
+        '200':
+          description: Successfully synthesized research
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SynthesizeResponse'
+              examples:
+                synthesis_success:
+                  summary: Synthesis result
+                  value:
+                    summary: "Recent advances in CRISPR base editing demonstrate significant improvements in efficiency and precision. Smith et al. (2023) report 95% editing efficiency in human cells, while Doe et al. (2023) show reduced off-target effects through novel guide RNA designs."
+                    key_findings:
+                      - "Efficiency improved to 95% in human cells [1]"
+                      - "Off-target effects reduced by 80% [2]"
+                      - "Novel guide RNA designs show promise [2]"
+                    citations_used:
+                      "[1]": "W2981234567"
+                      "[2]": "W2981234568"
+                    word_count: 287
+                    trace_id: "trace_101"
+        '400':
+          description: Bad request - invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: One or more paper IDs not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/health:
+    get:
+      summary: Health check
+      description: |
+        Check the health status of the API and its dependencies.
+        Returns system status and service availability.
+      operationId: healthCheck
+      tags:
+        - System
+      responses:
+        '200':
+          description: System health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  summary: System is healthy
+                  value:
+                    status: "ok"
+                    timestamp: "2024-01-15T10:30:00Z"
+                    services:
+                      openalex: "ok"
+                      openai: "ok"
+                      database: "ok"
+                    version: "1.0.0"
+                degraded:
+                  summary: System is degraded
+                  value:
+                    status: "degraded"
+                    timestamp: "2024-01-15T10:30:00Z"
+                    services:
+                      openalex: "ok"
+                      openai: "slow"
+                      database: "ok"
+                    version: "1.0.0"
+                    issues:
+                      - "OpenAI API response time is elevated"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        API key for authentication. Get your API key from the dashboard.
+        Include it in the header: `X-API-Key: your-api-key-here`
+
+  schemas:
+    SearchRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          description: Search query string
+          example: "CRISPR base editing efficiency"
+          minLength: 1
+          maxLength: 500
+        limit:
+          type: integer
+          description: Maximum number of results to return
+          example: 10
+          minimum: 1
+          maximum: 100
+          default: 10
+        sources:
+          type: array
+          description: Data sources to search
+          items:
+            type: string
+            enum: [openalex, pubmed, arxiv]
+          example: ["openalex"]
+          default: ["openalex"]
+        filters:
+          $ref: '#/components/schemas/SearchFilters'
+
+    SearchFilters:
+      type: object
+      properties:
+        year_min:
+          type: integer
+          description: Minimum publication year
+          example: 2020
+          minimum: 1900
+          maximum: 2030
+        year_max:
+          type: integer
+          description: Maximum publication year
+          example: 2024
+          minimum: 1900
+          maximum: 2030
+        open_access:
+          type: boolean
+          description: Only return open access papers
+          example: true
+        min_citations:
+          type: integer
+          description: Minimum number of citations
+          example: 10
+          minimum: 0
+        venue:
+          type: string
+          description: Specific venue or journal
+          example: "Nature"
+        authors:
+          type: array
+          description: Filter by specific authors
+          items:
+            type: string
+          example: ["Smith, J."]
+
+    SearchResponse:
+      type: object
+      required:
+        - papers
+        - count
+        - query_id
+        - trace_id
+      properties:
+        papers:
+          type: array
+          description: List of matching papers
+          items:
+            $ref: '#/components/schemas/Paper'
+        count:
+          type: integer
+          description: Number of papers returned
+          example: 10
+        query_id:
+          type: string
+          description: Unique identifier for this search query
+          example: "q_123"
+        trace_id:
+          type: string
+          description: Request trace ID for debugging
+          example: "trace_456"
+
+    Paper:
+      type: object
+      required:
+        - id
+        - title
+        - authors
+        - year
+        - source
+      properties:
+        id:
+          type: string
+          description: Unique paper identifier
+          example: "W2981234567"
+        title:
+          type: string
+          description: Paper title
+          example: "Improved CRISPR base editing efficiency in human cells"
+        authors:
+          type: array
+          description: List of authors
+          items:
+            $ref: '#/components/schemas/Author'
+        year:
+          type: integer
+          description: Publication year
+          example: 2023
+        doi:
+          type: string
+          description: Digital Object Identifier
+          example: "10.1038/s41586-023-xxxxx"
+        abstract:
+          type: string
+          description: Paper abstract
+          example: "Recent advances in CRISPR base editing have shown..."
+        citations_count:
+          type: integer
+          description: Number of citations
+          example: 45
+        open_access:
+          type: boolean
+          description: Whether the paper is open access
+          example: true
+        pdf_url:
+          type: string
+          description: Direct link to PDF (if available)
+          example: "https://www.nature.com/articles/s41586-023-xxxxx.pdf"
+        source:
+          type: string
+          description: Data source
+          enum: [openalex, pubmed, arxiv]
+          example: "openalex"
+        venue:
+          type: string
+          description: Publication venue
+          example: "Nature"
+        keywords:
+          type: array
+          description: Keywords or tags
+          items:
+            type: string
+          example: ["CRISPR", "base editing", "gene therapy"]
+
+    Author:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Author name
+          example: "Smith, J."
+        orcid:
+          type: string
+          description: ORCID identifier
+          example: "0000-0000-0000-0000"
+        affiliation:
+          type: string
+          description: Author affiliation
+          example: "Stanford University"
+
+    FormatRequest:
+      type: object
+      required:
+        - paper_ids
+        - style
+      properties:
+        paper_ids:
+          type: array
+          description: List of paper IDs to format
+          items:
+            type: string
+          example: ["W2981234567", "W2981234568"]
+          minItems: 1
+          maxItems: 50
+        style:
+          type: string
+          description: Citation style
+          enum: [bibtex, apa, mla, chicago, harvard]
+          example: "bibtex"
+        options:
+          $ref: '#/components/schemas/FormatOptions'
+
+    FormatOptions:
+      type: object
+      properties:
+        include_abstract:
+          type: boolean
+          description: Include abstract in formatted output
+          example: false
+          default: false
+        include_keywords:
+          type: boolean
+          description: Include keywords in formatted output
+          example: true
+          default: false
+        include_url:
+          type: boolean
+          description: Include URL/DOI in formatted output
+          example: true
+          default: true
+
+    FormatResponse:
+      type: object
+      required:
+        - formatted
+        - format
+        - count
+        - trace_id
+      properties:
+        formatted:
+          type: string
+          description: Formatted citations
+          example: |
+            @article{smith2023improved,
+              title={Improved CRISPR base editing efficiency in human cells},
+              author={Smith, J. and Doe, A.},
+              journal={Nature},
+              year={2023},
+              doi={10.1038/s41586-023-xxxxx}
+            }
+        format:
+          type: string
+          description: Citation format used
+          example: "bibtex"
+        count:
+          type: integer
+          description: Number of papers formatted
+          example: 1
+        trace_id:
+          type: string
+          description: Request trace ID for debugging
+          example: "trace_789"
+
+    SynthesizeRequest:
+      type: object
+      required:
+        - paper_ids
+      properties:
+        paper_ids:
+          type: array
+          description: List of paper IDs to synthesize
+          items:
+            type: string
+          example: ["W2981234567", "W2981234568"]
+          minItems: 1
+          maxItems: 20
+        max_words:
+          type: integer
+          description: Maximum word count for synthesis
+          example: 300
+          minimum: 100
+          maximum: 2000
+          default: 300
+        focus:
+          type: string
+          description: Focus area for synthesis
+          enum: [key_findings, comprehensive, methodology, results, discussion]
+          example: "key_findings"
+          default: "key_findings"
+        style:
+          type: string
+          description: Writing style
+          enum: [academic, technical, accessible, concise]
+          example: "academic"
+          default: "academic"
+        custom_prompt:
+          type: string
+          description: Custom synthesis prompt
+          example: "Focus on clinical applications and safety considerations"
+          maxLength: 1000
+
+    SynthesizeResponse:
+      type: object
+      required:
+        - summary
+        - key_findings
+        - citations_used
+        - word_count
+        - trace_id
+      properties:
+        summary:
+          type: string
+          description: Synthesized summary
+          example: "Recent advances in CRISPR base editing demonstrate significant improvements in efficiency and precision..."
+        key_findings:
+          type: array
+          description: Key findings with citations
+          items:
+            type: string
+          example: ["Efficiency improved to 95% in human cells [1]", "Off-target effects reduced by 80% [2]"]
+        citations_used:
+          type: object
+          description: Mapping of citation numbers to paper IDs
+          additionalProperties:
+            type: string
+          example:
+            "[1]": "W2981234567"
+            "[2]": "W2981234568"
+        word_count:
+          type: integer
+          description: Actual word count of summary
+          example: 287
+        trace_id:
+          type: string
+          description: Request trace ID for debugging
+          example: "trace_101"
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+        - services
+        - version
+      properties:
+        status:
+          type: string
+          description: Overall system status
+          enum: [ok, degraded, down]
+          example: "ok"
+        timestamp:
+          type: string
+          format: date-time
+          description: Health check timestamp
+          example: "2024-01-15T10:30:00Z"
+        services:
+          type: object
+          description: Status of individual services
+          additionalProperties:
+            type: string
+            enum: [ok, slow, down]
+          example:
+            openalex: "ok"
+            openai: "ok"
+            database: "ok"
+        version:
+          type: string
+          description: API version
+          example: "1.0.0"
+        issues:
+          type: array
+          description: List of current issues (if any)
+          items:
+            type: string
+          example: ["OpenAI API response time is elevated"]
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+        - trace_id
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: "validation_error"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Invalid query parameter"
+        trace_id:
+          type: string
+          description: Request trace ID for debugging
+          example: "trace_456"
+        details:
+          type: object
+          description: Additional error details
+          example:
+            field: "query"
+            reason: "Query cannot be empty"
+
+tags:
+  - name: Search
+    description: Search academic papers from trusted sources
+  - name: Format
+    description: Format citations in various styles
+  - name: Synthesis
+    description: Synthesize research findings using LLMs
+  - name: System
+    description: System health and status endpoints

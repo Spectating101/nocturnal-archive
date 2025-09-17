@@ -1,123 +1,178 @@
 # Nocturnal Archive
 
-**AI-Powered Academic Research Platform**
+**API-first backend for academic research** - Find, format, and synthesize academic papers from trusted sources.
 
-A comprehensive research automation system that combines advanced AI with academic databases to provide intelligent literature reviews, citation analysis, and knowledge synthesis.
+## 🎯 What is Nocturnal Archive?
 
-## 🚀 Live Demo
+Nocturnal Archive is a **production-ready API** that provides clean endpoints for academic research workflows. It's designed for developers building AI research assistants, academic tools, and research automation systems.
 
-**Frontend:** [nocturnal-archive-frontend.vercel.app](https://nocturnal-archive-frontend.vercel.app)
+### Core Features
+
+- **🔍 Search** academic papers from OpenAlex, PubMed, arXiv
+- **📝 Format** citations in BibTeX, APA, MLA, Chicago, Harvard styles  
+- **🧠 Synthesize** research findings using LLMs
+- **✅ No hallucinations** - only real papers with verified metadata
+
+## 🚀 Quick Start
+
+### 1. Get the API
+
+```bash
+# Clone the repository
+git clone https://github.com/Spectating101/nocturnal-archive.git
+cd nocturnal-archive/nocturnal-archive-api
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up environment
+cp env.example .env
+# Edit .env with your API keys
+```
+
+### 2. Run the API
+
+```bash
+# Development
+python -m uvicorn src.main:app --reload
+
+# Production
+python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
+```
+
+### 3. Use the API
+
+Visit **http://localhost:8000/docs** for interactive API documentation.
+
+## 📚 API Endpoints
+
+### Search Papers
+```bash
+POST /api/search
+{
+  "query": "CRISPR base editing efficiency",
+  "limit": 10,
+  "sources": ["openalex"]
+}
+```
+
+### Format Citations
+```bash
+POST /api/format
+{
+  "paper_ids": ["W2981234567"],
+  "style": "bibtex"
+}
+```
+
+### Synthesize Research
+```bash
+POST /api/synthesize
+{
+  "paper_ids": ["W2981234567", "W2981234568"],
+  "max_words": 300,
+  "focus": "key_findings"
+}
+```
+
+### Health Check
+```bash
+GET /api/health
+```
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Frontend      │    │   Backend       │    │   Database      │
-│   (Next.js)     │◄──►│   (FastAPI)     │◄──►│   (Supabase)    │
-│   Vercel        │    │   Railway       │    │   PostgreSQL    │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+nocturnal-archive-api/
+├── src/
+│   ├── main.py              # FastAPI application
+│   ├── routes/              # API endpoints
+│   ├── services/            # Business logic
+│   ├── models/              # Data models
+│   ├── middleware/          # Rate limiting, tracing
+│   └── config/              # Settings management
+├── docker/                  # Containerization
+├── docs/                    # API documentation
+└── tests/                   # Test suite
 ```
 
-## 📁 Project Structure
+## 🎯 Use Cases
 
-```
-Nocturnal-Archive/
-├── chatbot-ui/              # Next.js frontend application
-│   ├── app/                 # App router pages and API routes
-│   ├── components/          # React components
-│   ├── lib/                 # Utilities and configurations
-│   └── supabase/           # Database schema and migrations
-├── src/                     # FastAPI backend application
-├── deployment/              # Deployment configurations
-├── monitoring/              # Monitoring and observability
-├── nginx/                   # Web server configuration
-├── rust_performance/        # Performance optimization modules
-```
+### For Developers
+- **AI Research Assistants** - Add academic search to your AI apps
+- **Academic Tools** - Integrate with Zotero, Overleaf, Obsidian
+- **Research Automation** - Build automated literature review systems
+- **Content Generation** - Create research summaries and reports
 
-## 🛠️ Tech Stack
+### For Researchers
+- **Literature Reviews** - Find and synthesize relevant papers
+- **Citation Management** - Format citations in any style
+- **Research Discovery** - Explore academic literature efficiently
+- **Collaboration** - Share research findings with proper citations
 
-### Frontend
-- **Next.js 14** - React framework with App Router
-- **TypeScript** - Type-safe development
-- **Tailwind CSS** - Utility-first styling
-- **Supabase** - Database and authentication
-- **Vercel** - Deployment and hosting
+## 🔧 Technology Stack
 
-### Backend
-- **FastAPI** - High-performance Python API
-- **Python 3.11+** - Core language
-- **Pydantic** - Data validation
-- **Railway** - Backend hosting
+- **FastAPI** - Modern Python web framework
+- **OpenAI GPT-3.5** - LLM synthesis and analysis
+- **OpenAlex** - Academic paper database
+- **PostgreSQL** - Data persistence
+- **Redis** - Caching and rate limiting
+- **Docker** - Containerization
+- **Railway** - Deployment platform
 
-### Database
-- **Supabase** - PostgreSQL with real-time features
-- **Row Level Security** - Data protection
-- **Real-time subscriptions** - Live updates
+## 📖 Documentation
 
-## 🚀 Quick Start
+- **[API Build Specification](API_BUILD_SPECIFICATION.md)** - Complete technical specification
+- **[OpenAPI Specification](docs/api_spec.yaml)** - Machine-readable API docs
+- **[Engine Extraction Guide](ENGINE_EXTRACTION_GUIDE.md)** - How to extract components for other projects
+- **[API Documentation](nocturnal-archive-api/README.md)** - Detailed setup and usage guide
 
-### Frontend Development
+## 🚀 Deployment
+
+### Railway (Recommended)
+1. Connect your GitHub repository to Railway
+2. Set environment variables in Railway dashboard
+3. Deploy automatically on push to main
+
+### Docker
 ```bash
-cd chatbot-ui
-npm install
-npm run dev
+docker-compose up -d
 ```
 
-### Backend Development
+### Manual Deployment
 ```bash
-cd src
-python -m venv venv
-source venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --reload
+uvicorn src.main:app --host 0.0.0.0 --port 8000
 ```
 
-## 🔧 Environment Variables
+## 🔑 Environment Variables
 
-### Frontend (.env.local)
-```env
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-NEXT_PUBLIC_BACKEND_URL=your_backend_url
-```
-
-### Backend
-```env
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-OPENAI_API_KEY=your_openai_key
-```
-
-## 📊 Features
-
-- **Intelligent Research** - AI-powered literature analysis
-- **Citation Management** - Automated reference tracking
-- **Real-time Collaboration** - Multi-user research sessions
-- **Knowledge Synthesis** - Cross-paper insights
-- **Academic Database Integration** - arXiv, PubMed, etc.
-
-## 🔒 Security
-
-- Row-level security in Supabase
-- Environment variable protection
-- CORS configuration
-- API rate limiting
-
-## 📈 Deployment Status
-
-- ✅ **Frontend**: Deployed on Vercel
-- ✅ **Database**: Configured on Supabase
-- 🔄 **Backend**: Ready for Railway deployment
-- 🔄 **Monitoring**: Sentry integration pending
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `OPENAI_API_KEY` | OpenAI API key for synthesis | Yes |
+| `OPENALEX_API_KEY` | OpenAlex API key for search | No |
+| `DATABASE_URL` | PostgreSQL connection URL | Yes |
+| `REDIS_URL` | Redis connection URL | No |
+| `SENTRY_DSN` | Sentry DSN for error tracking | No |
 
 ## 🤝 Contributing
 
-This is a private research project. For access or collaboration, please contact the maintainer.
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
 
 ## 📄 License
 
-Private - All rights reserved
+MIT License - see LICENSE file for details.
+
+## 🆘 Support
+
+- **Documentation**: Check the `/docs` endpoint when running the API
+- **Issues**: Open an issue on GitHub
+- **Discussions**: Use GitHub Discussions for questions
 
 ---
 
-**Status**: Beta - In active development
-**Last Updated**: September 2024
+**Built for developers, by developers. No more chatbot complexity - just clean, reliable API endpoints for academic research.** 🎯

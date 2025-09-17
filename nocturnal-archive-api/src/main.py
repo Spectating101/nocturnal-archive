@@ -18,7 +18,7 @@ import sentry_sdk
 from src.config.settings import get_settings
 from src.middleware.rate_limit import RateLimitMiddleware
 from src.middleware.tracing import TracingMiddleware
-from src.routes import health, search, format, synthesize
+from src.routes import health, search, format, synthesize, analytics
 from src.utils.logger import setup_logging
 
 # Configure structured logging
@@ -118,6 +118,7 @@ app.include_router(health.router, prefix="/api", tags=["System"])
 app.include_router(search.router, prefix="/api", tags=["Search"])
 app.include_router(format.router, prefix="/api", tags=["Format"])
 app.include_router(synthesize.router, prefix="/api", tags=["Synthesis"])
+app.include_router(analytics.router, prefix="/api", tags=["Analytics"])
 
 
 @app.get("/")

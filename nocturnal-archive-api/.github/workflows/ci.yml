@@ -1,0 +1,227 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PYTHON_VERSION: "3.11"
+  RUST_VERSION: "1.70"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+    
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio pytest-cov black isort flake8 mypy
+    
+    - name: Install Rust dependencies
+      run: |
+        cd rust_performance
+        cargo build --release
+    
+    - name: Lint Python code
+      run: |
+        black --check src/ tests/
+        isort --check-only src/ tests/
+        flake8 src/ tests/
+        mypy src/
+    
+    - name: Lint Rust code
+      run: |
+        cd rust_performance
+        cargo fmt -- --check
+        cargo clippy -- -D warnings
+    
+    - name: Run Python tests
+      run: |
+        pytest tests/ -v --cov=src --cov-report=xml --cov-report=html
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        REDIS_URL: redis://localhost:6379
+        OPENAI_API_KEY: test-key
+        OPENALEX_API_KEY: test-key
+    
+    - name: Run Rust tests
+      run: |
+        cd rust_performance
+        cargo test
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./docker/Dockerfile
+        push: false
+        tags: nocturnal-archive-api:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Test Docker image
+      run: |
+        docker run --rm -d --name test-container -p 8000:8000 nocturnal-archive-api:latest
+        sleep 10
+        curl -f http://localhost:8000/api/health || exit 1
+        docker stop test-container
+
+  security:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install security tools
+      run: |
+        pip install safety bandit semgrep
+    
+    - name: Run safety check
+      run: safety check -r requirements.txt
+    
+    - name: Run bandit security scan
+      run: bandit -r src/ -f json -o bandit-report.json
+    
+    - name: Run Semgrep security scan
+      run: semgrep --config=auto src/ --json --output=semgrep-report.json
+    
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+          semgrep-report.json
+
+  performance:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install locust
+    
+    - name: Start application
+      run: |
+        python -m uvicorn src.main:app --host 0.0.0.0 --port 8000 &
+        sleep 10
+    
+    - name: Run performance tests
+      run: |
+        locust -f tests/performance/locustfile.py --headless -u 10 -r 2 -t 30s --html performance-report.html
+    
+    - name: Upload performance report
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-report
+        path: performance-report.html
+
+  deploy:
+    needs: [test, build, security, performance]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Deploy to Railway
+      uses: railwayapp/railway-deploy@v1
+      with:
+        railway-token: ${{ secrets.RAILWAY_TOKEN }}
+        service: nocturnal-archive-api
+    
+    - name: Deploy to Render
+      uses: johnbeynon/render-deploy-action@v0.0.8
+      with:
+        service-id: ${{ secrets.RENDER_SERVICE_ID }}
+        api-key: ${{ secrets.RENDER_API_KEY }}

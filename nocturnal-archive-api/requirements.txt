@@ -21,20 +21,37 @@ anthropic==0.7.8
 pandas==2.1.4
 numpy==1.25.2
 
+# Web Scraping & Text Processing
+aiohttp==3.9.1
+beautifulsoup4==4.12.2
+lxml==4.9.3
+
 # Monitoring & Logging
 sentry-sdk[fastapi]==1.38.0
 structlog==23.2.0
+psutil==5.9.6
 
 # Development & Testing
 pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-cov==4.1.0
-httpx==0.25.2
 black==23.11.0
 isort==5.12.0
 flake8==6.1.0
 mypy==1.7.1
 
+# Performance Testing
+locust==2.17.0
+
+# Security
+safety==2.3.5
+bandit==1.7.5
+semgrep==1.45.0
+
 # Deployment
 gunicorn==21.2.0
 python-multipart==0.0.6
+
+# Rust Integration
+pyo3==0.20.3
+pyo3-asyncio==0.20.0

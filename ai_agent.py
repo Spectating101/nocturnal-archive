@@ -65,8 +65,7 @@ class NocturnalAIAgent:
         api_keys = [
             os.getenv('GROQ_API_KEY'),
             os.getenv('GROQ_API_KEY_2'),
-            os.getenv('GROQ_API_KEY_3'),
-            "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"  # fallback
+            os.getenv('GROQ_API_KEY_3')
         ]
         
         for i, api_key in enumerate(api_keys):

@@ -11,9 +11,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 from .usage_tracker import UsageTracker
-from .api_clients.mistral_client import MistralClient
-from .api_clients.cerebras_client import CerebrasClient
-from .api_clients.cohere_client import CohereClient
+from .api_clients.groq_client import GroqClient
 
 logger = logging.getLogger(__name__)
 
@@ -165,41 +163,17 @@ class ModelDispatcher:
             if not isinstance(services, dict):
                 raise ValueError("llm_services configuration must be a dictionary")
             
-            # Initialize Mistral client if enabled
-            if services.get("mistral", {}).get("enabled", False):
+            # Initialize Groq client (replaces all other providers)
+            if services.get("groq", {}).get("enabled", True):  # Default to enabled
                 try:
-                    api_key = services.get("mistral", {}).get("api_key")
+                    api_key = services.get("groq", {}).get("api_key") or os.getenv("GROQ_API_KEY")
                     if not api_key:
-                        logger.warning("Mistral enabled but no API key provided")
+                        logger.warning("Groq enabled but no API key provided")
                     else:
-                        self.clients["mistral"] = MistralClient(api_key)
-                        logger.info("Mistral client initialized")
+                        self.clients["groq"] = GroqClient(api_key)
+                        logger.info("Groq client initialized")
                 except Exception as e:
-                    logger.error(f"Failed to initialize Mistral client: {str(e)}")
-            
-            # Initialize Cerebras client if enabled
-            if services.get("cerebras", {}).get("enabled", False):
-                try:
-                    api_key = services.get("cerebras", {}).get("api_key")
-                    if not api_key:
-                        logger.warning("Cerebras enabled but no API key provided")
-                    else:
-                        self.clients["cerebras"] = CerebrasClient(api_key)
-                        logger.info("Cerebras client initialized")
-                except Exception as e:
-                    logger.error(f"Failed to initialize Cerebras client: {str(e)}")
-            
-            # Initialize Cohere client if enabled
-            if services.get("cohere", {}).get("enabled", False):
-                try:
-                    api_key = services.get("cohere", {}).get("api_key")
-                    if not api_key:
-                        logger.warning("Cohere enabled but no API key provided")
-                    else:
-                        self.clients["cohere"] = CohereClient(api_key)
-                        logger.info("Cohere client initialized")
-                except Exception as e:
-                    logger.error(f"Failed to initialize Cohere client: {str(e)}")
+                    logger.error(f"Failed to initialize Groq client: {str(e)}")
             
             if not self.clients:
                 logger.warning("No LLM clients enabled. Check your configuration.")
@@ -220,11 +194,11 @@ class ModelDispatcher:
             service_list = []
             
             for service, config in services.items():
-                if isinstance(config, dict) and config.get("enabled", False):
-                    priority = config.get("priority", 99)  # Default to low priority
+                if isinstance(config, dict) and config.get("enabled", True):  # Default to enabled for Groq
+                    priority = config.get("priority", 1)  # Default to high priority for Groq
                     if not isinstance(priority, (int, float)):
                         logger.warning(f"Invalid priority for {service}: {priority}, using default")
-                        priority = 99
+                        priority = 1
                     service_list.append((service, priority))
             
             # Sort by priority (lower number = higher priority)

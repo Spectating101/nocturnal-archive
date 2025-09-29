@@ -70,12 +70,12 @@ impl TextProcessor {
 
         // Remove special characters but keep basic punctuation
         let re_special = Regex::new(r"[^\w\s\.\,\!\?\;\:\-\(\)\[\]\{\}]").unwrap();
-        let cleaned = re_special.replace_all(&cleaned, "");
+        let cleaned = re_special.replace_all(&cleaned, \");
 
         // Normalize quotes and dashes
         let cleaned = cleaned
-            .replace(""", "\"")
-            .replace(""", "\"")
+            .replace(\\", "\\")
+            .replace(\\", "\\")
             .replace("'", "'")
             .replace("'", "'")
             .replace("–", "-")

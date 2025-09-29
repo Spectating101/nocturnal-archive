@@ -1,0 +1,101 @@
+groups:
+- name: nocturnal
+  rules:
+  - alert: HighErrorRate
+    expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.01
+    for: 5m
+    labels: 
+      severity: page
+    annotations: 
+      summary: "5xx >1% (5m)"
+      description: "Investigate recent deploy or provider outage."
+
+  - alert: SlowSearchP95
+    expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{route="/v1/api/papers/search"}[10m])) by (le)) > 1.5
+    for: 10m
+    labels: 
+      severity: warn
+    annotations: 
+      summary: "Search p95 > 1.5s"
+      description: "Check cache hit ratio & provider latency."
+
+  - alert: SlowFinanceP95
+    expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{route="/v1/api/finance/synthesize"}[10m])) by (le)) > 3.0
+    for: 10m
+    labels: 
+      severity: warn
+    annotations: 
+      summary: "Finance synthesis p95 > 3.0s"
+      description: "Check LLM provider latency and grounding complexity."
+
+  - alert: LowCacheHit
+    expr: (1 - (sum(rate(cache_miss_total[30m])) / sum(rate(cache_get_total[30m])))) < 0.4
+    for: 30m
+    labels: 
+      severity: info
+    annotations: 
+      summary: "Cache hit < 40%"
+      description: "Consider TTLs or hot-key warming."
+
+  - alert: CircuitBreakerOpen
+    expr: increase(circuit_breaker_open_total[5m]) > 0
+    for: 1m
+    labels: 
+      severity: warn
+    annotations: 
+      summary: "Circuit breaker opened"
+      description: "External service is failing, degraded mode active."
+
+  - alert: HighRateLimitHits
+    expr: sum(rate(http_requests_total{status="429"}[5m])) > 10
+    for: 5m
+    labels: 
+      severity: info
+    annotations: 
+      summary: "High rate limit hits"
+      description: "Many requests hitting rate limits."
+
+  - alert: APIKeyAbuse
+    expr: sum(rate(http_requests_total{status="401"}[5m])) by (api_key) > 50
+    for: 5m
+    labels: 
+      severity: warn
+    annotations: 
+      summary: "Potential API key abuse"
+      description: "High number of 401s from single key."
+
+  - alert: JobQueueBacklog
+    expr: redis_queue_length{queue="synth"} > 100
+    for: 10m
+    labels: 
+      severity: warn
+    annotations: 
+      summary: "Job queue backlog high"
+      description: "Synthesis jobs backing up."
+
+  - alert: JobFailureRate
+    expr: sum(rate(job_failures_total[10m])) / sum(rate(job_starts_total[10m])) > 0.1
+    for: 10m
+    labels: 
+      severity: warn
+    annotations: 
+      summary: "High job failure rate"
+      description: "More than 10% of jobs failing."
+
+  - alert: RedisDown
+    expr: up{job="redis"} == 0
+    for: 2m
+    labels: 
+      severity: critical
+    annotations: 
+      summary: "Redis is down"
+      description: "Cache and job queue unavailable."
+
+  - alert: APIReadinessCheck
+    expr: up{job="nocturnal-api"} == 0
+    for: 2m
+    labels: 
+      severity: critical
+    annotations: 
+      summary: "API readiness check failed"
+      description: "API is not responding to health checks."

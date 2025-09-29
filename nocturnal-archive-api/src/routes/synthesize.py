@@ -13,6 +13,7 @@ from src.models.request import SynthesizeRequest
 from src.models.paper import SynthesisResult
 from src.services.synthesizer import Synthesizer
 from src.services.performance_integration import performance_integration
+from src.engine.research_engine import sophisticated_engine
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -42,17 +43,54 @@ async def synthesize_papers(
             trace_id=trace_id
         )
         
-        # Initialize synthesizer
-        synthesizer = Synthesizer(settings.openai_api_key)
-        
-        # Perform synthesis
-        result = await synthesizer.synthesize_papers(
-            paper_ids=request.paper_ids,
-            max_words=request.max_words,
-            focus=request.focus,
-            style=request.style,
-            custom_prompt=request.custom_prompt
-        )
+        # Try sophisticated synthesis first, fallback to basic synthesis
+        if sophisticated_engine.enhanced_synthesizer:
+            logger.info("Using sophisticated synthesis engine", trace_id=trace_id)
+            advanced_result = await sophisticated_engine.synthesize_advanced(
+                paper_ids=request.paper_ids,
+                max_words=request.max_words,
+                style=request.style,
+                context={"focus": request.focus, "custom_prompt": request.custom_prompt}
+            )
+            
+            if "error" not in advanced_result:
+                # Convert advanced result to our format
+                result = SynthesisResult(
+                    summary=advanced_result.get("summary", ""),
+                    paper_ids=request.paper_ids,
+                    max_words=request.max_words,
+                    focus=request.focus,
+                    style=request.style,
+                    metadata=advanced_result.get("metadata", {}),
+                    citations_used=advanced_result.get("citations_used", {}),
+                    key_findings=advanced_result.get("key_findings", []),
+                    trace_id=trace_id
+                )
+            else:
+                logger.warning("Advanced synthesis failed, falling back to basic synthesis", 
+                             error=advanced_result.get("error"), trace_id=trace_id)
+                # Fallback to basic synthesis
+                synthesizer = Synthesizer(settings.openai_api_key)
+                result = await synthesizer.synthesize_papers(
+                    paper_ids=request.paper_ids,
+                    max_words=request.max_words,
+                    focus=request.focus,
+                    style=request.style,
+                    custom_prompt=request.custom_prompt
+                )
+                result.trace_id = trace_id
+        else:
+            logger.info("Using basic synthesis engine", trace_id=trace_id)
+            # Use basic synthesis
+            synthesizer = Synthesizer(settings.openai_api_key)
+            result = await synthesizer.synthesize_papers(
+                paper_ids=request.paper_ids,
+                max_words=request.max_words,
+                focus=request.focus,
+                style=request.style,
+                custom_prompt=request.custom_prompt
+            )
+            result.trace_id = trace_id
         
         # Add trace ID to result
         result.trace_id = trace_id

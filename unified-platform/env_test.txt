@@ -1,0 +1,9 @@
+# Test environment for local development
+SERVER_HOST=0.0.0.0
+SERVER_PORT=8000
+SERVER_WORKERS=1
+
+# Mock API keys for testing (replace with real ones)
+GROQ_API_KEY_1=test_key_1_mock_for_testing
+GROQ_API_KEY_2=test_key_2_mock_for_testing
+GROQ_API_KEY_3=test_key_3_mock_for_testing

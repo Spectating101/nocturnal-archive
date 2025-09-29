@@ -1,0 +1,47 @@
+{
+  "test_case": "AAPL Gross Margin Q4 2024",
+  "ticker": "AAPL",
+  "metric": "grossMargin",
+  "period": "2024-Q4",
+  "freq": "Q",
+  "expected": {
+    "value": 0.4123,
+    "output_type": "percent",
+    "formula": "(revenue - costOfRevenue) / revenue",
+    "inputs": {
+      "revenue": {
+        "value": 119575000000,
+        "unit": "USD",
+        "concept": "us-gaap:SalesRevenueNet"
+      },
+      "costOfRevenue": {
+        "value": 70440000000,
+        "unit": "USD", 
+        "concept": "us-gaap:CostOfGoodsAndServicesSold"
+      }
+    },
+    "citations": [
+      {
+        "concept": "us-gaap:SalesRevenueNet",
+        "source_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000006/aapl-20240127x10k.htm",
+        "accession": "0000320193-24-000006",
+        "fragment_id": "CY2024Q4I"
+      },
+      {
+        "concept": "us-gaap:CostOfGoodsAndServicesSold",
+        "source_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000006/aapl-20240127x10k.htm",
+        "accession": "0000320193-24-000006",
+        "fragment_id": "CY2024Q4I"
+      }
+    ],
+    "quality_flags": []
+  },
+  "metadata": {
+    "source": "FinSight Calculation Engine",
+    "company_name": "Apple Inc.",
+    "cik": "0000320193",
+    "test_date": "2024-01-15",
+    "calculation_method": "derived_metric"
+  }
+}
+

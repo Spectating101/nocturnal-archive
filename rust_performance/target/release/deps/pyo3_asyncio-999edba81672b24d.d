@@ -1,0 +1,10 @@
+/home/phyrexian/Downloads/llm_automation/project_portfolio/Nocturnal-Archive/rust_performance/target/release/deps/pyo3_asyncio-999edba81672b24d.d: /home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/lib.rs /home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/tokio.rs /home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/err.rs /home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/generic.rs
+
+/home/phyrexian/Downloads/llm_automation/project_portfolio/Nocturnal-Archive/rust_performance/target/release/deps/libpyo3_asyncio-999edba81672b24d.rlib: /home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/lib.rs /home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/tokio.rs /home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/err.rs /home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/generic.rs
+
+/home/phyrexian/Downloads/llm_automation/project_portfolio/Nocturnal-Archive/rust_performance/target/release/deps/libpyo3_asyncio-999edba81672b24d.rmeta: /home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/lib.rs /home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/tokio.rs /home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/err.rs /home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/generic.rs
+
+/home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/lib.rs:
+/home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/tokio.rs:
+/home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/err.rs:
+/home/phyrexian/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-asyncio-0.20.0/src/generic.rs:

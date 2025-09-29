@@ -1,0 +1,138 @@
+{
+  "ai_planning": {
+    "Simple Terminal Command": {
+      "success": false,
+      "planning_triggered": false,
+      "tool_executed": false,
+      "tools_used": [],
+      "response_length": 2153
+    },
+    "File Reading": {
+      "success": false,
+      "planning_triggered": false,
+      "tool_executed": false,
+      "tools_used": [],
+      "response_length": 2129
+    },
+    "File Writing": {
+      "success": false,
+      "planning_triggered": true,
+      "tool_executed": false,
+      "tools_used": [
+        "task_planner"
+      ],
+      "response_length": 1472
+    },
+    "Python Execution": {
+      "success": false,
+      "planning_triggered": false,
+      "tool_executed": false,
+      "tools_used": [],
+      "response_length": 1067
+    }
+  },
+  "tool_execution": {
+    "Terminal Command Execution": {
+      "success": false,
+      "tools_executed": false,
+      "has_execution_results": false,
+      "tools_used": [],
+      "execution_results_count": 0
+    },
+    "File Reading Execution": {
+      "success": false,
+      "tools_executed": false,
+      "has_execution_results": false,
+      "tools_used": [],
+      "execution_results_count": 0
+    },
+    "File Writing Execution": {
+      "success": true,
+      "tools_executed": true,
+      "has_execution_results": true,
+      "tools_used": [
+        "task_planner"
+      ],
+      "execution_results_count": 1
+    },
+    "Python Code Execution": {
+      "success": false,
+      "tools_executed": false,
+      "has_execution_results": false,
+      "tools_used": [],
+      "execution_results_count": 0
+    }
+  },
+  "error_handling": {
+    "Invalid Tool Request": {
+      "success": true,
+      "response_length": 1659,
+      "response_preview": "It seems like you're trying to use a nonexistent tool. Unfortunately, I'm a large language model, I ",
+      "tools_used": []
+    },
+    "Malformed Request": {
+      "success": true,
+      "response_length": 1089,
+      "response_preview": "It appears that you've entered some random text. If you're looking for assistance with R programming",
+      "tools_used": []
+    },
+    "Empty Request": {
+      "success": true,
+      "response_length": 287,
+      "response_preview": "I'm Claude, your R programming and data analysis assistant. I'm here to help you with any questions ",
+      "tools_used": []
+    }
+  },
+  "request_analysis": {
+    "Terminal Command Detection": {
+      "success": true,
+      "analysis": {
+        "needs_file_access": false,
+        "needs_r_execution": true,
+        "needs_planning": true,
+        "needs_ai_response": true
+      },
+      "expected": {
+        "needs_planning": true
+      }
+    },
+    "File Operation Detection": {
+      "success": true,
+      "analysis": {
+        "needs_file_access": true,
+        "needs_r_execution": false,
+        "needs_planning": true,
+        "needs_ai_response": true
+      },
+      "expected": {
+        "needs_file_access": true,
+        "needs_planning": true
+      }
+    },
+    "Python Code Detection": {
+      "success": true,
+      "analysis": {
+        "needs_file_access": false,
+        "needs_r_execution": true,
+        "needs_planning": true,
+        "needs_ai_response": true
+      },
+      "expected": {
+        "needs_planning": true
+      }
+    },
+    "Complex Task Detection": {
+      "success": true,
+      "analysis": {
+        "needs_file_access": true,
+        "needs_r_execution": true,
+        "needs_planning": true,
+        "needs_ai_response": true
+      },
+      "expected": {
+        "needs_planning": true
+      }
+    }
+  },
+  "overall_success": false
+}

@@ -1,183 +1,328 @@
-# Nocturnal Archive API
+# FinSight API - Regulator-First Financial Data
 
-API-first backend for academic research. Find, format, and synthesize academic papers from trusted sources.
+> **This isn't yfinance.** FinSight provides regulator-first financial data with full provenance, multi-jurisdiction support, and cited mathematics.
 
-## Features
+## 🚀 Quick Start
 
-- **Search** academic papers from OpenAlex, PubMed, arXiv
-- **Format** citations in BibTeX, APA, MLA, Chicago, Harvard styles
-- **Synthesize** research findings using LLMs
-- **No hallucinations** - only real papers with verified metadata
-
-## Quick Start
-
-### Installation
+### 1. "A = B - C" with Full Citations
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/nocturnal-archive-api.git
-cd nocturnal-archive-api
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Copy environment file
-cp env.example .env
-
-# Edit .env with your API keys
-# OPENAI_API_KEY=sk-your-key-here
-# OPENALEX_API_KEY=your-key-here
+# Explain gross profit calculation with proofs
+curl -X POST -H "X-API-Key: demo-key-123" \
+  -H "Content-Type: application/json" \
+  -d '{"ticker":"AAPL","expr":"grossProfit = revenue - costOfRevenue","period":"2024-Q4","freq":"Q"}' \
+  http://localhost:8000/v1/finance/calc/explain
 ```
 
-### Running the API
-
-```bash
-# Development
-python -m uvicorn src.main:app --reload
-
-# Production
-python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
-```
-
-### API Documentation
-
-Once running, visit:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI Spec**: http://localhost:8000/openapi.json
-
-## API Endpoints
-
-### Search Papers
-```bash
-POST /api/search
+**Response:**
+```json
 {
-  "query": "CRISPR base editing efficiency",
-  "limit": 10,
-  "sources": ["openalex"]
+  "expr": "grossProfit = revenue - costOfRevenue",
+  "value": 49234000000,
+  "left": {
+    "concept": "grossProfit",
+    "value": 49234000000,
+    "unit": "USD"
+  },
+  "right": {
+    "terms": [
+      {
+        "concept": "revenue",
+        "value": 119575000000,
+        "accession": "0000320193-24-000006",
+        "unit": "USD",
+        "scale": "U",
+        "fx_used": null
+      },
+      {
+        "concept": "costOfRevenue", 
+        "value": 70341000000,
+        "accession": "0000320193-24-000006",
+        "unit": "USD",
+        "scale": "U",
+        "fx_used": null
+      }
+    ]
+  },
+  "citations": [
+    {
+      "source": "SEC EDGAR 10-K Filing",
+      "accession": "0000320193-24-000006",
+      "url": "https://www.sec.gov/Archives/edgar/...",
+      "page": "Consolidated Statements of Operations"
+    }
+  ]
 }
 ```
 
-### Format Citations
+### 2. Segment Analysis (yfinance can't do this)
+
 ```bash
-POST /api/format
+# Get AAPL revenue by geography (Greater China, Americas, Europe)
+curl -H "X-API-Key: demo-key-123" \
+  "http://localhost:8000/v1/finance/segments/AAPL/revenue?dim=Geography&freq=Q&limit=8"
+```
+
+**Response:**
+```json
 {
-  "paper_ids": ["W2981234567"],
-  "style": "bibtex"
+  "ticker": "AAPL",
+  "metric": "revenue",
+  "dimension": "Geography",
+  "series": [
+    {
+      "segment": "Americas",
+      "points": [
+        {"period": "2024-Q4", "value": 50414000000, "citation": {...}},
+        {"period": "2024-Q3", "value": 48190000000, "citation": {...}}
+      ]
+    },
+    {
+      "segment": "Greater China",
+      "points": [
+        {"period": "2024-Q4", "value": 20819000000, "citation": {...}},
+        {"period": "2024-Q3", "value": 19290000000, "citation": {...}}
+      ]
+    },
+    {
+      "segment": "Europe", 
+      "points": [
+        {"period": "2024-Q4", "value": 24189000000, "citation": {...}},
+        {"period": "2024-Q3", "value": 22920000000, "citation": {...}}
+      ]
+    }
+  ]
 }
 ```
 
-### Synthesize Research
+### 3. Derived KPIs with Citations Per Point
+
 ```bash
-POST /api/synthesize
+# ROE TTM series with full provenance
+curl -H "X-API-Key: demo-key-123" \
+  "http://localhost:8000/v1/finance/calc/series/AAPL/roe?freq=Q&ttm=true&limit=12"
+```
+
+**Response:**
+```json
 {
-  "paper_ids": ["W2981234567", "W2981234568"],
-  "max_words": 300,
-  "focus": "key_findings"
+  "ticker": "AAPL",
+  "metric": "roe",
+  "freq": "Q",
+  "ttm": true,
+  "series": [
+    {
+      "period": "2024-Q4",
+      "value": 1.47,
+      "formula": "netIncome / shareholdersEquity",
+      "citations": [
+        {
+          "concept": "netIncome",
+          "value": 33916000000,
+          "accession": "0000320193-24-000006",
+          "unit": "USD"
+        },
+        {
+          "concept": "shareholdersEquity",
+          "value": 23060000000,
+          "accession": "0000320193-24-000006", 
+          "unit": "USD"
+        }
+      ]
+    }
+  ]
 }
 ```
 
-### Health Check
+## 🌍 Multi-Jurisdiction Support
+
+### US GAAP (AAPL)
 ```bash
-GET /api/health
+curl -H "X-API-Key: demo-key-123" \
+  "http://localhost:8000/v1/finance/kpis/AAPL/revenue?freq=Q&limit=4"
 ```
 
-## Development
-
-### Project Structure
-
-```
-src/
-├── main.py              # FastAPI app entrypoint
-├── config/
-│   └── settings.py      # Environment configuration
-├── routes/
-│   ├── search.py        # /api/search endpoint
-│   ├── format.py        # /api/format endpoint
-│   ├── synthesize.py    # /api/synthesize endpoint
-│   └── health.py        # /api/health endpoint
-├── services/
-│   ├── paper_search.py  # OpenAlex integration
-│   ├── citation_formatter.py # Citation formatting
-│   └── synthesizer.py   # LLM synthesis
-├── models/
-│   ├── paper.py         # Paper data models
-│   ├── request.py       # Request models
-│   └── response.py      # Response models
-├── middleware/
-│   ├── rate_limit.py    # Rate limiting
-│   └── tracing.py       # Request tracing
-└── utils/
-    └── logger.py        # Structured logging
+### IFRS + EUR (ASML)
+```bash
+curl -H "X-API-Key: demo-key-123" \
+  "http://localhost:8000/v1/finance/kpis/ASML/revenue?freq=Q&limit=4"
 ```
 
-### Testing
+### IFRS + TWD (TSM) with FX normalization
+```bash
+curl -H "X-API-Key: demo-key-123" \
+  "http://localhost:8000/v1/finance/kpis/TSM/revenue?freq=Q&limit=4"
+```
+
+## 📊 What Makes FinSight Different
+
+### ✅ **Regulator-First Data**
+- SEC EDGAR XBRL facts with full provenance
+- Every number links back to official filings
+- Amendment and restatement tracking
+
+### ✅ **Multi-Jurisdiction**
+- US GAAP + IFRS concept mapping
+- Cross-border currency normalization (EUR, TWD, GBP → USD)
+- Unit scaling (K, M, B, T) with metadata
+
+### ✅ **Cited Mathematics**
+- Every calculation shows "A = B - C" with clickable SEC citations
+- Full audit trail for derived metrics
+- Amendment control (`as_reported=true|false`)
+
+### ✅ **Segment-Aware Analysis**
+- Geographic breakdowns (Americas, Europe, Greater China)
+- Business segment analysis
+- Product-level revenue splits
+
+### ✅ **Production-Ready**
+- Rate limiting and circuit breakers
+- RFC 7807 error responses
+- Health monitoring and status endpoints
+- PDF snapshot reports
+
+## 🔧 API Reference
+
+### Core Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /v1/finance/kpis/{ticker}/{metric}` | Get KPI time series |
+| `GET /v1/finance/calc/{ticker}/{metric}` | Calculate derived metric |
+| `GET /v1/finance/calc/series/{ticker}/{metric}` | Get calculated series |
+| `POST /v1/finance/calc/explain` | Explain calculation with proofs |
+| `GET /v1/finance/segments/{ticker}/{metric}` | Get segment breakdown |
+| `GET /v1/finance/status` | Health check for all sources |
+| `GET /v1/finance/reports/{ticker}/{period}.pdf` | Generate PDF report |
+
+### Query Parameters
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `freq` | Frequency (Q, A) | `Q` |
+| `limit` | Number of periods | `12` |
+| `ttm` | Trailing twelve months | `true` |
+| `dim` | Segment dimension | `Geography` |
+| `as_reported` | Use original filings | `true` |
+| `accession` | Pin to specific filing | `0000320193-24-000006` |
+
+## 🚀 CLI Example
 
 ```bash
-# Run tests
-pytest
+# Install FinSight CLI
+pip install finsight-cli
 
-# Run with coverage
-pytest --cov=src
+# Get AAPL revenue with citations
+finsight kpis AAPL revenue --limit 8 --format json
 
-# Run specific test
-pytest tests/test_search.py
+# Explain gross margin calculation
+finsight calc explain AAPL "grossMargin = (revenue - costOfRevenue) / revenue"
+
+# Generate PDF report
+finsight report AAPL 2024-Q4 --format pdf --output aapl-report.pdf
 ```
 
-### Code Quality
+## 📈 Supported Companies
+
+### US GAAP (USD)
+- **AAPL** - Apple Inc.
+- **MSFT** - Microsoft Corporation  
+- **NVDA** - NVIDIA Corporation
+- **AMZN** - Amazon.com Inc.
+
+### IFRS (Multi-Currency)
+- **ASML** - ASML Holding N.V. (EUR)
+- **TSM** - Taiwan Semiconductor (TWD)
+- **SAP** - SAP SE (EUR)
+- **SHEL** - Shell plc (USD/EUR/GBP)
+
+## 🔒 Authentication
 
 ```bash
-# Format code
-black src/ tests/
+# Set your API key
+export NOCTURNAL_KEY="your-api-key-here"
 
-# Sort imports
-isort src/ tests/
-
-# Lint code
-flake8 src/ tests/
-
-# Type checking
-mypy src/
+# Or use in requests
+curl -H "X-API-Key: your-api-key-here" \
+  "http://localhost:8000/v1/finance/kpis/AAPL/revenue"
 ```
 
-## Deployment
-
-### Railway
-
-1. Connect your GitHub repository to Railway
-2. Set environment variables in Railway dashboard
-3. Deploy automatically on push to main
-
-### Docker
+## 📊 Status & Health
 
 ```bash
-# Build image
-docker build -t nocturnal-archive-api .
+# Check all data sources
+curl http://localhost:8000/v1/finance/status
 
-# Run container
-docker run -p 8000:8000 --env-file .env nocturnal-archive-api
+# Response
+{
+  "overall_status": "healthy",
+  "health_percentage": 95.2,
+  "sources": [
+    {
+      "id": "sec_edgar",
+      "name": "SEC EDGAR",
+      "status": "healthy",
+      "latency_ms": 245
+    },
+    {
+      "id": "ecb_fx", 
+      "name": "ECB FX Rates",
+      "status": "healthy",
+      "latency_ms": 89
+    }
+  ]
+}
 ```
 
-## Environment Variables
+## 🎯 SLOs & Monitoring
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `OPENAI_API_KEY` | OpenAI API key for synthesis | Yes |
-| `OPENALEX_API_KEY` | OpenAlex API key for search | No |
-| `DATABASE_URL` | PostgreSQL connection URL | Yes |
-| `REDIS_URL` | Redis connection URL | No |
-| `SENTRY_DSN` | Sentry DSN for error tracking | No |
-| `ENVIRONMENT` | Environment (development/staging/production) | No |
-| `LOG_LEVEL` | Log level (DEBUG/INFO/WARNING/ERROR) | No |
+- **Availability**: ≥ 99.9%
+- **5xx Error Rate**: ≤ 0.1%
+- **Latency**: Cached ≤ 350ms, EDGAR ≤ 1.5s
+- **Circuit Breaker**: < 1% open rate
+- **Cost Control**: No key exceeds 3× baseline
 
-## Contributing
+## 🚀 Getting Started
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+1. **Start the server:**
+   ```bash
+   python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
+   ```
 
-## License
+2. **Run the alpha audit:**
+   ```bash
+   bash scripts/alpha_audit.sh
+   ```
 
-MIT License - see LICENSE file for details.
+3. **Test the demo endpoints:**
+   ```bash
+   bash scripts/smoke_finance.sh
+   ```
+
+## 📚 Documentation
+
+- [API Reference](docs/api-reference.md)
+- [Error Codes](docs/error-codes.md)
+- [Data Sources](docs/data-sources.md)
+- [Calculation Engine](docs/calculations.md)
+
+## 🏆 Why FinSight?
+
+**vs. yfinance:**
+- ✅ Regulator-first (SEC EDGAR vs. Yahoo Finance)
+- ✅ Full provenance and citations
+- ✅ Multi-jurisdiction (US + IFRS)
+- ✅ Segment-level analysis
+- ✅ Amendment and restatement control
+- ✅ Production-ready error handling
+
+**vs. Bloomberg/Refinitiv:**
+- ✅ Developer-friendly API
+- ✅ Transparent pricing
+- ✅ Open source components
+- ✅ Self-hosted option
+
+---
+
+**FinSight: Regulator-First Financial Data with Full Provenance** 🚀

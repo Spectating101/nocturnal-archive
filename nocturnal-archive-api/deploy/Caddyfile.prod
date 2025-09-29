@@ -1,0 +1,89 @@
+# Nocturnal Archive API - Production Caddyfile
+api.nocturnal.dev {
+    # Enable compression (but not for secrets)
+    encode {
+        zstd
+        gzip
+        match {
+            header Content-Type "application/json"
+            not header Content-Type "application/json" "*/secret*"
+        }
+    }
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+
+        # CORS deny-all by default; allowlist only via env override handled in app if needed
+        Access-Control-Allow-Origin ""
+        Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Access-Control-Allow-Headers ""
+        Access-Control-Max-Age "0"
+    }
+
+    # Rate limiting
+    rate_limit {
+        zone static {
+            key {remote_host}
+            events 100
+            window 1m
+        }
+    }
+
+    # Request body/header size caps (edge)
+    @large_body {
+        header Content-Length *
+    }
+    # Note: Caddy doesn't natively cap by header count here; rely on reverse proxy/app for additional checks
+
+    # Admin/ops IP allowlist (adjust CIDRs for your environment)
+    @admin_ops {
+        path /v1/diag/* /metrics /openapi.json
+    }
+    @allow_admin_ip {
+        remote_ip 127.0.0.1/32 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+    }
+
+    handle @admin_ops {
+        handle @allow_admin_ip {
+            reverse_proxy :8000
+        }
+        handle {
+            # Deny and log unauthorized admin surface access
+            respond 403 {
+                body "Forbidden"
+            }
+        }
+    }
+
+    # Reverse proxy to API (all other traffic)
+    reverse_proxy :8000 {
+        # Health check
+        health_uri /livez
+        health_interval 30s
+        health_timeout 5s
+        
+        # Timeouts
+        timeout 30s
+        dial_timeout 5s
+    }
+
+    # Logging (access)
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 100mb
+            roll_keep 5
+            roll_keep_for 720h
+        }
+        format json
+    }
+}
+
+# Redirect HTTP to HTTPS
+http://api.nocturnal.dev {
+    redir https://api.nocturnal.dev{uri} permanent
+}

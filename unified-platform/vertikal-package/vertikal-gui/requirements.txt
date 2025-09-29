@@ -1,0 +1,7 @@
+# GUI Requirements
+tkinter  # Usually included with Python
+winshell  # Windows only - for shortcuts
+pywin32  # Windows only - for COM objects
+
+# Core requirements (will be installed with vertikal package)
+groq>=0.9

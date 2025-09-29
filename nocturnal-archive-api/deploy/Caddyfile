@@ -1,0 +1,64 @@
+# Nocturnal Archive API - Production Caddyfile
+api.nocturnal.dev {
+    # Enable compression (but not for secrets)
+    encode {
+        zstd
+        gzip
+        match {
+            header Content-Type "application/json"
+            not header Content-Type "application/json" "*/secret*"
+        }
+    }
+
+    # Security headers
+    header {
+        # Security
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        
+        # CORS (minimal)
+        Access-Control-Allow-Origin "https://app.nocturnal.dev"
+        Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Access-Control-Allow-Headers "X-API-Key, X-Admin-Key, X-Request-ID, Content-Type"
+        Access-Control-Max-Age "86400"
+    }
+
+    # Rate limiting
+    rate_limit {
+        zone static {
+            key {remote_host}
+            events 100
+            window 1m
+        }
+    }
+
+    # Reverse proxy to API
+    reverse_proxy api:8000 {
+        # Health check
+        health_uri /livez
+        health_interval 30s
+        health_timeout 5s
+        
+        # Timeouts
+        timeout 30s
+        dial_timeout 5s
+    }
+
+    # Logging
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 100mb
+            roll_keep 5
+            roll_keep_for 720h
+        }
+        format json
+    }
+}
+
+# Redirect HTTP to HTTPS
+http://api.nocturnal.dev {
+    redir https://api.nocturnal.dev{uri} permanent
+}

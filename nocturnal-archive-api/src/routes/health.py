@@ -9,6 +9,7 @@ from typing import Dict
 
 from src.config.settings import Settings, get_settings
 from src.models.response import HealthResponse
+from src.engine.research_engine import sophisticated_engine
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -60,6 +61,13 @@ async def health_check(settings: Settings = Depends(get_settings)):
             issues.append(f"{service} service is down")
         elif status == "slow":
             issues.append(f"{service} service is slow")
+    
+    # Check sophisticated engine status
+    engine_status = await sophisticated_engine.get_health_status()
+    services["sophisticated_engine"] = "ok" if engine_status.get("advanced_engine") else "unavailable"
+    
+    if not engine_status.get("advanced_engine"):
+        issues.append("Sophisticated research engine not available")
     
     # Determine overall status
     if any(status == "down" for status in services.values()):

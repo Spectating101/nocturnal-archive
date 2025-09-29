@@ -1,0 +1,168 @@
+# FinSight Concept Mapping
+# Maps internal KPI names to XBRL concepts (US-GAAP and IFRS)
+
+concepts:
+  # Revenue concepts
+  revenue:
+    us_gaap:
+      - "Revenues"
+      - "RevenueFromContractWithCustomerExcludingAssessedTax"
+      - "RevenueFromContractWithCustomerIncludingAssessedTax"
+    ifrs:
+      - "ifrs-full:Revenue"
+      - "ifrs-full:RevenueFromContractsWithCustomers"
+  
+  # Cost of Revenue
+  costOfRevenue:
+    us_gaap:
+      - "CostOfGoodsAndServicesSold"
+      - "CostOfRevenue"
+      - "CostOfSales"
+    ifrs:
+      - "ifrs-full:CostOfSales"
+      - "ifrs-full:CostOfGoodsSold"
+  
+  # Gross Profit (derived: revenue - costOfRevenue)
+  grossProfit:
+    us_gaap:
+      - "GrossProfit"
+    ifrs:
+      - "ifrs-full:GrossProfit"
+  
+  # Operating Income
+  operatingIncome:
+    us_gaap:
+      - "OperatingIncomeLoss"
+      - "OperatingIncome"
+    ifrs:
+      - "ifrs-full:ProfitLossFromOperatingActivities"
+      - "ifrs-full:OperatingProfit"
+  
+  # Net Income
+  netIncome:
+    us_gaap:
+      - "NetIncomeLoss"
+      - "NetIncomeLossAvailableToCommonStockholdersBasic"
+    ifrs:
+      - "ifrs-full:ProfitLoss"
+      - "ifrs-full:ProfitLossAttributableToOwnersOfParent"
+  
+  # EBITDA components
+  ebit:
+    us_gaap:
+      - "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"
+      - "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments"
+    ifrs:
+      - "ifrs-full:ProfitLossBeforeTax"
+  
+  depreciationAndAmortization:
+    us_gaap:
+      - "DepreciationAndAmortization"
+      - "DepreciationDepletionAndAmortization"
+    ifrs:
+      - "ifrs-full:DepreciationAndAmortisationExpense"
+  
+  # Cash Flow
+  cashFromOperations:
+    us_gaap:
+      - "NetCashProvidedByUsedInOperatingActivities"
+      - "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"
+    ifrs:
+      - "ifrs-full:CashFlowsFromUsedInOperatingActivities"
+  
+  capex:
+    us_gaap:
+      - "PaymentsToAcquirePropertyPlantAndEquipment"
+      - "CapitalExpenditures"
+    ifrs:
+      - "ifrs-full:PurchaseOfPropertyPlantAndEquipment"
+  
+  # Equity
+  shareholdersEquity:
+    us_gaap:
+      - "StockholdersEquity"
+      - "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"
+    ifrs:
+      - "ifrs-full:Equity"
+      - "ifrs-full:EquityAttributableToOwnersOfParent"
+  
+  # Shares
+  sharesDiluted:
+    us_gaap:
+      - "WeightedAverageNumberOfSharesOutstandingBasicAndDiluted"
+      - "WeightedAverageNumberOfDilutedSharesOutstanding"
+    ifrs:
+      - "ifrs-full:WeightedAverageNumberOfSharesOutstandingBasicAndDiluted"
+  
+  # EPS
+  epsDiluted:
+    us_gaap:
+      - "EarningsPerShareDiluted"
+      - "IncomeLossFromContinuingOperationsPerDilutedShare"
+    ifrs:
+      - "ifrs-full:EarningsPerShare"
+
+# Derived metrics (calculated from above concepts)
+derived_metrics:
+  grossMargin:
+    formula: "grossProfit / revenue"
+    inputs: ["grossProfit", "revenue"]
+  
+  operatingMargin:
+    formula: "operatingIncome / revenue"
+    inputs: ["operatingIncome", "revenue"]
+  
+  netMargin:
+    formula: "netIncome / revenue"
+    inputs: ["netIncome", "revenue"]
+  
+  fcf:
+    formula: "cashFromOperations - capex"
+    inputs: ["cashFromOperations", "capex"]
+  
+  ebitda:
+    formula: "ebit + depreciationAndAmortization"
+    inputs: ["ebit", "depreciationAndAmortization"]
+  
+  ebitdaMargin:
+    formula: "ebitda / revenue"
+    inputs: ["ebitda", "revenue"]
+  
+  roe:
+    formula: "netIncome / shareholdersEquity"
+    inputs: ["netIncome", "shareholdersEquity"]
+  
+  roe_ttm:
+    formula: "netIncome_ttm / shareholdersEquity_avg_ttm"
+    inputs: ["netIncome", "shareholdersEquity"]
+    ttm: true
+
+# TTM (Trailing Twelve Months) calculations
+ttm_metrics:
+  - "netIncome"
+  - "revenue"
+  - "operatingIncome"
+  - "cashFromOperations"
+  - "capex"
+  - "ebitda"
+  - "grossProfit"
+
+# Units mapping
+units:
+  monetary:
+    - "USD"
+    - "EUR"
+    - "GBP"
+    - "JPY"
+    - "TWD"
+    - "CNY"
+  
+  shares:
+    - "shares"
+    - "share"
+  
+  ratio:
+    - "pure"
+    - "ratio"
+    - "percent"
+

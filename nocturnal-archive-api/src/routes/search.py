@@ -13,6 +13,7 @@ from src.models.request import SearchRequest
 from src.models.paper import SearchResult, Paper, Author
 from src.services.paper_search import PaperSearcher
 from src.services.performance_integration import performance_integration
+from src.engine.research_engine import sophisticated_engine
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -41,16 +42,55 @@ async def search_papers(
             trace_id=trace_id
         )
         
-        # Initialize paper searcher
-        searcher = PaperSearcher(settings.openalex_api_key)
-        
-        # Perform search
-        papers = await searcher.search_papers(
-            query=request.query,
-            limit=request.limit,
-            sources=request.sources,
-            filters=request.filters
-        )
+        # Try sophisticated engine first, fallback to basic search
+        if sophisticated_engine.enhanced_research:
+            logger.info("Using sophisticated research engine", trace_id=trace_id)
+            advanced_results = await sophisticated_engine.search_papers_advanced(
+                query=request.query,
+                limit=request.limit,
+                sources=request.sources
+            )
+            
+            if "error" not in advanced_results:
+                # Convert advanced results to our format
+                papers = []
+                for paper_data in advanced_results.get("papers", []):
+                    paper = Paper(
+                        id=paper_data.get("id", ""),
+                        title=paper_data.get("title", ""),
+                        authors=[Author(name=author) for author in paper_data.get("authors", [])],
+                        year=paper_data.get("year"),
+                        doi=paper_data.get("doi"),
+                        abstract=paper_data.get("abstract"),
+                        citations_count=paper_data.get("citations_count"),
+                        open_access=paper_data.get("open_access"),
+                        pdf_url=paper_data.get("pdf_url"),
+                        source=paper_data.get("source", "openalex"),
+                        venue=paper_data.get("venue"),
+                        keywords=paper_data.get("keywords", [])
+                    )
+                    papers.append(paper)
+            else:
+                logger.warning("Advanced search failed, falling back to basic search", 
+                             error=advanced_results.get("error"), trace_id=trace_id)
+                # Fallback to basic search
+                searcher = PaperSearcher(settings.openalex_api_key)
+                papers = await searcher.search_papers(
+                    query=request.query,
+                    limit=request.limit,
+                    sources=request.sources,
+                    filters=request.filters
+                )
+        else:
+            logger.info("Using basic search engine", trace_id=trace_id)
+            # Use basic search
+            searcher = PaperSearcher(settings.openalex_api_key)
+            papers = await searcher.search_papers(
+                query=request.query,
+                limit=request.limit,
+                sources=request.sources,
+                filters=request.filters
+            )
         
         # Convert papers to dict format for processing
         papers_dict = [paper.dict() for paper in papers]

@@ -1,0 +1,322 @@
+# FinSight KPI Registry v1.0
+# Canonical inputs and derived metrics with provenance tracking
+
+# Canonical inputs (mapped via KPI → GAAP/IFRS concept sets)
+inputs:
+  revenue:
+    concepts: 
+      - us-gaap:SalesRevenueNet
+      - us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax
+      - us-gaap:Revenues
+    prefer: us-gaap:SalesRevenueNet
+    type: duration
+    description: "Total revenue from sales of goods and services"
+    
+  costOfRevenue:
+    concepts: 
+      - us-gaap:CostOfGoodsAndServicesSold
+      - us-gaap:CostOfRevenue
+    prefer: us-gaap:CostOfGoodsAndServicesSold
+    type: duration
+    description: "Direct costs attributable to revenue generation"
+    
+  operatingIncome:
+    concepts: 
+      - us-gaap:OperatingIncomeLoss
+      - us-gaap:IncomeLossFromOperations
+    prefer: us-gaap:OperatingIncomeLoss
+    type: duration
+    description: "Income from operations before interest and taxes"
+    
+  depreciationAndAmortization:
+    concepts: 
+      - us-gaap:DepreciationDepletionAndAmortization
+      - us-gaap:DepreciationAndAmortization
+    prefer: us-gaap:DepreciationDepletionAndAmortization
+    type: duration
+    description: "Non-cash expenses for asset depreciation and amortization"
+    
+  netIncome:
+    concepts: 
+      - us-gaap:NetIncomeLoss
+      - us-gaap:ProfitLoss
+    prefer: us-gaap:NetIncomeLoss
+    type: duration
+    description: "Net income after all expenses and taxes"
+    
+  currentAssets:
+    concepts: 
+      - us-gaap:AssetsCurrent
+      - us-gaap:CurrentAssets
+    prefer: us-gaap:AssetsCurrent
+    type: instant
+    description: "Assets expected to be converted to cash within one year"
+    
+  currentLiabilities:
+    concepts: 
+      - us-gaap:LiabilitiesCurrent
+      - us-gaap:CurrentLiabilities
+    prefer: us-gaap:LiabilitiesCurrent
+    type: instant
+    description: "Liabilities due within one year"
+    
+  totalAssets:
+    concepts: 
+      - us-gaap:Assets
+      - us-gaap:TotalAssets
+    prefer: us-gaap:Assets
+    type: instant
+    description: "Total assets on the balance sheet"
+    
+  shareholdersEquity:
+    concepts: 
+      - us-gaap:StockholdersEquity
+      - us-gaap:ShareholdersEquity
+    prefer: us-gaap:StockholdersEquity
+    type: instant
+    description: "Total shareholders' equity"
+    
+  cfo:
+    concepts: 
+      - us-gaap:NetCashProvidedByUsedInOperatingActivities
+      - us-gaap:NetCashFromOperatingActivities
+    prefer: us-gaap:NetCashProvidedByUsedInOperatingActivities
+    type: duration
+    description: "Cash flow from operations"
+    
+  cfi:
+    concepts: 
+      - us-gaap:NetCashProvidedByUsedInInvestingActivities
+      - us-gaap:NetCashFromInvestingActivities
+    prefer: us-gaap:NetCashProvidedByUsedInInvestingActivities
+    type: duration
+    description: "Cash flow from investing activities"
+    
+  cff:
+    concepts: 
+      - us-gaap:NetCashProvidedByUsedInFinancingActivities
+      - us-gaap:NetCashFromFinancingActivities
+    prefer: us-gaap:NetCashProvidedByUsedInFinancingActivities
+    type: duration
+    description: "Cash flow from financing activities"
+    
+  sharesDiluted:
+    concepts: 
+      - us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding
+      - us-gaap:WeightedAverageNumberOfSharesOutstandingBasicAndDiluted
+    prefer: us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding
+    type: duration
+    description: "Weighted average diluted shares outstanding"
+    
+  sharesBasic:
+    concepts: 
+      - us-gaap:WeightedAverageNumberOfSharesOutstandingBasic
+      - us-gaap:WeightedAverageNumberOfSharesOutstanding
+    prefer: us-gaap:WeightedAverageNumberOfSharesOutstandingBasic
+    type: duration
+    description: "Weighted average basic shares outstanding"
+    
+  totalDebt:
+    concepts: 
+      - us-gaap:LongTermDebt
+      - us-gaap:DebtCurrent
+      - us-gaap:DebtLongtermAndShorttermCombinedAmount
+    prefer: us-gaap:DebtLongtermAndShorttermCombinedAmount
+    type: instant
+    description: "Total debt (short-term + long-term)"
+    
+  cashAndEquivalents:
+    concepts: 
+      - us-gaap:CashAndCashEquivalentsAtCarryingValue
+      - us-gaap:CashCashEquivalentsAndShortTermInvestments
+    prefer: us-gaap:CashAndCashEquivalentsAtCarryingValue
+    type: instant
+    description: "Cash and cash equivalents"
+    
+  interestExpense:
+    concepts: 
+      - us-gaap:InterestExpense
+      - us-gaap:InterestPaid
+    prefer: us-gaap:InterestExpense
+    type: duration
+    description: "Interest expense on debt"
+
+# Derived metrics with expressions
+metrics:
+  grossProfit:
+    expr: revenue - costOfRevenue
+    description: "Revenue minus cost of goods sold"
+    output: value
+    
+  grossMargin:
+    expr: (revenue - costOfRevenue) / revenue
+    description: "Gross profit as percentage of revenue"
+    output: percent
+    
+  ebitda:
+    expr: operatingIncome + depreciationAndAmortization
+    description: "Earnings before interest, taxes, depreciation, and amortization"
+    output: value
+    
+  ebitdaMargin:
+    expr: (operatingIncome + depreciationAndAmortization) / revenue
+    description: "EBITDA as percentage of revenue"
+    output: percent
+    
+  fcf:
+    expr: cfo + cfi
+    description: "Free cash flow (operating cash flow + investing cash flow)"
+    output: value
+    notes: "Simple proxy; can be refined with CapEx-specific concepts"
+    
+  workingCapital:
+    expr: currentAssets - currentLiabilities
+    description: "Current assets minus current liabilities"
+    output: value
+    
+  currentRatio:
+    expr: currentAssets / currentLiabilities
+    description: "Current assets divided by current liabilities"
+    output: ratio
+    
+  netDebt:
+    expr: (totalDebt?) - (cashAndEquivalents?)
+    description: "Total debt minus cash and equivalents"
+    output: value
+    notes: "Allows nullable inputs with warning flags"
+    
+  roe:
+    expr: netIncome / avg(shareholdersEquity, 2)
+    description: "Return on equity (net income / average shareholders' equity)"
+    output: percent
+    notes: "Uses period and prior-period average"
+    
+  roa:
+    expr: netIncome / avg(totalAssets, 2)
+    description: "Return on assets (net income / average total assets)"
+    output: percent
+    
+  accrualRatio:
+    expr: (netIncome - cfo) / avg(totalAssets, 2)
+    description: "Accrual ratio ((net income - CFO) / average total assets)"
+    output: percent
+    
+  epsBasic:
+    expr: netIncome / sharesBasic
+    description: "Basic earnings per share"
+    output: value
+    
+  epsDiluted:
+    expr: netIncome / sharesDiluted
+    description: "Diluted earnings per share"
+    output: value
+    
+  fcfPerShare:
+    expr: fcf / sharesDiluted
+    description: "Free cash flow per diluted share"
+    output: value
+    
+  debtToEquity:
+    expr: totalDebt / shareholdersEquity
+    description: "Total debt divided by shareholders' equity"
+    output: ratio
+    
+  interestCoverage:
+    expr: operatingIncome / interestExpense
+    description: "Interest coverage ratio (operating income / interest expense)"
+    output: ratio
+    
+  cashConversionCycle:
+    expr: "Not implemented - requires inventory and receivables concepts"
+    description: "Days to convert inventory and receivables to cash"
+    output: days
+    status: planned
+
+# Functions available in expressions
+functions:
+  avg:
+    description: "Average of current and N prior periods"
+    signature: "avg(concept, periods)"
+    example: "avg(totalAssets, 2) = (Q4 + Q3) / 2"
+    
+  ttm:
+    description: "Trailing twelve months (sum of 4 quarters)"
+    signature: "ttm(concept)"
+    example: "ttm(revenue) = Q1 + Q2 + Q3 + Q4"
+    
+  yoy:
+    description: "Year-over-year growth rate"
+    signature: "yoy(concept)"
+    example: "yoy(revenue) = (Q4_2024 - Q4_2023) / Q4_2023"
+    
+  qoq:
+    description: "Quarter-over-quarter growth rate"
+    signature: "qoq(concept)"
+    example: "qoq(revenue) = (Q4 - Q3) / Q3"
+    
+  cagr:
+    description: "Compound annual growth rate"
+    signature: "cagr(concept, periods)"
+    example: "cagr(revenue, 4) = (Q4 / Q4_minus_4Q)^(1/4) - 1"
+    
+  per_share:
+    description: "Convert to per-share amount"
+    signature: "per_share(concept, shares=sharesDiluted)"
+    example: "per_share(netIncome) = netIncome / sharesDiluted"
+
+# Quality flags and their meanings
+flags:
+  restated:
+    description: "Prior period values have been restated"
+    
+  partial_coverage:
+    description: "Segment sum does not equal consolidated amount"
+    
+  unit_mismatch_resolved:
+    description: "Units were normalized (e.g., millions to thousands)"
+    
+  estimate_used:
+    description: "Estimated value used due to missing data"
+    
+  chosen_concept:
+    description: "Specific XBRL concept selected from multiple options"
+    
+  currency_normalized:
+    description: "Currency converted using external FX rates"
+    
+  segment_sum_differs:
+    description: "Sum of segments differs from consolidated by >2%"
+
+# Issuer-specific overrides (by CIK)
+overrides:
+  "0000320193":  # Apple
+    metrics:
+      fcf:
+        expr: cfo - capex
+        notes: "Apple-specific CapEx concept"
+    
+  "0000789019":  # Microsoft
+    metrics:
+      revenue:
+        prefer: us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax
+        notes: "Microsoft uses contract revenue concept"
+
+# Output types and their formats
+output_types:
+  value:
+    description: "Raw numeric value"
+    format: "number"
+    
+  percent:
+    description: "Percentage (0.1 = 10%)"
+    format: "number"
+    multiplier: 100
+    
+  ratio:
+    description: "Ratio (no units)"
+    format: "number"
+    
+  days:
+    description: "Number of days"
+    format: "integer"
+

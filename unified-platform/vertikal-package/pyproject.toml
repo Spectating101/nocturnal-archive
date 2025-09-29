@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vertikal"
+version = "0.1.0"
+description = "Terminal-native, file-aware assistant for R/SQL courses (great in RStudio)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = ["chatgpt", "terminal", "rstudio", "file-aware", "assistant", "groq", "r", "sql"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Education",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Education",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "groq>=0.9",
+    "rich>=13.7",
+    "aiohttp>=3.8.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/vertikal"
+Repository = "https://github.com/yourusername/vertikal"
+Issues = "https://github.com/yourusername/vertikal/issues"
+Documentation = "https://github.com/yourusername/vertikal#readme"
+
+[project.scripts]
+vertikal = "vertikal.cli:main"
+vertikal-unified = "vertikal.vertikal_unified:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vertikal*"]
+
+[tool.setuptools.package-data]
+vertikal = ["*.md", "*.txt"]

@@ -1,31 +1,19 @@
 use pyo3::prelude::*;
-use pyo3::wrap_pyfunction;
 use pyo3_asyncio::tokio::future_into_py;
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Semaphore;
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use url::Url;
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-mod scraper;
-mod processor;
-mod cache;
-
-use scraper::WebScraper;
-use processor::TextProcessor;
-use cache::ResponseCache;
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScrapedContent {
     pub url: String,
     pub title: String,
     pub content: String,
     pub metadata: HashMap<String, String>,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessedText {
     pub original: String,
     pub cleaned: String,
@@ -36,176 +24,242 @@ pub struct ProcessedText {
 
 #[pyclass]
 pub struct HighPerformanceScraper {
-    scraper: Arc<WebScraper>,
-    processor: Arc<TextProcessor>,
-    cache: Arc<ResponseCache>,
-    semaphore: Arc<Semaphore>,
+    max_concurrent: usize,
 }
 
 #[pymethods]
 impl HighPerformanceScraper {
     #[new]
-    fn new(max_concurrent: Option<usize>) -> PyResult<Self> {
-        let max_concurrent = max_concurrent.unwrap_or(10);
-        Ok(Self {
-            scraper: Arc::new(WebScraper::new()),
-            processor: Arc::new(TextProcessor::new()),
-            cache: Arc::new(ResponseCache::new()),
-            semaphore: Arc::new(Semaphore::new(max_concurrent)),
-        })
+    fn new(max_concurrent: usize) -> Self {
+        Self { max_concurrent }
     }
 
-    #[pyo3(name = "scrape_urls")]
-    fn scrape_urls_py<'py>(
-        &self,
-        py: Python<'py>,
-        urls: Vec<String>,
-    ) -> PyResult<PyObject> {
-        let scraper = self.scraper.clone();
-        let processor = self.processor.clone();
-        let cache = self.cache.clone();
-        let semaphore = self.semaphore.clone();
-
+    fn scrape_urls(&self, py: Python, urls: Vec<String>) -> PyResult<PyObject> {
         future_into_py(py, async move {
             let mut results = Vec::new();
-            let mut futures = Vec::new();
-
-            for url in urls {
-                let scraper = scraper.clone();
-                let processor = processor.clone();
-                let cache = cache.clone();
-                let semaphore = semaphore.clone();
-
-                let future = async move {
-                    let _permit = semaphore.acquire().await.unwrap();
-                    
-                    // Check cache first
-                    if let Some(cached) = cache.get(&url).await {
-                        return Ok(cached);
-                    }
-
-                    // Scrape and process
-                    let scraped = scraper.scrape_url(&url).await?;
-                    let processed = processor.process_text(&scraped.content).await?;
-                    
-                    let result = ScrapedContent {
-                        url: scraped.url,
-                        title: scraped.title,
-                        content: processed.cleaned,
-                        metadata: scraped.metadata,
-                        timestamp: chrono::Utc::now(),
-                    };
-
-                    // Cache the result
-                    cache.set(&url, &result).await;
-                    
-                    Ok(result)
-                };
-
-                futures.push(future);
-            }
-
-            // Wait for all futures to complete
-            let results = futures::future::join_all(futures).await;
             
-            // Filter out errors and collect successful results
-            let mut successful_results = Vec::new();
-            for result in results {
-                match result {
-                    Ok(content) => successful_results.push(content),
-                    Err(e) => eprintln!("Error scraping URL: {}", e),
+            for url in urls {
+                match self.scrape_single_url(&url).await {
+                    Ok(content) => results.push(content),
+                    Err(e) => eprintln!("Failed to scrape {}: {}", url, e),
                 }
             }
-
-            Ok(successful_results)
+            
+            Ok(results)
         })
     }
 
-    #[pyo3(name = "process_text_batch")]
-    fn process_text_batch_py<'py>(
-        &self,
-        py: Python<'py>,
-        texts: Vec<String>,
-    ) -> PyResult<PyObject> {
-        let processor = self.processor.clone();
-
+    fn process_text_batch(&self, py: Python, texts: Vec<String>) -> PyResult<PyObject> {
         future_into_py(py, async move {
             let mut results = Vec::new();
             
-            // Process texts in parallel using rayon
-            let processed: Vec<ProcessedText> = texts
-                .into_par_iter()
-                .map(|text| {
-                    // Note: This is a simplified version. In practice, you'd want to handle async properly
-                    // For now, we'll process synchronously but in parallel
-                    processor.process_text_sync(&text)
-                })
-                .collect();
-
-            Ok(processed)
+            for text in texts {
+                let processed = self.process_single_text(&text).await;
+                results.push(processed);
+            }
+            
+            Ok(results)
         })
     }
 
-    #[pyo3(name = "extract_keywords")]
-    fn extract_keywords_py<'py>(
-        &self,
-        py: Python<'py>,
-        text: String,
-        max_keywords: Option<usize>,
-    ) -> PyResult<PyObject> {
-        let processor = self.processor.clone();
-        let max_keywords = max_keywords.unwrap_or(10);
-
+    fn extract_keywords(&self, py: Python, text: String, max_keywords: usize) -> PyResult<PyObject> {
         future_into_py(py, async move {
-            let keywords = processor.extract_keywords(&text, max_keywords).await?;
+            let keywords = self.extract_keywords_impl(&text, max_keywords).await;
             Ok(keywords)
         })
     }
 
-    #[pyo3(name = "chunk_text")]
-    fn chunk_text_py<'py>(
-        &self,
-        py: Python<'py>,
-        text: String,
-        chunk_size: Option<usize>,
-        overlap: Option<usize>,
-    ) -> PyResult<PyObject> {
-        let processor = self.processor.clone();
-        let chunk_size = chunk_size.unwrap_or(1000);
-        let overlap = overlap.unwrap_or(200);
-
+    fn chunk_text(&self, py: Python, text: String, chunk_size: usize, overlap: usize) -> PyResult<PyObject> {
         future_into_py(py, async move {
-            let chunks = processor.chunk_text(&text, chunk_size, overlap).await?;
+            let chunks = self.chunk_text_impl(&text, chunk_size, overlap).await;
             Ok(chunks)
         })
     }
 }
 
-#[pyfunction]
-fn fast_text_clean(text: &str) -> PyResult<String> {
-    let processor = TextProcessor::new();
-    Ok(processor.clean_text_sync(text))
-}
-
-#[pyfunction]
-fn fast_url_validation(url: &str) -> PyResult<bool> {
-    match Url::parse(url) {
-        Ok(_) => Ok(true),
-        Err(_) => Ok(false),
+impl HighPerformanceScraper {
+    async fn scrape_single_url(&self, url: &str) -> Result<ScrapedContent, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::new();
+        let response = client.get(url).send().await?;
+        let html = response.text().await?;
+        
+        // Simple HTML parsing - extract title and content
+        let title = self.extract_title(&html);
+        let content = self.extract_content(&html);
+        
+        let mut metadata = HashMap::new();
+        metadata.insert("content_type".to_string(), "text/html".to_string());
+        metadata.insert("url".to_string(), url.to_string());
+        
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        Ok(ScrapedContent {
+            url: url.to_string(),
+            title,
+            content,
+            metadata,
+            timestamp: timestamp.to_string(),
+        })
     }
-}
 
-#[pyfunction]
-fn fast_text_similarity(text1: &str, text2: &str) -> PyResult<f64> {
-    let processor = TextProcessor::new();
-    Ok(processor.calculate_similarity_sync(text1, text2))
+    fn extract_title(&self, html: &str) -> String {
+        if let Some(start) = html.find("<title>") {
+            if let Some(end) = html[start + 7..].find("</title>") {
+                return html[start + 7..start + 7 + end].to_string();
+            }
+        }
+        "No title".to_string()
+    }
+
+    fn extract_content(&self, html: &str) -> String {
+        // Simple content extraction - remove HTML tags
+        let mut content = html.to_string();
+        
+        // Remove script and style tags
+        content = regex::Regex::new(r"<script[^>]*>.*?</script>").unwrap().replace_all(&content, "").to_string();
+        content = regex::Regex::new(r"<style[^>]*>.*?</style>").unwrap().replace_all(&content, "").to_string();
+        
+        // Remove HTML tags
+        content = regex::Regex::new(r"<[^>]+>").unwrap().replace_all(&content, " ").to_string();
+        
+        // Clean up whitespace
+        content = regex::Regex::new(r"\s+").unwrap().replace_all(&content, " ").to_string();
+        
+        content.trim().to_string()
+    }
+
+    async fn process_single_text(&self, text: &str) -> ProcessedText {
+        let cleaned = self.clean_text(text);
+        let chunks = self.chunk_text_impl(&cleaned, 1000, 200).await;
+        let keywords = self.extract_keywords_impl(&cleaned, 10).await;
+        let summary = self.generate_summary(&cleaned);
+        
+        ProcessedText {
+            original: text.to_string(),
+            cleaned,
+            chunks,
+            keywords,
+            summary,
+        }
+    }
+
+    fn clean_text(&self, text: &str) -> String {
+        let mut cleaned = text.to_string();
+        
+        // Remove extra whitespace
+        cleaned = regex::Regex::new(r"\s+").unwrap().replace_all(&cleaned, " ").to_string();
+        
+        // Remove special characters but keep basic punctuation
+        cleaned = regex::Regex::new(r"[^\w\s\.\,\!\?\;\:\-\(\)\[\]\{\}]").unwrap().replace_all(&cleaned, "").to_string();
+        
+        // Normalize quotes and dashes
+        cleaned = cleaned
+            .replace(""", "\"")
+            .replace(""", "\"")
+            .replace("'", "'")
+            .replace("'", "'")
+            .replace("–", "-")
+            .replace("—", "-");
+        
+        cleaned.trim().to_string()
+    }
+
+    async fn chunk_text_impl(&self, text: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
+        let sentences: Vec<&str> = regex::Regex::new(r"[.!?]+").unwrap()
+            .split(text)
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+        
+        let mut chunks = Vec::new();
+        let mut current_chunk = String::new();
+        let mut current_size = 0;
+        
+        for sentence in sentences {
+            let sentence_size = sentence.len();
+            
+            if current_size + sentence_size > chunk_size && !current_chunk.is_empty() {
+                chunks.push(current_chunk.trim().to_string());
+                
+                // Start new chunk with overlap
+                if overlap > 0 {
+                    let words: Vec<&str> = current_chunk.split_whitespace().collect();
+                    let overlap_words = (overlap / 10).min(words.len());
+                    if overlap_words > 0 {
+                        current_chunk = words[words.len() - overlap_words..].join(" ") + " ";
+                        current_size = current_chunk.len();
+                    } else {
+                        current_chunk = String::new();
+                        current_size = 0;
+                    }
+                } else {
+                    current_chunk = String::new();
+                    current_size = 0;
+                }
+            }
+            
+            current_chunk.push_str(sentence);
+            current_chunk.push_str(". ");
+            current_size += sentence_size + 2;
+        }
+        
+        if !current_chunk.trim().is_empty() {
+            chunks.push(current_chunk.trim().to_string());
+        }
+        
+        chunks
+    }
+
+    async fn extract_keywords_impl(&self, text: &str, max_keywords: usize) -> Vec<String> {
+        let stop_words = [
+            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
+            "by", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+            "do", "does", "did", "will", "would", "could", "should", "may", "might", "must",
+            "can", "this", "that", "these", "those", "i", "you", "he", "she", "it", "we", "they",
+        ];
+        
+        let words: Vec<&str> = regex::Regex::new(r"\b[a-zA-Z]+\b").unwrap()
+            .find_iter(text)
+            .map(|m| m.as_str().to_lowercase())
+            .filter(|word| word.len() > 2 && !stop_words.contains(&word.as_str()))
+            .collect();
+        
+        let mut word_count: HashMap<String, usize> = HashMap::new();
+        for word in words {
+            *word_count.entry(word).or_insert(0) += 1;
+        }
+        
+        let mut word_freq: Vec<(String, usize)> = word_count.into_iter().collect();
+        word_freq.sort_by(|a, b| b.1.cmp(&a.1));
+        
+        word_freq.into_iter()
+            .take(max_keywords)
+            .map(|(word, _)| word)
+            .collect()
+    }
+
+    fn generate_summary(&self, text: &str) -> String {
+        let sentences: Vec<&str> = regex::Regex::new(r"[.!?]+").unwrap()
+            .split(text)
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+        
+        if sentences.len() <= 3 {
+            return text.to_string();
+        }
+        
+        // Simple extractive summarization - take first few sentences
+        let summary_sentences = sentences.into_iter().take(3).collect::<Vec<&str>>();
+        summary_sentences.join(". ") + "."
+    }
 }
 
 #[pymodule]
 fn nocturnal_performance(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<HighPerformanceScraper>()?;
-    m.add_function(wrap_pyfunction!(fast_text_clean, m)?)?;
-    m.add_function(wrap_pyfunction!(fast_url_validation, m)?)?;
-    m.add_function(wrap_pyfunction!(fast_text_similarity, m)?)?;
     Ok(())
 }

@@ -1,11 +1,11 @@
 """
-Synthesis service - LLM integration
+Synthesis service - LLM integration (now using Groq)
 """
 
 import structlog
 import re
 from typing import List, Dict, Any, Optional
-from openai import AsyncOpenAI
+from groq import Groq
 
 from src.models.paper import SynthesisResult, Paper
 
@@ -13,11 +13,11 @@ logger = structlog.get_logger(__name__)
 
 
 class Synthesizer:
-    """Research synthesis service using OpenAI"""
+    """Research synthesis service using Groq (migrated from OpenAI)"""
     
     def __init__(self, api_key: str):
-        self.client = AsyncOpenAI(api_key=api_key)
-        self.model = "gpt-3.5-turbo"
+        self.client = Groq(api_key=api_key)
+        self.model = "llama-3.3-70b-versatile"  # Groq's best model
         self.max_tokens = 1000
         self.temperature = 0.7
     
@@ -43,8 +43,8 @@ class Synthesizer:
                 papers, max_words, focus, style, custom_prompt
             )
             
-            # Call OpenAI API
-            response = await self.client.chat.completions.create(
+            # Call Groq API
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "You are an expert research synthesizer. Provide accurate, well-cited summaries of academic research."},

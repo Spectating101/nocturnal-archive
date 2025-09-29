@@ -1,0 +1,369 @@
+{
+  "info": {
+    "name": "FinSight API - Regulator-First Financial Data",
+    "description": "This isn't yfinance. FinSight provides regulator-first financial data with full provenance, multi-jurisdiction support, and cited mathematics.",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "X-API-Key",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{api_key}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "api_key",
+      "value": "demo-key-123",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "🚀 Quick Start - 3 Demo Calls",
+      "item": [
+        {
+          "name": "1. A = B - C with Full Citations",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticker\": \"AAPL\",\n  \"expr\": \"grossProfit = revenue - costOfRevenue\",\n  \"period\": \"2024-Q4\",\n  \"freq\": \"Q\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/finance/calc/explain",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "calc", "explain"]
+            },
+            "description": "Explain gross profit calculation with proofs. Shows 'A = B - C' with full SEC citations."
+          }
+        },
+        {
+          "name": "2. Segments (yfinance can't do this)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/finance/segments/AAPL/revenue?dim=Geography&freq=Q&limit=8",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "segments", "AAPL", "revenue"],
+              "query": [
+                {
+                  "key": "dim",
+                  "value": "Geography"
+                },
+                {
+                  "key": "freq",
+                  "value": "Q"
+                },
+                {
+                  "key": "limit",
+                  "value": "8"
+                }
+              ]
+            },
+            "description": "Get AAPL revenue by geography (Greater China, Americas, Europe). yfinance can't do segment analysis."
+          }
+        },
+        {
+          "name": "3. Derived KPIs with Citations Per Point",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/finance/calc/series/AAPL/roe?freq=Q&ttm=true&limit=12",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "calc", "series", "AAPL", "roe"],
+              "query": [
+                {
+                  "key": "freq",
+                  "value": "Q"
+                },
+                {
+                  "key": "ttm",
+                  "value": "true"
+                },
+                {
+                  "key": "limit",
+                  "value": "12"
+                }
+              ]
+            },
+            "description": "ROE TTM series with full provenance. Every point shows citations and formula."
+          }
+        }
+      ]
+    },
+    {
+      "name": "🌍 Multi-Jurisdiction Examples",
+      "item": [
+        {
+          "name": "US Company (GAAP) - AAPL",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/finance/kpis/AAPL/revenue?freq=Q&limit=4",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "kpis", "AAPL", "revenue"],
+              "query": [
+                {
+                  "key": "freq",
+                  "value": "Q"
+                },
+                {
+                  "key": "limit",
+                  "value": "4"
+                }
+              ]
+            },
+            "description": "US GAAP company revenue with SEC EDGAR citations."
+          }
+        },
+        {
+          "name": "European Company (IFRS + EUR) - ASML",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/finance/kpis/ASML/revenue?freq=Q&limit=4",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "kpis", "ASML", "revenue"],
+              "query": [
+                {
+                  "key": "freq",
+                  "value": "Q"
+                },
+                {
+                  "key": "limit",
+                  "value": "4"
+                }
+              ]
+            },
+            "description": "IFRS company with EUR currency, normalized to USD via ECB rates."
+          }
+        },
+        {
+          "name": "Asian Company (IFRS + TWD) - TSM",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/finance/kpis/TSM/revenue?freq=Q&limit=4",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "kpis", "TSM", "revenue"],
+              "query": [
+                {
+                  "key": "freq",
+                  "value": "Q"
+                },
+                {
+                  "key": "limit",
+                  "value": "4"
+                }
+              ]
+            },
+            "description": "IFRS company with TWD currency, scaled and normalized to USD."
+          }
+        }
+      ]
+    },
+    {
+      "name": "📊 Core FinSight Endpoints",
+      "item": [
+        {
+          "name": "Get KPI Time Series",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/finance/kpis/{{ticker}}/{{metric}}?freq=Q&limit=12",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "kpis", "{{ticker}}", "{{metric}}"],
+              "query": [
+                {
+                  "key": "freq",
+                  "value": "Q"
+                },
+                {
+                  "key": "limit",
+                  "value": "12"
+                }
+              ]
+            },
+            "description": "Get KPI time series with full citations."
+          }
+        },
+        {
+          "name": "Calculate Derived Metric",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/finance/calc/{{ticker}}/{{metric}}?period=latest&freq=Q",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "calc", "{{ticker}}", "{{metric}}"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "latest"
+                },
+                {
+                  "key": "freq",
+                  "value": "Q"
+                }
+              ]
+            },
+            "description": "Calculate derived metric with formula and citations."
+          }
+        },
+        {
+          "name": "Get Calculated Series",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/finance/calc/series/{{ticker}}/{{metric}}?freq=Q&limit=12&ttm=true",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "calc", "series", "{{ticker}}", "{{metric}}"],
+              "query": [
+                {
+                  "key": "freq",
+                  "value": "Q"
+                },
+                {
+                  "key": "limit",
+                  "value": "12"
+                },
+                {
+                  "key": "ttm",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Get calculated series with TTM option."
+          }
+        },
+        {
+          "name": "Explain Calculation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticker\": \"{{ticker}}\",\n  \"expr\": \"{{expression}}\",\n  \"period\": \"{{period}}\",\n  \"freq\": \"{{freq}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/finance/calc/explain",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "calc", "explain"]
+            },
+            "description": "Explain calculation with full proofs and citations."
+          }
+        },
+        {
+          "name": "Get Segment Breakdown",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/finance/segments/{{ticker}}/{{metric}}?dim={{dimension}}&freq=Q&limit=8",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "segments", "{{ticker}}", "{{metric}}"],
+              "query": [
+                {
+                  "key": "dim",
+                  "value": "{{dimension}}"
+                },
+                {
+                  "key": "freq",
+                  "value": "Q"
+                },
+                {
+                  "key": "limit",
+                  "value": "8"
+                }
+              ]
+            },
+            "description": "Get segment breakdown by dimension (Geography, Business, Product)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "📈 Reports & Status",
+      "item": [
+        {
+          "name": "Generate PDF Report",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/finance/reports/{{ticker}}/{{period}}.pdf",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "reports", "{{ticker}}", "{{period}}.pdf"]
+            },
+            "description": "Generate PDF snapshot report with KPIs, sparklines, and citations."
+          }
+        },
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/finance/status",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "finance", "status"]
+            },
+            "description": "Check health of all FinSight data sources."
+          }
+        },
+        {
+          "name": "System Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/livez",
+              "host": ["{{base_url}}"],
+              "path": ["livez"]
+            },
+            "description": "Basic liveness check."
+          }
+        }
+      ]
+    }
+  ]
+}
+

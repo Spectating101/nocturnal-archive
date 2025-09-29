@@ -1,0 +1,35 @@
+{
+  "ticker": "SHEL",
+  "period": "2024-Q4",
+  "freq": "Q",
+  "expect": {
+    "revenue": {
+      "approx": 78700000000,
+      "tol": 0.02
+    },
+    "grossMargin": {
+      "approx": 0.15,
+      "tol": 0.05
+    },
+    "ebitdaMargin": {
+      "approx": 0.12,
+      "tol": 0.05
+    },
+    "netIncome": {
+      "approx": 7080000000,
+      "tol": 0.02
+    }
+  },
+  "metadata": {
+    "source": "SEC EDGAR 20-F Filing",
+    "filing_date": "2024-03-15",
+    "accession": "0001302001-24-000001",
+    "form": "20-F",
+    "test_date": "2024-01-15",
+    "notes": "Shell (GBP/EUR/USD, IFRS) - Multinational energy company. Tests complex currency history and IFRS concepts.",
+    "jurisdiction": "GBP",
+    "reporting_standard": "IFRS",
+    "currency": "USD",
+    "fx_conversion": "ECB multi-currency"
+  }
+}

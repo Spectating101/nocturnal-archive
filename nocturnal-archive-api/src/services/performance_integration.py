@@ -12,7 +12,41 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
-from services.performance_service.rust_performance import HighPerformanceService, ScrapedContent, ProcessedText
+try:
+    from services.performance_service.rust_performance import HighPerformanceService, ScrapedContent, ProcessedText
+    RUST_AVAILABLE = True
+except ImportError:
+    RUST_AVAILABLE = False
+    # Define fallback classes
+    from dataclasses import dataclass
+    from datetime import datetime
+    from typing import Dict, List
+    
+    @dataclass
+    class ScrapedContent:
+        url: str
+        title: str
+        content: str
+        metadata: Dict[str, str]
+        timestamp: datetime
+    
+    @dataclass
+    class ProcessedText:
+        original: str
+        cleaned: str
+        chunks: List[str]
+        keywords: List[str]
+        summary: str
+    
+    class HighPerformanceService:
+        def __init__(self, max_concurrent: int = 10):
+            self.max_concurrent = max_concurrent
+        
+        async def scrape_urls(self, urls: List[str]) -> List[ScrapedContent]:
+            return []  # Placeholder
+        
+        async def process_text_batch(self, texts: List[str]) -> List[ProcessedText]:
+            return []  # Placeholder
 
 logger = structlog.get_logger(__name__)
 
@@ -24,9 +58,14 @@ class PerformanceIntegration:
         self.performance_service = HighPerformanceService(max_concurrent=20)
         self.cache = {}  # Simple in-memory cache for now
         self.cache_ttl = 3600  # 1 hour
+        self.rust_available = RUST_AVAILABLE
     
     async def enhance_paper_search(self, papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Enhance paper search results with performance optimizations"""
+        
+        if not self.rust_available:
+            logger.info("Rust performance layer not available, returning papers without enhancement")
+            return papers
         
         enhanced_papers = []
         

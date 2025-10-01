@@ -27,6 +27,7 @@ try:
     from src.services.paper_search import PaperSearcher
     from src.engine.research_engine import sophisticated_engine
     ARCHIVE_AVAILABLE = True
+    logger.info("✅ Real Archive components loaded successfully")
 except ImportError as e:
     logger.warning(f"Archive components not available: {e}")
     ARCHIVE_AVAILABLE = False
@@ -124,15 +125,16 @@ Implications:
 
 This synthesis represents a comprehensive analysis of {len(paper_ids)} papers, providing insights into the current state of research in this area."""
 
-# Global instances (simplified for demo)
+# Global instances - USE REAL COMPONENTS
 if ARCHIVE_AVAILABLE:
     paper_searcher = PaperSearcher()
     sophisticated_engine = sophisticated_engine
+    logger.info("🚀 Using REAL Archive components - no mocks!")
 else:
     # Use simplified implementations
     paper_searcher = SimplePaperSearcher()
     sophisticated_engine = SimpleResearchEngine()
-    ARCHIVE_AVAILABLE = True  # Mark as available with simplified components
+    logger.warning("⚠️ Using mock Archive components - real APIs not available")
 
 class ArchiveSearchRequest(BaseModel):
     query: str = Field(..., description="Search query for academic papers")

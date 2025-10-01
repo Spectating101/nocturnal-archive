@@ -74,7 +74,7 @@ async def search_papers(
                 logger.warning("Advanced search failed, falling back to basic search", 
                              error=advanced_results.get("error"), trace_id=trace_id)
                 # Fallback to basic search
-                searcher = PaperSearcher(settings.openalex_api_key)
+                searcher = PaperSearcher()
                 papers = await searcher.search_papers(
                     query=request.query,
                     limit=request.limit,
@@ -84,16 +84,18 @@ async def search_papers(
         else:
             logger.info("Using basic search engine", trace_id=trace_id)
             # Use basic search
-            searcher = PaperSearcher(settings.openalex_api_key)
+            searcher = PaperSearcher()
             papers = await searcher.search_papers(
                 query=request.query,
                 limit=request.limit,
-                sources=request.sources,
-                filters=request.filters
+                sources=request.sources
             )
         
-        # Convert papers to dict format for processing
-        papers_dict = [paper.dict() for paper in papers]
+        # Extract papers from the response
+        if isinstance(papers, dict) and "papers" in papers:
+            papers_dict = papers["papers"]
+        else:
+            papers_dict = papers
         
         # Apply performance enhancements if requested
         if enhance:
@@ -126,6 +128,22 @@ async def search_papers(
                 'created_at': paper_dict.get('created_at'),
                 'updated_at': paper_dict.get('updated_at')
             }
+            # Normalize OpenAlex inverted index to plain text if present
+            try:
+                if isinstance(paper_data['abstract'], dict):
+                    inv_idx = paper_data['abstract']
+                    max_pos = 0
+                    for word, positions in inv_idx.items():
+                        if positions:
+                            max_pos = max(max_pos, max(positions))
+                    words = [""] * (max_pos + 1)
+                    for word, positions in inv_idx.items():
+                        for pos in positions:
+                            if 0 <= pos < len(words):
+                                words[pos] = word
+                    paper_data['abstract'] = " ".join(w for w in words if w)
+            except Exception:
+                pass
             
             # Add enhanced fields as metadata
             enhanced_metadata = {}

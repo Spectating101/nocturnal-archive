@@ -62,18 +62,9 @@ class SECFactsAdapter:
             ]
         }
         
-        # Mock data for demo purposes (US GAAP companies)
-        self.mock_data = {
-            "AAPL": {
-                "revenue": {"value": 265595000000, "accession": "0000320193-18-000145"},
-                "costOfRevenue": {"value": 166835000000, "accession": "0000320193-25-000073"}
-            }
-        }
-        
-        # IFRS demo data for companies without real SEC data (none now - all have real CIKs)
-        self.ifrs_demo_data = {
-            # All companies now have real SEC CIKs - no demo data needed
-        }
+        # Production mode - no mock data
+        self.mock_data = {}
+        self.ifrs_demo_data = {}
         
     async def _get_session(self):
         """Get aiohttp session"""
@@ -95,106 +86,9 @@ class SECFactsAdapter:
         as_reported: bool = False,
         accession: str = None
     ) -> Optional[Dict[str, Any]]:
-        """Get a financial fact from SEC EDGAR (with mock fallback)"""
+        """Get a financial fact from SEC EDGAR (production mode only)"""
         try:
-            # STRICT MODE: Hard fail on any mock/demo data
-            settings = get_settings()
-            if settings.finsight_strict:
-                logger.info("Strict mode enabled - no mock data allowed", ticker=ticker, concept=concept)
-                
-                # Check if this is an IFRS company without real SEC data - fail in strict mode
-                if ticker.upper() in self.ifrs_demo_data:
-                    logger.error("IFRS company not supported in strict mode", ticker=ticker, concept=concept)
-                    raise ValueError(f"IFRS company {ticker} not supported - no real data source configured")
-                
-                # Check if this is an unsupported issuer in strict mode
-                unsupported_issuers = ["ASML", "SHEL"]  # Not ready for production yet
-                if ticker.upper() in unsupported_issuers:
-                    logger.error("Unsupported issuer in strict mode", ticker=ticker, concept=concept)
-                    raise ValueError(f"Issuer {ticker} not supported in production mode")
-                
-                # Check if this is a mock data company - fail only if no real CIK
-                if ticker.upper() in self.mock_data and ticker.upper() not in self.ticker_to_cik:
-                    logger.error("Mock data not allowed in strict mode", ticker=ticker, concept=concept)
-                    raise ValueError(f"Mock data not allowed in strict mode for {ticker}")
-            
-            # NON-STRICT MODE: Allow demos for development
-            else:
-                # Use mock data for demo only when not in strict mode
-                if ticker.upper() in self.mock_data and concept in self.mock_data[ticker.upper()]:
-                    mock_data = self.mock_data[ticker.upper()][concept]
-                    logger.info("Using mock data (demo mode)", ticker=ticker, concept=concept, value=mock_data["value"])
-                    
-                    return {
-                        "ticker": ticker,
-                        "concept": concept,
-                        "value": mock_data["value"],
-                        "unit": "USD",
-                        "period": "2024-12-31",
-                        "citation": {
-                            "source": "SEC EDGAR",
-                            "accession": mock_data["accession"],
-                            "url": f"https://www.sec.gov/Archives/edgar/data/{self.ticker_to_cik.get(ticker, '')}/{mock_data['accession']}/",
-                            "concept": concept,
-                            "unit": "USD",
-                            "scale": "U",
-                            "fx_used": None,
-                            "amended": False,
-                            "as_reported": True,
-                            "filed": "2024-12-31",
-                            "form": "10-K",
-                            "fiscal_year": 2024,
-                            "fiscal_period": "FY"
-                        }
-                    }
-            
-                # Check if this is an IFRS company with demo data
-                if ticker.upper() in self.ifrs_demo_data and concept in self.ifrs_demo_data[ticker.upper()]:
-                    ifrs_data = self.ifrs_demo_data[ticker.upper()][concept]
-                    logger.info("Using IFRS demo data", ticker=ticker, concept=concept, value=ifrs_data["value"], currency=ifrs_data["currency"])
-                    
-                    # Apply FX normalization if needed
-                    value = ifrs_data["value"]
-                    currency = ifrs_data["currency"]
-                    fx_used = None
-                    
-                    if currency != "USD":
-                        try:
-                            from src.calc.fx import get_fx_normalizer
-                            fx_normalizer = get_fx_normalizer()
-                            value, fx_provenance = await fx_normalizer.normalize(value, currency, "USD", "2024-12-31")
-                            fx_used = fx_provenance
-                            logger.info("Applied FX normalization", ticker=ticker, original_currency=currency, normalized_value=value, fx_provenance=fx_provenance)
-                        except Exception as e:
-                            logger.warning("FX normalization failed, using original value", error=str(e))
-                
-                    return {
-                        "ticker": ticker,
-                        "concept": concept,
-                        "value": value,
-                        "unit": "USD",
-                        "period": "2024-12-31",
-                        "taxonomy": "ifrs-full",
-                        "fx_used": fx_used,
-                        "citation": {
-                            "source": "IFRS Demo Data",
-                            "accession": ifrs_data["accession"],
-                            "url": f"https://demo.ifrs-data.com/{ticker.lower()}/",
-                            "concept": concept,
-                            "taxonomy": "ifrs-full",
-                            "unit": "USD",
-                            "scale": "U",
-                            "fx_used": fx_used,
-                            "amended": False,
-                            "as_reported": True,
-                            "filed": "2024-12-31",
-                            "form": "IFRS",
-                            "fiscal_year": 2024,
-                            "fiscal_period": "FY"
-                        }
-                    }
-            
-            # Fallback to real SEC data (for both strict and non-strict modes)
+            # Production mode - only real SEC data allowed
             cik = self.ticker_to_cik.get(ticker.upper())
             if not cik:
                 logger.warning("Unknown ticker", ticker=ticker)

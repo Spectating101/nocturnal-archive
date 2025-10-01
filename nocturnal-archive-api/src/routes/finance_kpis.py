@@ -11,9 +11,10 @@ import structlog
 from src.facts.store import FactsStore
 from src.calc.registry import KPIRegistry
 from src.utils.error_handling import create_problem_response, get_error_type
+from src.adapters.sec_facts import get_sec_facts_adapter
 
 logger = structlog.get_logger(__name__)
-router = APIRouter(prefix="/v1/finance/kpis", tags=["Finance KPIs"])
+router = APIRouter(tags=["Finance KPIs"])
 
 # Global instances (would be injected in production)
 kpi_registry = KPIRegistry()
@@ -25,6 +26,42 @@ class KPISearchRequest(BaseModel):
     freq: str = Field("Q", description="Frequency ('Q' for quarterly, 'A' for annual)")
     limit: int = Field(12, ge=1, le=50, description="Maximum number of periods")
     ttm: bool = Field(False, description="Calculate trailing twelve months")
+
+@router.get("/registry/available")
+async def get_available_kpis():
+    """Get list of all available KPIs"""
+    metrics = kpi_registry.list_metrics()
+    inputs = kpi_registry.list_inputs()
+    
+    aliases = {
+        "revenue": "revenueTotal",
+        "sales": "revenueTotal",
+        "turnover": "revenueTotal",
+        "cogs": "costOfRevenue",
+        "costofgoods": "costOfRevenue",
+        "grossmargin": "grossMargin",
+        "netincome": "netIncome",
+        "eps": "epsDiluted",
+    }
+    
+    # Handle both dict and list return types
+    if isinstance(metrics, dict):
+        kpi_list = list(metrics.keys())
+    else:
+        kpi_list = metrics
+    
+    if isinstance(inputs, dict):
+        input_list = list(inputs.keys())
+    else:
+        input_list = inputs
+    
+    return {
+        "kpis": kpi_list,
+        "inputs": input_list,
+        "aliases": aliases,
+        "total_kpis": len(kpi_list),
+        "total_inputs": len(input_list)
+    }
 
 @router.get("/{ticker}/{kpi}")
 async def get_kpi(
@@ -53,9 +90,71 @@ async def get_kpi(
             trace_id=getattr(request.state, "trace_id", "unknown")
         )
         
+        # Normalize KPI name and apply common aliases
+        alias_map = {
+            "revenue": "revenueTotal",
+            "sales": "revenueTotal",
+            "turnover": "revenueTotal",
+            "cogs": "costOfRevenue",
+            "costofgoods": "costOfRevenue",
+            "grossmargin": "grossMargin",
+            "netincome": "netIncome",
+            "eps": "epsDiluted",
+        }
+        normalized_kpi = kpi.replace(" ", "").replace("_", "")
+        normalized_kpi = normalized_kpi[0].lower() + normalized_kpi[1:] if normalized_kpi else normalized_kpi
+        effective_kpi = alias_map.get(normalized_kpi, kpi)
+
         # Check if KPI exists in registry
-        kpi_def = kpi_registry.get_metric(kpi)
+        kpi_def = kpi_registry.get_metric(effective_kpi)
+
+        # Helper: SEC adapter fallback using internal concept names supported by adapter
+        async def _adapter_series_fallback(concept_key: str) -> Optional[Dict[str, Any]]:
+            adapter = get_sec_facts_adapter()
+            # The adapter understands keys like 'revenue', 'costOfRevenue', 'grossProfit', 'netIncome'
+            series = await adapter.get_series(ticker, concept_key, freq=freq, limit=limit)
+            if not series:
+                return None
+            data_points = [
+                {
+                    "period": p.get("period"),
+                    "value": p.get("value"),
+                    "unit": p.get("unit", "USD"),
+                    "concept": concept_key,
+                    "citation": p.get("citation", {}),
+                    "quality_flags": []
+                }
+                for p in series
+            ]
+            return {
+                "ticker": ticker,
+                "kpi": concept_key,
+                "freq": freq,
+                "limit": limit,
+                "ttm": ttm,
+                "concept_used": concept_key,
+                "data": data_points,
+                "metadata": {
+                    "total_periods": len(data_points),
+                    "date_range": {
+                        "start": data_points[-1]["period"] if data_points else None,
+                        "end": data_points[0]["period"] if data_points else None
+                    },
+                    "kpi_definition": kpi_def or {"source": "adapter_fallback"}
+                }
+            }
+
+        # If KPI not in registry, try adapter fallback for common concepts
         if not kpi_def:
+            adapter_supported = {"revenue", "costOfRevenue", "grossProfit", "operatingIncome", "netIncome"}
+            # Map normalized alias 'revenue' to adapter key 'revenue'
+            adapter_key = normalized_kpi if normalized_kpi in adapter_supported else None
+            if adapter_key is None and effective_kpi in adapter_supported:
+                adapter_key = effective_kpi
+            if adapter_key:
+                fallback_response = await _adapter_series_fallback(adapter_key)
+                if fallback_response:
+                    return fallback_response
             return create_problem_response(
                 request, 404,
                 "not-found",
@@ -63,9 +162,8 @@ async def get_kpi(
                 f"Unknown KPI: {kpi}"
             )
         
-        # Get facts series for the KPI
-        # For now, we'll get the primary input concept
-        input_defs = kpi_registry.get_metric_inputs(kpi)
+        # Get facts series for the KPI (registry-backed)
+        input_defs = kpi_registry.get_metric_inputs(effective_kpi)
         if not input_defs:
             return create_problem_response(
                 request, 422,
@@ -99,7 +197,20 @@ async def get_kpi(
             segment=segment
         )
         
+        # If store is empty for this path, try adapter fallback using a close concept key if possible
         if not facts:
+            adapter_key_map: Dict[str, str] = {
+                "revenueTotal": "revenue",
+                "costOfRevenue": "costOfRevenue",
+                "grossProfit": "grossProfit",
+                "operatingIncome": "operatingIncome",
+                "netIncome": "netIncome",
+            }
+            adapter_key = adapter_key_map.get(effective_kpi)
+            if adapter_key:
+                fallback_response = await _adapter_series_fallback(adapter_key)
+                if fallback_response:
+                    return fallback_response
             return create_problem_response(
                 request, 404,
                 "not-found",
@@ -107,7 +218,7 @@ async def get_kpi(
                 f"No {freq} data found for {ticker} {kpi} ({target_concept})"
             )
         
-        # Build response
+        # Build response from FactsStore
         kpi_data = []
         for fact in facts:
             kpi_point = {
@@ -127,7 +238,7 @@ async def get_kpi(
         
         response_data = {
             "ticker": ticker,
-            "kpi": kpi,
+            "kpi": effective_kpi,
             "freq": freq,
             "limit": limit,
             "ttm": ttm,
@@ -444,19 +555,4 @@ async def get_segment_kpi(
             f"Internal error: {str(e)}"
         )
 
-@router.get("/registry/available")
-async def get_available_kpis():
-    """Get list of all available KPIs"""
-    metrics = kpi_registry.list_metrics()
-    inputs = kpi_registry.list_inputs()
-    
-    return {
-        "kpis": metrics,
-        "inputs": inputs,
-        "counts": {
-            "kpis": len(metrics),
-            "inputs": len(inputs)
-        },
-        "registry_info": kpi_registry.get_registry_summary()
-    }
 

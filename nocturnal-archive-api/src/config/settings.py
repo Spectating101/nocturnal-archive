@@ -22,11 +22,15 @@ class Settings(BaseSettings):
     # API Keys
     openai_api_key: str = Field(default="", description="OpenAI API key (deprecated - use Groq)")
     anthropic_api_key: str = Field(default="", description="Anthropic API key (deprecated - use Groq)")
-    groq_api_key: str = Field(..., description="Groq API key (primary LLM provider)")
+    # LLM Providers (all optional; router selects available one)
+    groq_api_key: str = Field(default="", description="Groq API key (primary LLM provider)")
+    openai_api_keys: List[str] = Field(default_factory=list, description="Optional: multiple OpenAI API keys for rotation")
+    mistral_api_keys: List[str] = Field(default_factory=list, description="Optional: multiple Mistral API keys for rotation")
+    cohere_api_keys: List[str] = Field(default_factory=list, description="Optional: multiple Cohere API keys for rotation")
     openalex_api_key: str = Field(default="", description="OpenAlex API key")
     
     # Database
-    database_url: str = Field(..., description="Database connection URL")
+    database_url: str = Field(default="", description="Database connection URL")
     redis_url: str = Field(default="redis://localhost:6379", description="Redis connection URL")
     
     # App Configuration
@@ -66,7 +70,7 @@ class Settings(BaseSettings):
     enable_caching: bool = Field(default=True, description="Enable caching")
     
     # FinSight Configuration
-    finsight_strict: bool = Field(default=False, description="Enable strict mode (no mocks)")
+    finsight_strict: bool = Field(default=True, description="Enable strict mode (no mocks)")
     
     # FinGPT Configuration
     fingpt_base_model: str = Field(default="meta-llama/Llama-3.1-8B-Instruct", description="FinGPT base model")

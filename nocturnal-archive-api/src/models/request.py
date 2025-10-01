@@ -60,6 +60,8 @@ class SynthesizeRequest(BaseModel):
     focus: str = Field("key_findings", description="Focus area for synthesis")
     style: str = Field("academic", description="Writing style")
     custom_prompt: Optional[str] = Field(None, max_length=1000, description="Custom synthesis prompt")
+    papers: Optional[List[Dict[str, Any]]] = Field(None, description="Optional: full paper objects including abstracts")
+    original_query: Optional[str] = Field(None, description="Optional: original user query to assess relevance of synthesis")
     
     @validator('focus')
     def validate_focus(cls, v):
@@ -73,4 +75,15 @@ class SynthesizeRequest(BaseModel):
         valid_styles = ['academic', 'technical', 'accessible', 'concise']
         if v not in valid_styles:
             raise ValueError(f"Invalid style: {v}. Must be one of {valid_styles}")
+        return v
+
+    @validator('papers')
+    def validate_papers(cls, v):
+        if v is None:
+            return v
+        for p in v:
+            if 'id' not in p:
+                raise ValueError("Each paper must include an 'id'")
+            if not any(k in p for k in ['abstract', 'title']):
+                raise ValueError("Each paper must include at least 'abstract' or 'title'")
         return v

@@ -1,13 +1,13 @@
 # Nocturnal Archive Repository Development Context
 
 ## 🎯 **Project Overview**
-**Goal**: Build a "free Cursor Agent" - an AI assistant that can intelligently navigate file systems, execute terminal commands with persistent state, and provide development assistance using only free-tier resources.
+**Goal**: Build a unified research assistant platform that combines an Academic Research API (Archive), a Financial Data API (FinSight), and an AI Agent with persistent shell access—originally targeting a "free Cursor Agent" vision, now matured into a production-grade, integrated system.
 
 ## 📚 **Repository Structure & Purpose**
-- **Dual Architecture**: Academic Research API + Financial Data API (FinSight)
-- **Tech Stack**: FastAPI, PostgreSQL, Redis, Rust for performance-critical operations
-- **Core Differentiator**: Integration of research and finance systems with LLM capabilities
-- **Main Challenge**: Achieving Cursor Agent-level functionality within free-tier constraints
+- **Integrated Architecture**: Archive API + FinSight API + Enhanced AI Agent
+- **Tech Stack**: FastAPI, PostgreSQL, Redis (with in-memory fallback), Rust for performance-critical operations
+- **Core Differentiator**: Cohesive integration of research and finance with robust LLM routing and secure shell tools
+- **Main Challenges**: Production hardening, rate limits, security posture, and consistent developer ergonomics
 
 ## 🔄 **Development Progression**
 
@@ -45,7 +45,13 @@
   - 32B models: Better but still constrained by rate limits
   - 70B models: Best capability but expensive and rate-limited
 - **Hybrid Architecture Concept**: "8B Intern → 32B/70B Supervisor" approach
-- **Repository Cleanup**: Removed 6 redundant Groq chatbot files, organized documentation
+- **Repository Cleanup**: Consolidated agents into `ai_agent.py`, removed redundant files, organized documentation
+
+### **Phase 6: Justice for Archive API & AI Agent (Recent)**
+- **Upgrades**: Real data sources (OpenAlex, PubMed), Redis caching with fallback, LLM synthesis via Groq; AI Agent integrated both APIs with smart routing and token management
+- **Security**: Argon2 password hashing, principal-aware rate limits, strict shell allowlist/denylist
+- **Reliability**: App runs in degraded mode without Redis; structured logging and metrics added
+- **Result**: Archive and Agent elevated to parity with FinSight
 
 ## 🧠 **Key Technical Challenges Discovered**
 
@@ -70,12 +76,11 @@
 - **Solution**: Concise prompts, truncated outputs, limited context
 - **Trade-off**: Balancing intelligence vs. token limits
 
-## 🎯 **Current Architecture (groq_fixed.py)**
-- **Persistent Shell Session**: Maintains state between commands
-- **Smart Command Execution**: Groq suggests commands, system executes them, feeds results back
-- **Token Optimization**: Limited context, concise responses, truncated outputs
-- **Multiple API Keys**: Support for better rate limit management
-- **Model**: Currently using `qwen/qwen3-32b` (500K TPD, 6K TPM)
+## 🎯 **Current Architecture (Production)**
+- **FinSight API**: Regulator-first financial data with citations, rate limiting, caching
+- **Archive API**: OpenAlex/PubMed search, synthesis with LLM, caching, RFC 7807-style errors
+- **Enhanced AI Agent**: Persistent shell via `subprocess.Popen()`, smart routing across APIs, token management
+- **Security & Ops**: Argon2 hashing, JWT/API keys, principal-aware rate limits, Redis fallback, Prometheus metrics, structured logs
 
 ## 💡 **Proposed Hybrid Architecture**
 **8B Intern → 32B Supervisor Model**:
@@ -85,35 +90,40 @@
 - **Implementation**: Smart escalation based on task complexity
 
 ## 🚧 **Current Status & Limitations**
-- **Working**: Basic chatbot with persistent shell access
-- **Functional**: Can navigate directories, execute commands, analyze results
-- **Limited**: Rate limits constrain complex workflows
-- **Not Cursor Agent Level**: Free tier insufficient for advanced development assistance
+- **Working**: Production-grade APIs and integrated agent workflows
+- **Functional**: Auth, rate limiting, caching, degraded mode without Redis
+- **Known Issues**: Minor shell test edge case; synthesis constructor requires adjustment for strict fallback
+- **Constraints**: Free-tier rate limits still shape throughput under heavy load
 
 ## 🤔 **Fundamental Question**
 **Is a truly functional "free Cursor Agent" achievable?**
-- **Technical Feasibility**: Possible with hybrid architecture
-- **Rate Limit Reality**: Free tier too constrained for daily use
-- **Model Capability**: 32B/70B models have intelligence ceiling
-- **Alternative**: Paid tier or local models with same limitations
+- **Technical Feasibility**: Yes, with hybrid routing and careful budgeting
+- **Rate Limit Reality**: Free tier remains constraining at scale; graceful degradation implemented
+- **Model Capability**: 32B/70B excel but require budgets; fallbacks are in place
+- **Alternative**: Paid tier or local models; current system remains usable within limits
 
 ## 📁 **Key Files**
-- `groq_fixed.py` - Current working chatbot (only remaining Groq implementation)
-- `src/services/integrated_analysis_service.py` - Cross-system analysis
-- `src/services/llm_service/api_clients/groq_client.py` - Groq API client
-- `docs/` - All documentation (organized during cleanup)
+- `ai_agent.py` - Consolidated agent
+- `groq_fixed.py` - Original working chatbot (kept for reference)
+- `nocturnal-archive-api/src/main_production.py` - Production FastAPI app
+- `nocturnal-archive-api/src/middleware/rate_limiting.py` - Redis-backed RL with headers
+- `nocturnal-archive-api/src/auth/security.py` - JWT/API key auth with Argon2
+- `nocturnal-archive-api/src/services/paper_search.py` - OpenAlex/PubMed integration
+- `nocturnal-archive-api/src/services/synthesizer.py` - LLM synthesis
+- `nocturnal-archive-api/src/middleware/redis_fallback.py` - In-memory degraded mode
+- `docs/` - All documentation
 
 ## 🎯 **Next Steps Discussion Points**
-1. **Hybrid Architecture Implementation**: 8B → 32B escalation system
-2. **Local Model Integration**: Ollama as alternative to cloud APIs
-3. **Paid Tier Consideration**: Whether free tier can achieve goals
-4. **Simplified Use Cases**: Focus on tasks that work well with current limitations
-5. **Architecture Optimization**: Better task distribution and routing
+1. **LLM Circuit Breaker**: Expand template-based fallback coverage across endpoints
+2. **Shell Security**: Close remaining edge case in input redirection parsing
+3. **KPI Discovery**: Publish `/v1/finance/kpis/registry` and alias common terms
+4. **Idempotency**: Add `Idempotency-Key` to write-ish endpoints
+5. **Dashboards**: Route latency, RL hits, token usage, shell execs, cache hit rate
 
 ## 🔑 **Key Insights for Opus 4**
-- **Repository has solid foundation** with research/finance integration
-- **Groq integration is working** but constrained by free tier limits
-- **Persistent shell access is solved** - commands maintain state
-- **Main challenge**: Balancing capability with rate limits and costs
-- **Architecture decisions**: Need to choose between capability, cost, and complexity
+- **Strong foundation** with integrated research and finance systems
+- **Production hardening** completed: auth, rate limits, degraded mode, structured errors
+- **Persistent shell access** is secure and stateful; validations in place
+- **Main challenge**: Balancing capability, cost, and throughput under free tiers
+- **Architecture decisions**: Hybrid routing and fallbacks sustain a solid beta experience
 

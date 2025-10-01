@@ -27,12 +27,14 @@ The Nocturnal AI Agent is a consolidated, production-ready AI assistant that com
 pip install groq
 ```
 
-### 2. Set API Keys (Optional)
+### 2. Set API Keys (REQUIRED)
 ```bash
 export GROQ_API_KEY="your-api-key-here"
 export GROQ_API_KEY_2="your-second-key"  # Optional for better rate limits
 export GROQ_API_KEY_3="your-third-key"   # Optional for better rate limits
 ```
+
+**⚠️ IMPORTANT:** Never commit API keys to version control! Always use environment variables.
 
 ### 3. Run the Agent
 ```bash

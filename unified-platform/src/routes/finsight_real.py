@@ -25,7 +25,9 @@ try:
     from src.facts.store import FactsStore
     from src.calc.registry import KPIRegistry
     from src.utils.error_handling import create_problem_response, get_error_type
+    from src.adapters.sec_facts import SECFactsAdapter
     FINSIGHT_AVAILABLE = True
+    logger.info("✅ Real FinSight components loaded successfully")
 except ImportError as e:
     logger.warning(f"FinSight components not available: {e}")
     FINSIGHT_AVAILABLE = False
@@ -96,16 +98,23 @@ class SimpleEdgarRetriever:
         
         return filings
 
-# Global instances (simplified for demo)
+# Global instances - USE REAL COMPONENTS WITH STRICT MODE
 if FINSIGHT_AVAILABLE:
     kpi_registry = KPIRegistry()
     facts_store = FactsStore()
     edgar_retriever = EdgarRetriever()
+    sec_adapter = SECFactsAdapter()
+    
+    # Force strict mode for real data only
+    import os
+    os.environ['FINSIGHT_STRICT'] = 'true'
+    logger.info("🚀 Using REAL FinSight components with STRICT MODE - no mocks allowed!")
 else:
     # Use simplified implementations
     facts_store = SimpleFactsStore()
     edgar_retriever = SimpleEdgarRetriever()
-    FINSIGHT_AVAILABLE = True  # Mark as available with simplified components
+    sec_adapter = None
+    logger.warning("⚠️ Using mock FinSight components - real APIs not available")
 
 class KPISearchRequest(BaseModel):
     ticker: str = Field(..., description="Company ticker symbol")
@@ -170,25 +179,53 @@ async def get_kpi(
             segment=segment
         )
         
-        # Get KPI data from facts store
-        kpi_data = await facts_store.get_kpi_series(
-            ticker=ticker,
-            kpi=kpi,
-            freq=freq,
-            limit=limit,
-            ttm=ttm,
-            segment=segment
-        )
+        # FIRST: Try to get real data from SEC
+        if sec_adapter:
+            logger.info(f"🔍 Fetching REAL SEC data for {ticker} {kpi}")
+            
+            try:
+                # Get real SEC data using the correct method
+                sec_fact = await sec_adapter.get_fact(ticker, kpi)
+                
+                if sec_fact and "value" in sec_fact:
+                    # Convert SEC fact to KPI data format
+                    kpi_data = [{
+                        "period": sec_fact.get("period", "Unknown"),
+                        "value": sec_fact.get("value", 0),
+                        "unit": sec_fact.get("unit", "USD"),
+                        "accession": sec_fact.get("citation", {}).get("accession", "N/A"),
+                        "source": "SEC EDGAR (Real Data)",
+                        "url": sec_fact.get("citation", {}).get("url", "N/A")
+                    }]
+                    
+                    logger.info(f"✅ Found real SEC data for {ticker} {kpi}: ${sec_fact.get('value', 0):,}")
+                    real_data = True
+                else:
+                    logger.warning(f"⚠️ No SEC data found for {ticker} {kpi}, using facts store")
+                    kpi_data = await facts_store.get_kpi_series(ticker, kpi, freq, limit, ttm, segment)
+                    real_data = False
+            except Exception as sec_error:
+                logger.warning(f"⚠️ SEC adapter error: {sec_error}, using facts store")
+                kpi_data = await facts_store.get_kpi_series(ticker, kpi, freq, limit, ttm, segment)
+                real_data = False
+        else:
+            # FALLBACK: Use facts store if SEC adapter not available
+            logger.warning(f"⚠️ SEC adapter not available, using facts store")
+            kpi_data = await facts_store.get_kpi_series(ticker, kpi, freq, limit, ttm, segment)
+            real_data = False
         
         return {
             "ticker": ticker,
             "kpi": kpi,
             "frequency": freq,
             "data": kpi_data,
+            "real_data": real_data,
+            "source": "SEC EDGAR (Real Data)" if real_data else "FinSight Facts Store (Fallback)",
             "metadata": {
                 "total_periods": len(kpi_data),
                 "ttm_calculated": ttm,
-                "segment_filter": segment
+                "segment_filter": segment,
+                "data_source": "real_sec" if real_data else "fallback"
             }
         }
         

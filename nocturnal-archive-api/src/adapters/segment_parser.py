@@ -82,9 +82,7 @@ class SegmentParser:
                 
                 if not segment_facts:
                     logger.warning("No segment facts found", ticker=ticker, dim=dim, kpi=kpi)
-                    # For supported companies, return mock data with proper XBRL dimensions
-                    if ticker.upper() in ["AAPL", "MSFT", "GOOGL", "AMZN"]:
-                        return self._get_mock_segment_data(ticker, kpi, dim, limit)
+                    # Production mode - no mock data
                     return []
                 
                 # Group by segment member and build series
@@ -236,134 +234,6 @@ class SegmentParser:
         
         return series_list
     
-    def _get_mock_segment_data(self, ticker: str, kpi: str, dim: str, limit: int) -> List[Dict[str, Any]]:
-        """Get mock segment data with proper XBRL dimensions for demonstration"""
-        
-        # Mock segment data with proper XBRL dimensions
-        mock_segments = {
-            "AAPL": {
-                "revenue": {
-                    "Geography": [
-                        {
-                            "segment": "Americas",
-                            "points": [
-                                {
-                                    "period": "2024-Q4",
-                                    "value": 150000000000,
-                                    "unit": "USD",
-                                    "citations": [{
-                                        "source": "SEC EDGAR",
-                                        "accession": "0000320193-24-000006",
-                                        "url": "https://www.sec.gov/Archives/edgar/data/0000320193/000032019324000006/aapl-20240928.htm",
-                                        "concept": "SalesRevenueNet",
-                                        "taxonomy": "us-gaap",
-                                        "unit": "USD",
-                                        "scale": "U",
-                                        "fx_used": None,
-                                        "amended": False,
-                                        "as_reported": True,
-                                        "filed": "2024-Q4",
-                                        "form": "10-K",
-                                        "fiscal_year": 2024,
-                                        "fiscal_period": "Q4",
-                                        "dimension": "us-gaap:StatementGeographicalAxis",
-                                        "member": "us-gaap:AmericasMember"
-                                    }]
-                                }
-                            ]
-                        },
-                        {
-                            "segment": "Europe",
-                            "points": [
-                                {
-                                    "period": "2024-Q4",
-                                    "value": 45000000000,
-                                    "unit": "USD",
-                                    "citations": [{
-                                        "source": "SEC EDGAR",
-                                        "accession": "0000320193-24-000006",
-                                        "url": "https://www.sec.gov/Archives/edgar/data/0000320193/000032019324000006/aapl-20240928.htm",
-                                        "concept": "SalesRevenueNet",
-                                        "taxonomy": "us-gaap",
-                                        "unit": "USD",
-                                        "scale": "U",
-                                        "fx_used": None,
-                                        "amended": False,
-                                        "as_reported": True,
-                                        "filed": "2024-Q4",
-                                        "form": "10-K",
-                                        "fiscal_year": 2024,
-                                        "fiscal_period": "Q4",
-                                        "dimension": "us-gaap:StatementGeographicalAxis",
-                                        "member": "us-gaap:EuropeMember"
-                                    }]
-                                }
-                            ]
-                        },
-                        {
-                            "segment": "Greater China",
-                            "points": [
-                                {
-                                    "period": "2024-Q4",
-                                    "value": 35000000000,
-                                    "unit": "USD",
-                                    "citations": [{
-                                        "source": "SEC EDGAR",
-                                        "accession": "0000320193-24-000006",
-                                        "url": "https://www.sec.gov/Archives/edgar/data/0000320193/000032019324000006/aapl-20240928.htm",
-                                        "concept": "SalesRevenueNet",
-                                        "taxonomy": "us-gaap",
-                                        "unit": "USD",
-                                        "scale": "U",
-                                        "fx_used": None,
-                                        "amended": False,
-                                        "as_reported": True,
-                                        "filed": "2024-Q4",
-                                        "form": "10-K",
-                                        "fiscal_year": 2024,
-                                        "fiscal_period": "Q4",
-                                        "dimension": "us-gaap:StatementGeographicalAxis",
-                                        "member": "us-gaap:GreaterChinaMember"
-                                    }]
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
-        }
-        
-        # Get segment data for this ticker and dimension
-        ticker_data = mock_segments.get(ticker.upper(), {})
-        kpi_data = ticker_data.get(kpi, {})
-        segment_data = kpi_data.get(dim, [])
-        
-        if not segment_data:
-            return []
-        
-        # Convert to the expected format
-        series_list = []
-        for item in segment_data:
-            points = []
-            for point_data in item["points"]:
-                points.append({
-                    "period": point_data["period"],
-                    "value": point_data["value"],
-                    "unit": point_data["unit"],
-                    "citations": point_data["citations"],
-                    "quality_flags": []
-                })
-            
-            series_list.append({
-                "segment": item["segment"],
-                "points": points
-            })
-        
-        logger.info("Using mock segment data with XBRL dimensions", 
-                   ticker=ticker, kpi=kpi, dim=dim, segments=len(series_list))
-        
-        return series_list
-
 # Global instance
 segment_parser = SegmentParser()
 

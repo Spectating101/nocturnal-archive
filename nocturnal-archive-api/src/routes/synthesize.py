@@ -6,6 +6,7 @@ import structlog
 import uuid
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from typing import Optional
 
 from src.config.settings import Settings, get_settings
@@ -44,6 +45,7 @@ async def synthesize_papers(
         )
         
         # Try sophisticated synthesis first, fallback to basic synthesis
+        routing_md = {}
         if sophisticated_engine.enhanced_synthesizer:
             logger.info("Using sophisticated synthesis engine", trace_id=trace_id)
             advanced_result = await sophisticated_engine.synthesize_advanced(
@@ -53,8 +55,9 @@ async def synthesize_papers(
                 context={"focus": request.focus, "custom_prompt": request.custom_prompt}
             )
             
-            if "error" not in advanced_result:
+            if isinstance(advanced_result, dict) and "error" not in advanced_result:
                 # Convert advanced result to our format
+                routing_md = advanced_result.get("routing_metadata", {}) if isinstance(advanced_result, dict) else {}
                 result = SynthesisResult(
                     summary=advanced_result.get("summary", ""),
                     paper_ids=request.paper_ids,
@@ -70,66 +73,58 @@ async def synthesize_papers(
                 logger.warning("Advanced synthesis failed, falling back to basic synthesis", 
                              error=advanced_result.get("error"), trace_id=trace_id)
                 # Fallback to basic synthesis
-                synthesizer = Synthesizer(settings.openai_api_key)
-                result = await synthesizer.synthesize_papers(
+                synthesizer = Synthesizer()
+                basic = await synthesizer.synthesize_papers(
                     paper_ids=request.paper_ids,
                     max_words=request.max_words,
                     focus=request.focus,
                     style=request.style,
-                    custom_prompt=request.custom_prompt
+                    papers=request.papers
                 )
-                result.trace_id = trace_id
+                routing_md = basic.get("routing_metadata", {}) if isinstance(basic, dict) else {}
+                result = SynthesisResult(
+                    summary=basic.get("summary", ""),
+                    key_findings=basic.get("key_findings", []),
+                    citations_used=basic.get("citations_used", {}),
+                    word_count=basic.get("word_count", 0),
+                    trace_id=trace_id
+                )
         else:
             logger.info("Using basic synthesis engine", trace_id=trace_id)
             # Use basic synthesis
-            synthesizer = Synthesizer(settings.openai_api_key)
-            result = await synthesizer.synthesize_papers(
+            synthesizer = Synthesizer()
+            basic = await synthesizer.synthesize_papers(
                 paper_ids=request.paper_ids,
                 max_words=request.max_words,
                 focus=request.focus,
                 style=request.style,
-                custom_prompt=request.custom_prompt
+                papers=request.papers
             )
-            result.trace_id = trace_id
+            routing_md = basic.get("routing_metadata", {}) if isinstance(basic, dict) else {}
+            result = SynthesisResult(
+                summary=basic.get("summary", ""),
+                key_findings=basic.get("key_findings", []),
+                citations_used=basic.get("citations_used", {}),
+                word_count=basic.get("word_count", 0),
+                trace_id=trace_id
+            )
         
         # Add trace ID to result
         result.trace_id = trace_id
         
-        # Apply performance enhancements if requested
+        # Apply performance enhancements if requested (attach in a separate field not in model)
+        enhanced_metadata = {}
         if enhance:
             logger.info("Applying synthesis enhancements", trace_id=trace_id)
-            
-            # Get paper data for enhancement (mock for now)
             papers_data = [{"id": pid, "title": f"Paper {pid}", "abstract": "Sample abstract"} for pid in request.paper_ids]
-            
-            # Enhance synthesis with performance optimizations
-            enhanced_data = await performance_integration.enhance_synthesis(papers_data, result.summary)
-            
-            # Add enhanced data to result
-            if hasattr(result, 'metadata'):
-                result.metadata = result.metadata or {}
-            else:
-                result.metadata = {}
-            
-            result.metadata.update(enhanced_data)
+            enhanced_metadata = await performance_integration.enhance_synthesis(papers_data, result.summary)
         
-        # Extract insights if requested
+        # Extract insights if requested (attach outside model)
         if extract_insights:
             logger.info("Extracting synthesis insights", trace_id=trace_id)
-            
-            # Get paper data for insights (mock for now)
             papers_data = [{"id": pid, "title": f"Paper {pid}", "abstract": "Sample abstract"} for pid in request.paper_ids]
-            
-            # Extract insights
             insights = await performance_integration.extract_research_insights(papers_data)
-            
-            # Add insights to result metadata
-            if hasattr(result, 'metadata'):
-                result.metadata = result.metadata or {}
-            else:
-                result.metadata = {}
-            
-            result.metadata['insights'] = insights
+            enhanced_metadata['insights'] = insights
         
         logger.info(
             "Enhanced synthesis completed",
@@ -140,7 +135,39 @@ async def synthesize_papers(
             trace_id=trace_id
         )
         
-        return result
+        # Optional relevance check
+        relevance = None
+        if request.original_query and isinstance(result.summary, str):
+            terms = set(request.original_query.lower().split())
+            blob = result.summary.lower()
+            matches = sum(1 for t in terms if t in blob)
+            relevance = (matches / max(1, len(terms)))
+
+        # Return model plus optional metadata wrapper
+        # routing_md already set above from advanced_result or basic
+        if enhanced_metadata is None:
+            enhanced_metadata = {}
+        enhanced_metadata["routing_metadata"] = routing_md
+        enhanced_metadata["synthesis_mode"] = enhanced_metadata.get("synthesis_mode", "smart")
+
+        # Also expose top-level quick-inspect fields
+        routing_decision = routing_md.get("routing_decision", {}) if isinstance(routing_md, dict) else {}
+        model_used = routing_decision.get("model", "unknown")
+        complexity = routing_decision.get("complexity", "unknown")
+        usage = routing_md.get("usage", {}) if isinstance(routing_md, dict) else {}
+
+        return {
+            "summary": result.summary,
+            "key_findings": result.key_findings,
+            "citations_used": result.citations_used,
+            "word_count": result.word_count,
+            "trace_id": result.trace_id,
+            "model_used": model_used,
+            "complexity": complexity,
+            "token_usage": usage,
+            "metadata": enhanced_metadata or {},
+            **({"relevance_score": relevance} if relevance is not None else {})
+        }
     
     except Exception as e:
         logger.error(
@@ -149,12 +176,140 @@ async def synthesize_papers(
             paper_ids=request.paper_ids,
             exc_info=True
         )
-        raise HTTPException(
+        # RFC 7807 style problem response
+        return JSONResponse(
             status_code=500,
-            detail={
-                "error": "synthesis_failed",
-                "message": "Failed to synthesize papers",
-                "trace_id": trace_id
+            content={
+                "type": "https://nocturnal.dev/problems/synthesis_failed",
+                "title": "Synthesis failed",
+                "status": 500,
+                "detail": "Failed to synthesize papers",
+                "instance": "/api/synthesize",
+                "request_id": trace_id,
+                "error": str(e)
+            }
+        )
+
+
+@router.post("/synthesize/strict", response_model=SynthesisResult)
+async def synthesize_papers_strict(
+    request: SynthesizeRequest,
+    settings: Settings = Depends(get_settings)
+):
+    """Strict synthesis requiring heavy model capability (70B+ models)"""
+    
+    try:
+        # Generate trace ID
+        trace_id = str(uuid.uuid4())
+        
+        logger.info(
+            "Strict synthesis request received",
+            paper_ids=request.paper_ids,
+            max_words=request.max_words,
+            focus=request.focus,
+            style=request.style,
+            trace_id=trace_id
+        )
+        
+        # Use strict synthesis (requires heavy model)
+        synthesizer = Synthesizer()
+        result = await synthesizer.synthesize_papers_strict(
+            paper_ids=request.paper_ids,
+            max_words=request.max_words,
+            focus=request.focus,
+            style=request.style
+        )
+        
+        # Check if synthesis failed due to model requirements
+        if "error" in result and "heavy model" in result["error"]:
+            logger.warning(
+                "Strict synthesis failed - no heavy model available",
+                trace_id=trace_id,
+                error=result["error"]
+            )
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "type": "https://nocturnal.dev/problems/insufficient_model_capability",
+                    "title": "Insufficient model capability",
+                    "status": 503,
+                    "detail": result["error"],
+                    "instance": "/api/synthesize/strict",
+                    "request_id": trace_id,
+                    "fallback_suggestion": result.get("fallback_suggestion", "Try the regular /synthesize endpoint")
+                }
+            )
+        
+        # If strict could not secure heavy model, return 503
+        routing_md = result.get("routing_metadata", {}) if isinstance(result, dict) else {}
+        routing_decision = routing_md.get("routing_decision", {}) if isinstance(routing_md, dict) else {}
+        if routing_decision.get("complexity") and routing_decision.get("complexity") != "heavy":
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "type": "https://nocturnal.dev/problems/insufficient_model_capability",
+                    "title": "Insufficient model capability",
+                    "status": 503,
+                    "detail": "Strict synthesis requires a heavy model (70B+).",
+                    "instance": "/api/synthesize/strict",
+                    "request_id": trace_id,
+                    "fallback_suggestion": "Use /api/synthesize or reduce max_words/paper_count"
+                }
+            )
+
+        # Convert to SynthesisResult
+        synthesis_result = SynthesisResult(
+            summary=result.get("summary", ""),
+            key_findings=result.get("key_findings", []),
+            citations_used=result.get("citations_used", {}),
+            word_count=result.get("word_count", 0),
+            trace_id=trace_id
+        )
+        
+        # Add routing metadata
+        enhanced_metadata = {
+            "synthesis_mode": "strict",
+            "routing_metadata": result.get("routing_metadata", {}),
+            "papers_synthesized": result.get("papers_synthesized", 0)
+        }
+        
+        logger.info(
+            "Strict synthesis completed",
+            paper_count=len(request.paper_ids),
+            word_count=synthesis_result.word_count,
+            model_used=result.get("routing_metadata", {}).get("routing_decision", {}).get("model", "unknown"),
+            trace_id=trace_id
+        )
+        
+        return {
+            "summary": synthesis_result.summary,
+            "key_findings": synthesis_result.key_findings,
+            "citations_used": synthesis_result.citations_used,
+            "word_count": synthesis_result.word_count,
+            "trace_id": synthesis_result.trace_id,
+            "model_used": routing_decision.get("model", "unknown"),
+            "complexity": routing_decision.get("complexity", "unknown"),
+            "token_usage": routing_md.get("usage", {}),
+            "metadata": enhanced_metadata
+        }
+    
+    except Exception as e:
+        logger.error(
+            "Strict synthesis failed",
+            error=str(e),
+            paper_ids=request.paper_ids,
+            exc_info=True
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "https://nocturnal.dev/problems/strict_synthesis_failed",
+                "title": "Strict synthesis failed",
+                "status": 500,
+                "detail": "Failed to synthesize papers with strict model requirements",
+                "instance": "/api/synthesize/strict",
+                "request_id": trace_id,
+                "error": str(e)
             }
         )
 

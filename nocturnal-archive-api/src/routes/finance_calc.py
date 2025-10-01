@@ -16,7 +16,7 @@ from src.utils.error_handling import create_problem_response, get_error_type
 from datetime import datetime
 
 logger = structlog.get_logger(__name__)
-router = APIRouter(prefix="/v1/finance/calc", tags=["Finance Calculations"])
+router = APIRouter(tags=["Finance Calculations"])
 
 # Global instances (would be injected in production)
 kpi_registry = KPIRegistry()

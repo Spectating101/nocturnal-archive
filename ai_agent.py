@@ -58,6 +58,10 @@ class NocturnalAIAgent:
         self.memory = {}  # Simple memory system
         self.daily_token_usage = 0
         self.daily_limit = 100000
+        # Strict allowlist for shell commands (expand later with a permit-list function)
+        self.allowed_commands = {
+            "ls", "pwd", "cd", "cat", "head", "tail", "grep", "sed", "find", "tree"
+        }
         
     async def initialize(self):
         """Initialize the agent with API keys and shell session"""
@@ -122,6 +126,13 @@ class NocturnalAIAgent:
             
         except Exception as e:
             return f"ERROR: {e}"
+
+    def _is_allowed_command(self, raw: str) -> bool:
+        """Check if the backticked content is a safe, allowed shell command."""
+        if not raw or not raw.strip():
+            return False
+        first = raw.strip().split()[0]
+        return first in self.allowed_commands
     
     def _check_token_budget(self, estimated_tokens: int) -> bool:
         """Check if we have enough token budget"""
@@ -166,11 +177,40 @@ class NocturnalAIAgent:
     async def process_request(self, request: ChatRequest) -> ChatResponse:
         """Process request with full AI capabilities"""
         try:
-            if not self.client:
+            # Fast path: if the user explicitly included a command in backticks, execute it
+            direct_cmds = re.findall(r'`([^`]+)`', request.question or "")
+            if direct_cmds:
+                cmd = direct_cmds[0].strip()
+                if not self._is_allowed_command(cmd):
+                    hint = "Allowed commands: ls, pwd, cd, cat, grep, head, tail, sed, find, tree"
+                    return ChatResponse(
+                        response=f"Rejected backticked content: `{cmd}` is not an allowed shell command.\n{hint}",
+                        tools_used=[],
+                        reasoning_steps=["command_rejected"],
+                        timestamp=datetime.now().isoformat(),
+                        tokens_used=0,
+                        confidence_score=0.95,
+                        execution_results={"command": cmd, "allowed": False}
+                    )
+                output = self.execute_command(cmd)
+                self._update_memory(request.user_id, request.conversation_id, f"Ran `{cmd}` → {output[:80]}")
                 return ChatResponse(
-                    response="❌ AI response not available (no Groq API key)",
-                    timestamp=datetime.now().isoformat()
+                    response=f"Executed `{cmd}`.\n\nOutput:\n{output}",
+                    tools_used=["shell_execution"],
+                    reasoning_steps=["user_direct_command"],
+                    timestamp=datetime.now().isoformat(),
+                    tokens_used=0,
+                    confidence_score=0.9,
+                    execution_results={"command": cmd, "output": output, "success": not output.startswith("ERROR:"), "allowed": True}
                 )
+            
+            if not self.client:
+                # Proceed with a helpful fallback if LLM is unavailable
+                fallback = (
+                    "[Fallback] LLM unavailable. You can run commands by wrapping them in backticks,\n"
+                    "e.g., `pwd` or `ls -1`."
+                )
+                return ChatResponse(response=fallback, timestamp=datetime.now().isoformat())
             
             # Get memory context
             memory_context = self._get_memory_context(request.user_id, request.conversation_id)
@@ -221,17 +261,27 @@ You have real system access through command execution. Be smart and efficient.""
                     timestamp=datetime.now().isoformat()
                 )
             
-            # Get Groq's response
-            response = self.client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=messages,
-                max_tokens=800,
-                temperature=0.3
-            )
-            
-            response_text = response.choices[0].message.content
-            tokens_used = response.usage.total_tokens if response.usage else estimated_tokens
-            self._charge_tokens(tokens_used)
+            # Get Groq's response with circuit-breaker style fallback
+            response_text = None
+            tokens_used = 0
+            try:
+                response = self.client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=messages,
+                    max_tokens=800,
+                    temperature=0.3
+                )
+                response_text = response.choices[0].message.content
+                tokens_used = response.usage.total_tokens if getattr(response, 'usage', None) else estimated_tokens
+                self._charge_tokens(tokens_used)
+            except Exception as e:
+                # Fallback response when LLM is unavailable
+                response_text = (
+                    "[Fallback] LLM unavailable. Here's a concise, helpful response using available context.\n\n"
+                    f"Question: {request.question}\n"
+                    "Guidance: Try again shortly; meanwhile, you can use the archive and finance APIs, or run a shell command."
+                )
+                tokens_used = 0
             
             # Check for commands in backticks
             commands = re.findall(r'`([^`]+)`', response_text)
@@ -260,20 +310,20 @@ Results: {truncated_output}
 Brief summary:"""
                 
                 # Get Groq's analysis of the real results
-                analysis_response = self.client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[{"role": "user", "content": analysis_prompt}],
-                    max_tokens=300,
-                    temperature=0.3
-                )
-                
-                analysis = analysis_response.choices[0].message.content
-                final_response = f"{response_text}\n\n{analysis}"
-                
-                # Charge additional tokens
-                additional_tokens = analysis_response.usage.total_tokens if analysis_response.usage else 100
-                self._charge_tokens(additional_tokens)
-                tokens_used += additional_tokens
+                try:
+                    analysis_response = self.client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[{"role": "user", "content": analysis_prompt}],
+                        max_tokens=300,
+                        temperature=0.3
+                    )
+                    analysis = analysis_response.choices[0].message.content
+                    final_response = f"{response_text}\n\n{analysis}"
+                    additional_tokens = analysis_response.usage.total_tokens if getattr(analysis_response, 'usage', None) else 100
+                    self._charge_tokens(additional_tokens)
+                    tokens_used += additional_tokens
+                except Exception:
+                    final_response = f"{response_text}\n\n[Fallback] Command output summarized: {truncated_output[:300]}..."
             else:
                 final_response = response_text
             

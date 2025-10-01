@@ -54,3 +54,8 @@ class SynthesisResult(BaseModel):
     citations_used: Dict[str, str] = Field(..., description="Mapping of citation numbers to paper IDs")
     word_count: int = Field(..., description="Actual word count of summary")
     trace_id: str = Field(..., description="Request trace ID for debugging")
+    # Optional transparency fields
+    model_used: Optional[str] = Field(None, description="LLM model used for synthesis")
+    complexity: Optional[str] = Field(None, description="Task complexity used by router")
+    token_usage: Optional[Dict[str, Any]] = Field(None, description="Token usage reported by provider (may include floats)")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata including routing decisions")

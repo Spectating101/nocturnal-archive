@@ -1,0 +1,17 @@
+include README.md
+include LICENSE
+include requirements.txt
+include *.md
+include *.txt
+include *.py
+recursive-include nocturnal_archive *.py
+recursive-include nocturnal_archive *.txt
+recursive-include nocturnal_archive *.md
+exclude test_*
+exclude *test*
+exclude .env*
+exclude *.log
+exclude __pycache__
+exclude *.pyc
+exclude .git*
+exclude .DS_Store

@@ -165,6 +165,15 @@ class EnhancedNocturnalAgent:
     
     async def initialize(self):
         """Initialize the agent with API keys and shell session"""
+        # Load environment variables from .env.local
+        try:
+            from dotenv import load_dotenv
+            load_dotenv('.env.local')
+        except ImportError:
+            print("⚠️ python-dotenv not installed, using system environment variables")
+        except Exception as e:
+            print(f"⚠️ Could not load .env.local: {e}")
+        
         # Try multiple API keys for better rate limits
         api_keys = [
             os.getenv('GROQ_API_KEY'),

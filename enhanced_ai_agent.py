@@ -44,6 +44,7 @@ class ChatResponse:
     confidence_score: float = 0.0
     execution_results: Dict[str, Any] = None
     api_results: Dict[str, Any] = None
+    error_message: str = None
 
 class EnhancedNocturnalAgent:
     """

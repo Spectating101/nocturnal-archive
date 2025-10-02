@@ -64,6 +64,7 @@ class EnhancedNocturnalAgent:
         self.daily_limit = 100000
         self.total_cost = 0.0
         self.cost_per_1k_tokens = 0.0001  # Groq pricing estimate
+        self._auto_update_enabled = True
         
         # API clients
         self.archive_client = None
@@ -108,6 +109,21 @@ class EnhancedNocturnalAgent:
             
             # FinSight API client  
             self.finsight_base_url = "http://127.0.0.1:8000/v1/finance"
+
+            # Shared API key handling for protected routes
+            self.api_key = (
+                os.getenv("NOCTURNAL_KEY")
+                or os.getenv("NOCTURNAL_API_KEY")
+                or os.getenv("X_API_KEY")
+                or "demo-key-123"
+            )
+            self._default_headers = {}
+            if self.api_key:
+                self._default_headers["X-API-Key"] = self.api_key
+                if self.api_key == "demo-key-123":
+                    print("⚠️ Using demo API key. Set NOCTURNAL_KEY for production usage.")
+            else:
+                print("⚠️ No API key configured for Nocturnal Archive API calls")
             
             print("✅ API clients initialized")
             
@@ -165,20 +181,25 @@ class EnhancedNocturnalAgent:
     
     async def initialize(self):
         """Initialize the agent with API keys and shell session"""
+        # Check for updates automatically (silent background check)
+        self._check_updates_background()
+        
         # Try to load from package configuration first
         try:
             from .setup_config import NocturnalConfig
             config = NocturnalConfig()
             config.setup_environment()
         except ImportError:
-            # Fallback to dotenv for development
-            try:
-                from dotenv import load_dotenv
-                load_dotenv('.env.local')
-            except ImportError:
-                print("⚠️ python-dotenv not installed, using system environment variables")
-            except Exception as e:
-                print(f"⚠️ Could not load .env.local: {e}")
+            pass
+        
+        # Also try to load .env.local from current working directory (for development)
+        try:
+            from dotenv import load_dotenv
+            load_dotenv('.env.local')
+        except ImportError:
+            print("⚠️ python-dotenv not installed, using system environment variables")
+        except Exception as e:
+            print(f"⚠️ Could not load .env.local: {e}")
         
         # Try multiple API keys for better rate limits
         api_keys = [
@@ -202,7 +223,8 @@ class EnhancedNocturnalAgent:
                                                         cwd=os.getcwd())
                     
                     # Initialize HTTP session
-                    self.session = aiohttp.ClientSession()
+                    default_headers = getattr(self, "_default_headers", {})
+                    self.session = aiohttp.ClientSession(headers=default_headers)
                     
                     return True
                 except Exception as e:
@@ -212,6 +234,30 @@ class EnhancedNocturnalAgent:
         print("❌ No valid API keys found!")
         return False
     
+    def _check_updates_background(self):
+        """Check for updates in background (silent, non-blocking)"""
+        if not self._auto_update_enabled:
+            return
+            
+        import threading
+        
+        def update_check():
+            try:
+                from .updater import NocturnalUpdater
+                updater = NocturnalUpdater()
+                update_info = updater.check_for_updates()
+                
+                if update_info and update_info["available"]:
+                    # Silent update - no interruption
+                    updater.update_package()
+                    
+            except Exception:
+                # Completely silent - don't interrupt user experience
+                pass
+        
+        # Run in background thread
+        threading.Thread(target=update_check, daemon=True).start()
+    
     async def _call_archive_api(self, endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Call Archive API endpoint"""
         try:
@@ -219,7 +265,10 @@ class EnhancedNocturnalAgent:
                 return {"error": "HTTP session not initialized"}
             
             url = f"{self.archive_base_url}/{endpoint}"
-            async with self.session.post(url, json=data) as response:
+            headers = getattr(self, "_default_headers", None)
+            if headers:
+                headers = dict(headers)
+            async with self.session.post(url, json=data, headers=headers) as response:
                 if response.status == 200:
                     return await response.json()
                 else:
@@ -235,7 +284,29 @@ class EnhancedNocturnalAgent:
                 return {"error": "HTTP session not initialized"}
             
             url = f"{self.finsight_base_url}/{endpoint}"
-            async with self.session.get(url, params=params) as response:
+            headers = getattr(self, "_default_headers", None)
+            if headers:
+                headers = dict(headers)
+            async with self.session.get(url, params=params, headers=headers) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    return {"error": f"FinSight API error: {response.status}"}
+                    
+        except Exception as e:
+            return {"error": f"FinSight API call failed: {e}"}
+    
+    async def _call_finsight_api_post(self, endpoint: str, data: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Call FinSight API endpoint with POST request"""
+        try:
+            if not self.session:
+                return {"error": "HTTP session not initialized"}
+            
+            url = f"{self.finsight_base_url}/{endpoint}"
+            headers = getattr(self, "_default_headers", None)
+            if headers:
+                headers = dict(headers)
+            async with self.session.post(url, json=data, headers=headers) as response:
                 if response.status == 200:
                     return await response.json()
                 else:
@@ -279,7 +350,7 @@ class EnhancedNocturnalAgent:
             "period": "2024-Q4",
             "freq": "Q"
         }
-        return await self._call_archive_api("calc/explain", data)
+        return await self._call_finsight_api_post("calc/explain", data)
     
     def execute_command(self, command: str) -> str:
         """Execute command in persistent shell session and return output"""
@@ -292,22 +363,46 @@ class EnhancedNocturnalAgent:
             self.shell_session.stdin.flush()
             
             # Read output with timeout
-            import select
+            try:
+                import select
+                use_select = True
+            except ImportError:
+                # Windows doesn't have select module
+                use_select = False
             
             output_lines = []
             start_time = time.time()
             timeout = 10  # seconds
             
-            while time.time() - start_time < timeout:
-                if select.select([self.shell_session.stdout], [], [], 0.1)[0]:
-                    line = self.shell_session.stdout.readline()
-                    if line:
-                        output_lines.append(line.rstrip())
+            if use_select:
+                while time.time() - start_time < timeout:
+                    if select.select([self.shell_session.stdout], [], [], 0.1)[0]:
+                        line = self.shell_session.stdout.readline()
+                        if line:
+                            output_lines.append(line.rstrip())
+                        else:
+                            break
                     else:
+                        # No more output available
                         break
-                else:
-                    # No more output available
-                    break
+            else:
+                # Fallback for Windows - simpler approach
+                import threading
+                
+                def read_output():
+                    try:
+                        while True:
+                            line = self.shell_session.stdout.readline()
+                            if line:
+                                output_lines.append(line.rstrip())
+                            else:
+                                break
+                    except:
+                        pass
+                
+                reader_thread = threading.Thread(target=read_output, daemon=True)
+                reader_thread.start()
+                reader_thread.join(timeout=timeout)
             
             output = '\n'.join(output_lines)
             return output if output else "Command executed successfully"
@@ -512,7 +607,7 @@ class EnhancedNocturnalAgent:
                         tickers = tickers + ["MSFT"] if "AAPL" in tickers else ["MSFT"]
                 # Fetch revenue for each ticker requested (cap 2)
                 for t in tickers[:2]:
-                    financial_payload[t] = await self.get_financial_data(t, "revenue")
+                    financial_payload[t] = await self.get_financial_calculation(t, "revenue")
                 if financial_payload:
                     api_results["financial"] = financial_payload
                     tools_used.append("finsight_api")
@@ -527,9 +622,19 @@ class EnhancedNocturnalAgent:
 
 CAPABILITIES:
 - Academic Research API (Archive) - Search and synthesize academic papers
-- Financial Data API (FinSight) - Get SEC-regulator financial data with citations
+- Universal Financial Data API (FinSight) - Get financial data from multiple sources:
+  * SEC EDGAR (US public companies) - Authoritative financial statements
+  * Yahoo Finance (Global markets) - Real-time prices, crypto, forex, international stocks
+  * Multi-source fallback chains for maximum coverage
 - System Operations - Execute terminal commands with persistent state
 - Memory System - Remember conversation context and user preferences
+
+FINANCIAL DATA COVERAGE:
+- US Public Companies: SEC filings with authoritative citations
+- International Stocks: Yahoo Finance global market data
+- Cryptocurrency: Real-time Bitcoin, Ethereum, and major crypto prices
+- Forex: Major currency pairs (EUR/USD, GBP/USD, USD/JPY, etc.)
+- Private Companies: Alternative data sources where available
 
 REQUEST ANALYSIS:
 - Type: {request_analysis['type']}
@@ -541,9 +646,20 @@ REQUEST ANALYSIS:
 API RESULTS AVAILABLE:
 {json.dumps(api_results, indent=2) if api_results else "No API results"}
 
+CRITICAL DATA ACCURACY RULES:
+- ONLY use data from the API results above
+- If API results show "error", "not found", or "404", respond with "❌ Data not available"
+- NEVER generate or estimate financial numbers
+- NEVER use historical data not in the API results
+
 IMPORTANT RULES:
 - Be direct and concise - NO <think> tags or internal reasoning
 - Use API results when available to provide accurate, cited information
+- CRITICAL: If API results contain "error" fields, DO NOT generate fake data - tell the user the API failed
+- If you see API errors like "Unknown KPI" or "not found", respond with "❌ Financial data not available for this company/KPI"
+- For financial data, ALWAYS include source citations in this format:
+  * Simple citation: [sec.gov](SEC filing URL) - e.g., "Apple revenue: $202.7B [sec.gov](https://www.sec.gov/Archives/edgar/data/...)"
+- For academic papers, include proper citations with titles, authors, and URLs
 - Only suggest terminal commands in backticks when users ask about files/directories/system info
 - You have a PERSISTENT shell session - directory changes persist between interactions
 - When commands are executed, you receive real results - use them for accurate analysis
@@ -555,6 +671,14 @@ INTERACTION STYLE:
 - Give helpful, direct responses without verbose explanations
 - Focus on being useful, not showing your reasoning process
 - Use API data to provide authoritative, cited responses
+
+CODE GENERATION PRIORITIES:
+- Always provide complete, runnable code examples
+- Include necessary imports and dependencies
+- Add helpful comments explaining key parts
+- Provide usage examples when appropriate
+- Suggest best practices and alternatives
+- Handle common edge cases and error conditions
 
 You have real system access and API integration. Be smart and efficient."""
             

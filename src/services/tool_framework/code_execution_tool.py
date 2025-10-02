@@ -4,12 +4,14 @@ Code Execution Tool - Safe code execution environment
 
 import asyncio
 import logging
-import subprocess
-import tempfile
 import os
+import shutil
+import subprocess
 import sys
-from typing import Dict, List, Any, Optional
+import tempfile
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -142,31 +144,48 @@ class CodeExecutionTool:
         if language not in self.supported_languages:
             raise ValueError(f"Unsupported language: {language}")
         
-        # Create temporary file
-        with tempfile.NamedTemporaryFile(
-            mode='w', 
-            suffix=self.supported_languages[language]["extension"],
-            delete=False
-        ) as temp_file:
-            temp_file.write(code)
-            temp_file_path = temp_file.name
+        # Create isolated temporary directory to track artifacts safely
+        temp_dir_path = Path(tempfile.mkdtemp(prefix="na_exec_"))
+        temp_file_path = temp_dir_path / f"snippet{self.supported_languages[language]['extension']}"
+        temp_file_path.write_text(code)
         
+        outputs_dir = Path.home() / ".nocturnal_archive" / "outputs"
+        outputs_dir.mkdir(parents=True, exist_ok=True)
+        generated_artifacts: List[Dict[str, Any]] = []
+
         try:
             # Execute the code
             command = self.supported_languages[language]["command"]
             process = await asyncio.create_subprocess_exec(
-                command, temp_file_path,
+                command, str(temp_file_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
             stdout, stderr = await process.communicate()
+
+            # Capture generated media (e.g., charts) from temp directory
+            for artifact_path in temp_dir_path.glob("*"):
+                if artifact_path == temp_file_path:
+                    continue
+                if artifact_path.suffix.lower() in {".png", ".jpg", ".jpeg", ".svg"}:
+                    target_path = outputs_dir / f"{uuid.uuid4().hex}{artifact_path.suffix.lower()}"
+                    try:
+                        shutil.copyfile(artifact_path, target_path)
+                        generated_artifacts.append({
+                            "type": "chart",
+                            "source": str(artifact_path),
+                            "saved_path": str(target_path)
+                        })
+                    except Exception as artifact_error:
+                        logger.warning(f"Failed to capture artifact {artifact_path}: {artifact_error}")
             
             return {
                 "stdout": stdout.decode('utf-8') if stdout else "",
                 "stderr": stderr.decode('utf-8') if stderr else "",
                 "return_code": process.returncode,
-                "execution_time": "< 30s"  # Approximate
+                "execution_time": "< 30s",  # Approximate
+                "generated_artifacts": generated_artifacts
             }
             
         except asyncio.TimeoutError:
@@ -174,13 +193,14 @@ class CodeExecutionTool:
                 "stdout": "",
                 "stderr": "Execution timed out after 30 seconds",
                 "return_code": -1,
-                "execution_time": "> 30s"
+                "execution_time": "> 30s",
+                "generated_artifacts": generated_artifacts
             }
         
         finally:
             # Clean up temporary file
             try:
-                os.unlink(temp_file_path)
+                shutil.rmtree(temp_dir_path)
             except OSError:
                 pass
     

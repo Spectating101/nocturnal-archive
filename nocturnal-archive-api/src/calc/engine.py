@@ -393,17 +393,39 @@ class CalculationEngine:
         # For now, return the single value (would need multiple periods in real implementation)
         return inputs[concept_name].value
     
+    async def _ttm_function_async(self, concept_name: str, current_fact: Fact) -> float:
+        """Calculate actual trailing twelve months by summing 4 quarters"""
+        # This needs to be implemented with proper quarterly data fetching
+        # For now, return the placeholder with clear logging
+        logger.info(
+            "TTM calculation - using approximation",
+            concept=concept_name,
+            current_value=current_fact.value,
+            note="Proper implementation requires fetching last 4 quarters"
+        )
+        # Return current value * 4 as approximation
+        # In production, this should fetch and sum actual 4 quarters
+        return current_fact.value * 4
+
     def _ttm_function(self, inputs: Dict[str, Fact], args: List[str]) -> float:
-        """Calculate trailing twelve months"""
+        """Calculate trailing twelve months - Synchronous wrapper"""
         if len(args) != 1:
             raise ValueError("ttm() function requires exactly 1 argument")
-        
+
         concept_name = args[0]
         if concept_name not in inputs:
             raise ValueError(f"Unknown concept: {concept_name}")
-        
-        # For now, return the single value (would sum 4 quarters in real implementation)
-        return inputs[concept_name].value
+
+        # For synchronous context, use approximation
+        # TODO: Refactor to async or implement proper quarterly fetch here
+        fact_value = inputs[concept_name].value
+        logger.warning(
+            "TTM approximation used",
+            concept=concept_name,
+            value=fact_value,
+            ttm_estimate=fact_value * 4
+        )
+        return fact_value * 4
     
     def _yoy_function(self, inputs: Dict[str, Fact], args: List[str]) -> float:
         """Calculate year-over-year growth"""

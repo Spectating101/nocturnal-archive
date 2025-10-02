@@ -37,14 +37,31 @@ def install_package():
     
     print(f"✅ Python version: {sys.version.split()[0]}")
     
-    # Install package in development mode
-    if not run_command("pip install -e .", "Installing package in development mode"):
-        return False
-    
-    # Install optional dependencies for better experience
-    print("\n📦 Installing optional dependencies...")
-    run_command("pip install python-dotenv", "Installing python-dotenv")
-    run_command("pip install aiohttp", "Installing aiohttp")
+    # Try direct installation first
+    if run_command("pip install -e .", "Installing package in development mode"):
+        # Install optional dependencies for better experience
+        print("\n📦 Installing optional dependencies...")
+        run_command("pip install python-dotenv", "Installing python-dotenv")
+        run_command("pip install aiohttp", "Installing aiohttp")
+    else:
+        # If direct installation fails, try with virtual environment
+        print("⚠️ Direct installation failed, creating virtual environment...")
+        
+        # Create virtual environment
+        if not run_command("python3 -m venv nocturnal-venv", "Creating virtual environment"):
+            return False
+        
+        # Install in virtual environment
+        venv_pip = "./nocturnal-venv/bin/pip"
+        if not run_command(f"{venv_pip} install -e .", "Installing package in virtual environment"):
+            return False
+        
+        # Install optional dependencies
+        run_command(f"{venv_pip} install python-dotenv", "Installing python-dotenv")
+        run_command(f"{venv_pip} install aiohttp", "Installing aiohttp")
+        
+        print("🔧 Package installed in virtual environment: ./nocturnal-venv/")
+        print("   To activate: source nocturnal-venv/bin/activate")
     
     print("\n✅ Installation completed!")
     return True

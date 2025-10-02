@@ -28,6 +28,9 @@ pip install -r requirements.txt
 # Set up environment
 cp env.example .env
 # Edit .env with your API keys
+
+# (Optional) Back up legacy `.env.local` secrets before cleanup
+python scripts/backup_env.py
 ```
 
 ### 2. Run the API
@@ -43,6 +46,18 @@ python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
 ### 3. Use the API
 
 Visit **http://localhost:8000/docs** for interactive API documentation.
+
+### 4. Run the smoke test (optional)
+
+```bash
+python scripts/smoke_test.py
+```
+
+This boots the API, performs a health check, and runs a sample agent query end-to-end.
+
+### 5. Explore ready-made research kits
+
+Check the [`kits/`](kits/) directory for curated prompts and workflows (e.g., rapid literature review, financial briefing) that showcase best practices with the enhanced agent.
 
 ## 📚 API Endpoints
 
@@ -149,6 +164,7 @@ uvicorn src.main:app --host 0.0.0.0 --port 8000
 
 | Variable | Description | Required |
 |----------|-------------|----------|
+| `NOCTURNAL_KEY` | API key for Nocturnal Archive protected endpoints | Yes |
 | `OPENAI_API_KEY` | OpenAI API key for synthesis | Yes |
 | `OPENALEX_API_KEY` | OpenAlex API key for search | No |
 | `DATABASE_URL` | PostgreSQL connection URL | Yes |

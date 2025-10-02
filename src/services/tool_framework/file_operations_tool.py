@@ -45,36 +45,48 @@ class FileOperationsTool:
             Operation result with file data and metadata
         """
         try:
-            # Parse task description to determine operation
+            # Support explicit operation override via context
+            explicit_operation = (context or {}).get("operation") if context else None
+            operation = explicit_operation.lower() if isinstance(explicit_operation, str) else None
+
+            # Parse task description to determine operation when not explicitly provided
             task_lower = task_description.lower()
-            
-            # Determine operation from task description
-            if any(keyword in task_lower for keyword in ["list", "directory", "folder", "ls", "dir"]):
-                operation = "list"
-                directory = context.get("directory", ".")
+
+            if not operation:
+                if any(keyword in task_lower for keyword in ["list", "directory", "folder", "ls", "dir"]):
+                    operation = "list"
+                elif any(keyword in task_lower for keyword in ["read", "open", "get"]):
+                    operation = "read"
+                elif any(keyword in task_lower for keyword in ["write", "create", "save"]):
+                    operation = "write"
+                elif any(keyword in task_lower for keyword in ["search", "find", "look"]):
+                    operation = "search"
+                elif any(keyword in task_lower for keyword in ["analyze", "info", "stat"]):
+                    operation = "analyze"
+                else:
+                    operation = "list"
+
+            if operation == "list":
+                directory = context.get("directory", ".") if context else "."
                 return await self._list_directory(directory)
-            elif any(keyword in task_lower for keyword in ["read", "open", "get"]):
-                operation = "read"
-                file_path = context.get("file_path", "")
+            if operation == "read":
+                file_path = context.get("file_path", "") if context else ""
                 return await self._read_file(file_path)
-            elif any(keyword in task_lower for keyword in ["write", "create", "save"]):
-                operation = "write"
-                file_path = context.get("file_path", "")
-                content = context.get("content", "")
+            if operation == "write":
+                file_path = context.get("file_path", "") if context else ""
+                content = context.get("content", "") if context else ""
                 return await self._write_file(file_path, content)
-            elif any(keyword in task_lower for keyword in ["search", "find", "look"]):
-                operation = "search"
-                pattern = context.get("pattern", "")
-                directory = context.get("directory", ".")
+            if operation == "search":
+                pattern = context.get("pattern", "") if context else ""
+                directory = context.get("directory", ".") if context else "."
                 return await self._search_files(pattern, directory)
-            elif any(keyword in task_lower for keyword in ["analyze", "info", "stat"]):
-                operation = "analyze"
-                file_path = context.get("file_path", "")
+            if operation == "analyze":
+                file_path = context.get("file_path", "") if context else ""
                 return await self._analyze_file(file_path)
-            else:
-                # Default to list operation for general file operations
-                directory = context.get("directory", ".")
-                return await self._list_directory(directory)
+
+            # Unknown operation fallback
+            directory = context.get("directory", ".") if context else "."
+            return await self._list_directory(directory)
             
         except Exception as e:
             logger.error(f"File operation failed: {str(e)}")

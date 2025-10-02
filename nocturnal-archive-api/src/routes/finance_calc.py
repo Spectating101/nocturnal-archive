@@ -16,7 +16,7 @@ from src.utils.error_handling import create_problem_response, get_error_type
 from datetime import datetime
 
 logger = structlog.get_logger(__name__)
-router = APIRouter(tags=["Finance Calculations"])
+router = APIRouter(prefix="/v1/finance/calc", tags=["Finance Calculations"])
 
 # Global instances (would be injected in production)
 kpi_registry = KPIRegistry()
@@ -238,10 +238,9 @@ async def explain_expression(req: CalcRequest, request: Request):
             trace_id=getattr(request.state, "trace_id", "unknown")
         )
         
-        # Skip validation for demo - get facts store for real data
-        # Use SEC adapter directly for simplicity
-        from src.adapters.sec_facts import get_sec_facts_adapter
-        sec_adapter = get_sec_facts_adapter()
+        # Use multi-source router for universal data access
+        from src.services.definitive_router import DefinitiveRouter
+        definitive_router = DefinitiveRouter()
         
         # Simple expression parsing for demo
         if "=" in req.expr:
@@ -254,24 +253,81 @@ async def explain_expression(req: CalcRequest, request: Request):
         
         # Parse expression to extract concepts
         import re
-        concepts = re.findall(r'\b(revenue|costOfRevenue|sharesOutstanding|grossProfit|operatingIncome|netIncome)\b', right)
+        concepts = re.findall(r'\b(revenue|costOfRevenue|sharesOutstanding|grossProfit|operatingIncome|netIncome|price|market_cap|pe_ratio|eps|dividend_yield)\b', right)
         
-        # Get input facts directly from SEC
+        # Get input facts using multi-source router
         input_terms = []
         for concept in concepts:
             try:
-                fact = await sec_adapter.get_fact(req.ticker, concept, period=req.period, freq=req.freq)
-                if fact:
-                    input_terms.append({
-                        "concept": concept,
-                        "value": fact["value"],
-                        "accession": fact["citation"]["accession"],
-                        "unit": fact["citation"]["unit"],
-                        "scale": fact["citation"]["scale"],
-                        "fx_used": fact["citation"]["fx_used"],
-                        "amended": fact["citation"]["amended"],
-                        "as_reported": fact["citation"]["as_reported"]
-                    })
+                # Try multi-source router first
+                request_data = {
+                    "ticker": req.ticker,
+                    "expr": concept,
+                    "period": req.period,
+                    "freq": req.freq
+                }
+                
+                result = await definitive_router.get_data(request_data)
+                if result:
+                    # Map Yahoo Finance fields to expected format
+                    if "price" in result:
+                        result["value"] = result["price"]
+                    elif "revenue" in result and concept == "revenue":
+                        result["value"] = result["revenue"]
+                    elif "market_cap" in result and concept == "market_cap":
+                        result["value"] = result["market_cap"]
+                    elif "pe_ratio" in result and concept == "pe_ratio":
+                        result["value"] = result["pe_ratio"]
+                    elif "eps" in result and concept == "eps":
+                        result["value"] = result["eps"]
+                    elif "dividend_yield" in result and concept == "dividend_yield":
+                        result["value"] = result["dividend_yield"]
+                
+                if result and "value" in result:
+                    # Handle different data source formats
+                    if "citations" in result:
+                        citation = result["citations"][0] if result["citations"] else {}
+                        input_terms.append({
+                            "concept": concept,
+                            "value": result["value"],
+                            "accession": citation.get("accession", ""),
+                            "unit": citation.get("unit", result.get("currency", "USD")),
+                            "scale": "U",
+                            "fx_used": citation.get("fx_used"),
+                            "amended": False,
+                            "as_reported": True,
+                            "data_source": result.get("data_source", "unknown")
+                        })
+                    else:
+                        # Fallback for simple data format
+                        input_terms.append({
+                            "concept": concept,
+                            "value": result["value"],
+                            "accession": "",
+                            "unit": result.get("currency", "USD"),
+                            "scale": "U", 
+                            "fx_used": None,
+                            "amended": False,
+                            "as_reported": True,
+                            "data_source": result.get("data_source", "unknown")
+                        })
+                else:
+                    # Fallback to SEC adapter for backwards compatibility
+                    from src.adapters.sec_facts import get_sec_facts_adapter
+                    sec_adapter = get_sec_facts_adapter()
+                    fact = await sec_adapter.get_fact(req.ticker, concept, period=req.period, freq=req.freq)
+                    if fact:
+                        input_terms.append({
+                            "concept": concept,
+                            "value": fact["value"],
+                            "accession": fact["citation"]["accession"],
+                            "unit": fact["citation"]["unit"],
+                            "scale": fact["citation"]["scale"],
+                            "fx_used": fact["citation"]["fx_used"],
+                            "amended": fact["citation"]["amended"],
+                            "as_reported": fact["citation"]["as_reported"],
+                            "data_source": "sec_edgar"
+                        })
             except ValueError as e:
                 # Re-raise ValueError from strict mode
                 raise e
@@ -323,6 +379,7 @@ async def explain_expression(req: CalcRequest, request: Request):
             "period": req.period,
             "freq": req.freq,
             "value": result_value,
+            "data_source": input_terms[0].get("data_source", "sec_edgar") if input_terms else "unknown",
             "formula": "grossProfit = revenue - costOfRevenue",
             "left": {
                 "concept": "grossProfit",
@@ -334,10 +391,10 @@ async def explain_expression(req: CalcRequest, request: Request):
             },
             "citations": [
                 {
-                    "source": "SEC EDGAR 10-K Filing",
+                    "source": "SEC EDGAR 10-K Filing" if input_terms[0].get("data_source") == "sec_edgar" else "Yahoo Finance",
                     "accession": input_terms[0]["accession"] if input_terms else "N/A",
-                    "url": f"https://www.sec.gov/Archives/edgar/...",
-                    "page": "Consolidated Statements of Operations"
+                    "url": f"https://www.sec.gov/Archives/edgar/..." if input_terms[0].get("data_source") == "sec_edgar" else "https://finance.yahoo.com/quote/{}/financials".format(req.ticker),
+                    "page": "Consolidated Statements of Operations" if input_terms[0].get("data_source") == "sec_edgar" else "Financial Data"
                 }
             ] if input_terms else [],
             "metadata": {

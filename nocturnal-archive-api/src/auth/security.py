@@ -13,11 +13,14 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import redis.asyncio as redis
+import os
 
 logger = structlog.get_logger(__name__)
 
-# Security configuration
-SECRET_KEY = "your-secret-key-change-in-production"  # Should be from environment
+# Security configuration - FIXED per Claude's security audit
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "temp-dev-key-change-me")
+if SECRET_KEY == "temp-dev-key-change-me" and os.getenv("ENV") == "production":
+    raise ValueError("JWT_SECRET_KEY must be set in production!")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 API_KEY_EXPIRE_DAYS = 90

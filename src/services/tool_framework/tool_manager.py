@@ -210,7 +210,13 @@ class ToolManager:
         tool_executions = [e for e in self.execution_history if e["tool_name"] == tool_name]
         
         if not tool_executions:
-            return {"total_executions": 0}
+            return {
+                "total_executions": 0,
+                "successful_executions": 0,
+                "failed_executions": 0,
+                "success_rate": 0.0,
+                "average_execution_time": 0.0
+            }
         
         successful = len([e for e in tool_executions if e["status"] == "success"])
         failed = len([e for e in tool_executions if e["status"] == "failed"])

@@ -22,6 +22,8 @@ wheels/
 MANIFEST
 
 # Virtual Environment
+.venv/
+unified-platform/.venv/
 venv/
 env/
 ENV/

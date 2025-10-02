@@ -6,8 +6,9 @@ import asyncio
 import logging
 import json
 from typing import Dict, List, Any, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
+from pathlib import Path
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -82,12 +83,13 @@ class ReasoningEngine:
                 "context": context or {},
                 "user_id": user_id,
                 "state": ReasoningState.INITIALIZING,
-                "start_time": datetime.utcnow(),
+                "start_time": datetime.now(UTC),
                 "steps": [],
                 "current_step": None,
                 "results": {},
                 "errors": [],
-                "refinements": 0
+                "refinements": 0,
+                "estimated_duration_seconds": 0.0
             }
             
             self.active_sessions[session_id] = session
@@ -99,6 +101,13 @@ class ReasoningEngine:
             # Step 2: Decompose into sub-problems
             await self._update_session_state(session_id, ReasoningState.PLANNING)
             sub_problems = await self._decompose_problem(problem_description, problem_analysis, context)
+            estimated_duration = self._estimate_execution_time(sub_problems)
+            session["estimated_duration_seconds"] = estimated_duration
+            session["estimated_completion_time"] = session["start_time"] + timedelta(seconds=estimated_duration)
+            if estimated_duration > 60:
+                logger.info(
+                    f"Session {session_id} estimated to take approximately {estimated_duration:.1f} seconds"
+                )
             
             # Step 3: Execute solution plan
             await self._update_session_state(session_id, ReasoningState.EXECUTING)
@@ -108,12 +117,12 @@ class ReasoningEngine:
             
             # Step 4: Generate final solution
             await self._update_session_state(session_id, ReasoningState.COMPLETED)
-            session["end_time"] = datetime.utcnow()
+            session["end_time"] = datetime.now(UTC)
             session["total_time"] = (session["end_time"] - session["start_time"]).total_seconds()
             
             logger.info(f"Reasoning session {session_id} completed successfully")
             
-            return {
+            result_payload = {
                 "session_id": session_id,
                 "status": "success",
                 "solution": execution_results,
@@ -122,29 +131,49 @@ class ReasoningEngine:
                 "metadata": {
                     "total_steps": len(session["steps"]),
                     "execution_time": session["total_time"],
-                    "refinements": session["refinements"]
+                    "refinements": session["refinements"],
+                    "estimated_duration_seconds": session.get("estimated_duration_seconds", 0.0),
+                    "estimated_completion_time": session.get("estimated_completion_time", None).isoformat()
+                    if session.get("estimated_completion_time") else None
                 }
             }
+            self._log_session_usage(session, result_payload)
+            return result_payload
             
         except Exception as e:
             logger.error(f"Reasoning session {session_id} failed: {str(e)}")
             await self._update_session_state(session_id, ReasoningState.FAILED)
+            session["end_time"] = datetime.now(UTC)
+            session["total_time"] = (session["end_time"] - session["start_time"]).total_seconds()
             
-            return {
+            failure_payload = {
                 "session_id": session_id,
                 "status": "failed",
                 "error": str(e),
                 "partial_results": self.active_sessions.get(session_id, {}).get("results", {}),
                 "reasoning_trace": self._generate_reasoning_trace(
                     self.active_sessions.get(session_id, {})
-                )
+                ),
+                "execution_summary": self._generate_execution_summary(
+                    self.active_sessions.get(session_id, {})
+                ),
+                "metadata": {
+                    "total_steps": len(session.get("steps", [])),
+                    "execution_time": session.get("total_time"),
+                    "refinements": session.get("refinements", 0),
+                    "estimated_duration_seconds": session.get("estimated_duration_seconds", 0.0),
+                    "estimated_completion_time": session.get("estimated_completion_time", None).isoformat()
+                    if session.get("estimated_completion_time") else None
+                }
             }
+            self._log_session_usage(session, failure_payload)
+            return failure_payload
     
     async def _analyze_problem(self, problem_description: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze the problem using real LLM reasoning."""
         try:
             # Import LLM reasoner
-            from services.llm_integration.llm_reasoner import LLMReasoner
+            from ..llm_integration.llm_reasoner import LLMReasoner
             llm_reasoner = LLMReasoner()
             
             # Use LLM-powered analysis
@@ -241,14 +270,14 @@ class ReasoningEngine:
             "complexity": complexity,
             "challenges": challenges,
             "required_tools": required_tools,
-            "analysis_timestamp": datetime.utcnow().isoformat()
+            "analysis_timestamp": datetime.now(UTC).isoformat()
         }
     
     async def _decompose_problem(self, problem_description: str, analysis: Dict, context: Dict[str, Any]) -> List[Dict]:
         """Decompose the problem using real LLM reasoning."""
         try:
             # Import LLM reasoner
-            from services.llm_integration.llm_reasoner import LLMReasoner
+            from ..llm_integration.llm_reasoner import LLMReasoner
             llm_reasoner = LLMReasoner()
             
             # Use LLM-powered decomposition
@@ -375,10 +404,10 @@ class ReasoningEngine:
         """Execute the solution plan step by step."""
         session = self.active_sessions[session_id]
         results = {}
+        context = context or {}
         
-        # Import tool manager to execute actual tools
-        from services.tool_framework.tool_manager import ToolManager
-        tool_manager = ToolManager()
+        # Import tool manager to execute actual tools (with graceful fallback)
+        tool_manager = self._get_tool_manager()
         
         for sub_problem in sub_problems:
             step = ReasoningStep(
@@ -387,8 +416,9 @@ class ReasoningEngine:
                 tool_required=sub_problem.get("tool_required", "llm_reasoning")
             )
             
-            step.start_time = datetime.utcnow()
+            step.start_time = datetime.now(UTC)
             step.status = "executing"
+            session["current_step"] = step.step_id
             
             try:
                 # Execute the step based on its type and required tool
@@ -402,34 +432,56 @@ class ReasoningEngine:
                 step.error = str(e)
                 logger.error(f"Step {step.step_id} failed: {str(e)}")
             
-            step.end_time = datetime.utcnow()
+            step.end_time = datetime.now(UTC)
             step.execution_time = (step.end_time - step.start_time).total_seconds()
             
             results[step.step_id] = step.result
+            session["results"][step.step_id] = step.result
             session["steps"].append(step)
         
+        session["current_step"] = None
         return results
+
+    def _estimate_execution_time(self, sub_problems: List[Dict]) -> float:
+        """Estimate total execution time in seconds based on planned steps."""
+        tool_estimates = {
+            "llm_reasoning": 20.0,
+            "llm_analysis": 18.0,
+            "llm_synthesis": 22.0,
+            "web_search": 25.0,
+            "code_execution": 28.0,
+            "file_operations": 12.0,
+            "data_analysis": 30.0,
+            "api_calls": 15.0
+        }
+        base_overhead = 5.0
+        total = 0.0
+        for sub_problem in sub_problems:
+            tool = sub_problem.get("tool_required", "llm_reasoning")
+            total += tool_estimates.get(tool, 20.0) + base_overhead
+        return total
     
     async def _execute_step(self, sub_problem: Dict, context: Dict[str, Any], tool_manager) -> Dict[str, Any]:
         """Execute a single step using the appropriate tool."""
+        execution_context = dict(context) if isinstance(context, dict) else {}
         step_type = sub_problem.get("type", "analysis")
         tool_required = sub_problem.get("tool_required", "llm_reasoning")
         description = sub_problem.get("description", "")
         
         if tool_required == "llm_analysis":
-            return await self._perform_analysis(description, context)
+            return await self._perform_analysis(description, execution_context)
         elif tool_required == "web_search":
-            return await self._perform_web_search(description, context, tool_manager)
+            return await self._perform_web_search(description, execution_context, tool_manager)
         elif tool_required == "llm_reasoning":
-            return await self._perform_reasoning(description, context)
+            return await self._perform_reasoning(description, execution_context)
         elif tool_required == "code_execution":
-            return await self._perform_code_execution(description, context, tool_manager)
+            return await self._perform_code_execution(description, execution_context, tool_manager)
         elif tool_required == "file_operations":
-            return await self._perform_file_operations(description, context, tool_manager)
+            return await self._perform_file_operations(description, execution_context, tool_manager)
         elif tool_required == "data_analysis":
-            return await self._perform_data_analysis(description, context, tool_manager)
+            return await self._perform_data_analysis(description, execution_context, tool_manager)
         elif tool_required == "llm_synthesis":
-            return await self._perform_synthesis(description, context)
+            return await self._perform_synthesis(description, execution_context)
         else:
             return {"status": "skipped", "reason": f"Unknown tool: {tool_required}"}
     
@@ -456,7 +508,16 @@ class ReasoningEngine:
             if not search_terms:
                 search_terms = "best practices programming"
             
-            result = await tool_manager.execute_tool("web_search", f"Search for: {search_terms}")
+            tool_context = dict(context)
+            tool_context.setdefault("num_results", 5)
+            tool_context["query"] = search_terms
+            tool_context["original_description"] = description
+            
+            result = await tool_manager.execute_tool(
+                "web_search",
+                f"Search for: {search_terms}",
+                tool_context
+            )
             return {
                 "status": "completed",
                 "research": result,
@@ -485,7 +546,7 @@ class ReasoningEngine:
         """Perform code execution using real code generation."""
         try:
             # Use LLM-powered code generation
-            from services.llm_integration.code_generator import CodeGenerator
+            from ..llm_integration.code_generator import CodeGenerator
             code_generator = CodeGenerator()
             
             # Generate appropriate code based on description and context
@@ -496,7 +557,16 @@ class ReasoningEngine:
                 code_type = code_result["code_type"]
                 
                 # Execute the generated code
-                execution_result = await tool_manager.execute_tool("code_execution", f"Execute Python code: {code}")
+                execution_context = dict(context)
+                execution_context["code"] = code
+                execution_context["language"] = execution_context.get("language") or execution_context.get("preferred_language") or "python"
+                execution_context["description"] = description
+                
+                execution_result = await tool_manager.execute_tool(
+                    "code_execution",
+                    "Execute generated code",
+                    execution_context
+                )
                 
                 return {
                     "status": "completed",
@@ -514,7 +584,16 @@ class ReasoningEngine:
                 else:
                     code = "print('Code execution step completed')"
                 
-                result = await tool_manager.execute_tool("code_execution", f"Execute Python code: {code}")
+                fallback_context = dict(context)
+                fallback_context["code"] = code
+                fallback_context.setdefault("language", fallback_context.get("preferred_language", "python"))
+                fallback_context["description"] = description
+                
+                result = await tool_manager.execute_tool(
+                    "code_execution",
+                    "Execute generated code",
+                    fallback_context
+                )
                 return {
                     "status": "completed",
                     "code_execution": result,
@@ -528,7 +607,19 @@ class ReasoningEngine:
     async def _perform_file_operations(self, description: str, context: Dict[str, Any], tool_manager) -> Dict[str, Any]:
         """Perform file operations."""
         try:
-            result = await tool_manager.execute_tool("file_operations", description)
+            tool_context = dict(context)
+            # Provide sensible defaults to satisfy security checks inside the tool
+            working_directory = tool_context.get("working_directory") or tool_context.get("directory") or "."
+            tool_context.setdefault("directory", working_directory)
+            if "file_path" not in tool_context and tool_context.get("target_file"):
+                tool_context["file_path"] = tool_context["target_file"]
+            tool_context["operation_description"] = description
+            
+            result = await tool_manager.execute_tool(
+                "file_operations",
+                description,
+                tool_context
+            )
             return {
                 "status": "completed",
                 "file_operations": result
@@ -539,7 +630,16 @@ class ReasoningEngine:
     async def _perform_data_analysis(self, description: str, context: Dict[str, Any], tool_manager) -> Dict[str, Any]:
         """Perform data analysis."""
         try:
-            result = await tool_manager.execute_tool("data_analysis", description)
+            tool_context = dict(context)
+            if "data" not in tool_context:
+                tool_context["data"] = tool_context.get("dataset") or tool_context.get("sample_data") or []
+            tool_context["original_description"] = description
+            
+            result = await tool_manager.execute_tool(
+                "data_analysis",
+                description,
+                tool_context
+            )
             return {
                 "status": "completed",
                 "data_analysis": result
@@ -624,3 +724,119 @@ if __name__ == "__main__":
             "total_execution_time": sum(s.execution_time or 0 for s in steps),
             "average_step_time": sum(s.execution_time or 0 for s in steps) / len(steps) if steps else 0
         }
+
+    def _log_session_usage(self, session: Dict[str, Any], result_payload: Dict[str, Any]):
+        """Append session usage statistics to a local ledger for analytics."""
+        try:
+            log_dir = Path.home() / ".nocturnal_archive"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / "usage.log"
+            log_entry = {
+                "session_id": session.get("session_id"),
+                "user_id": session.get("user_id"),
+                "state": session.get("state").value if isinstance(session.get("state"), ReasoningState) else session.get("state"),
+                "problem": session.get("problem"),
+                "start_time": session.get("start_time").isoformat() if session.get("start_time") else None,
+                "end_time": session.get("end_time").isoformat() if session.get("end_time") else None,
+                "execution_time_seconds": session.get("total_time"),
+                "estimated_duration_seconds": session.get("estimated_duration_seconds"),
+                "total_steps": len(session.get("steps", [])),
+                "successful_steps": len([s for s in session.get("steps", []) if s.status == "completed"]),
+                "failed_steps": len([s for s in session.get("steps", []) if s.status == "failed"]),
+                "status": result_payload.get("status"),
+                "error": result_payload.get("error"),
+                "metadata": result_payload.get("metadata", {})
+            }
+            with open(log_file, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(log_entry) + "\n")
+        except Exception as logging_error:
+            logger.warning(f"Failed to log reasoning session usage: {logging_error}")
+
+    async def get_session_status(self, session_id: str) -> Dict[str, Any]:
+        """Retrieve current status and progress for a reasoning session."""
+        session = self.active_sessions.get(session_id)
+        if not session:
+            return {
+                "session_id": session_id,
+                "status": "not_found"
+            }
+
+        state = session.get("state", ReasoningState.INITIALIZING)
+        if isinstance(state, ReasoningState):
+            state_value = state.value
+        else:
+            state_value = str(state)
+
+        steps: List[ReasoningStep] = session.get("steps", [])
+        completed_steps = [step for step in steps if step.status == "completed"]
+        failed_steps = [step for step in steps if step.status == "failed"]
+        in_progress_steps = [step for step in steps if step.status not in ("completed", "failed")]
+        total_steps = max(len(steps), len(session.get("results", {})))
+
+        percent_complete = (len(completed_steps) / total_steps * 100) if total_steps else 0.0
+        status_value = (
+            "completed" if state == ReasoningState.COMPLETED else
+            "failed" if state == ReasoningState.FAILED else
+            "active"
+        )
+
+        return {
+            "session_id": session_id,
+            "status": status_value,
+            "state": state_value,
+            "progress": {
+                "total_steps": total_steps,
+                "completed_steps": len(completed_steps),
+                "failed_steps": len(failed_steps),
+                "in_progress_steps": len(in_progress_steps),
+                "percent_complete": percent_complete
+            },
+            "timestamps": {
+                "started_at": session.get("start_time").isoformat() if session.get("start_time") else None,
+                "last_updated": datetime.now(UTC).isoformat(),
+                "ended_at": session.get("end_time").isoformat() if session.get("end_time") else None
+            },
+            "current_step": session.get("current_step"),
+            "results": session.get("results", {})
+        }
+
+    def _get_tool_manager(self):
+        """Load the tool manager, falling back to a simulated manager if unavailable."""
+        try:
+            from ..tool_framework.tool_manager import ToolManager
+            return ToolManager()
+        except Exception as exc:
+            logger.warning(f"Tool Manager unavailable, using fallback implementation: {exc}")
+            return self._create_fallback_tool_manager()
+
+    def _create_fallback_tool_manager(self):
+        """Create a minimal tool manager to simulate tool execution during tests."""
+        engine_logger = logger
+
+        class FallbackToolManager:
+            def __init__(self):
+                self.execution_history: List[Dict[str, Any]] = []
+
+            async def execute_tool(self, tool_name: str, task_description: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+                execution_record = {
+                    "tool_name": tool_name,
+                    "task_description": task_description,
+                    "context": context or {},
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "status": "simulated",
+                    "result": f"Simulated execution for {tool_name}"
+                }
+                self.execution_history.append(execution_record)
+                engine_logger.debug(f"Simulated tool execution: {execution_record}")
+                return execution_record
+
+            async def select_best_tool(self, task_description: str, context: Dict[str, Any] = None) -> str:
+                return "llm_reasoning"
+
+            def get_available_tools(self) -> List[str]:
+                return ["llm_reasoning", "code_execution", "web_search", "file_operations", "data_analysis"]
+
+            def get_execution_history(self, limit: int = 100) -> List[Dict[str, Any]]:
+                return self.execution_history[-limit:]
+
+        return FallbackToolManager()

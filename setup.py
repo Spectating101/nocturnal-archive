@@ -71,7 +71,9 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "nocturnal-archive=nocturnal_archive.__init__:quick_start",
+            "nocturnal=nocturnal_archive.cli:main",
+            "nocturnal-agent=nocturnal_archive.cli:main",
+            "nocturnal-update=nocturnal_archive.updater:main",
         ],
     },
     include_package_data=True,

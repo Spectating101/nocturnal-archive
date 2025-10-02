@@ -5,6 +5,7 @@ REAL Integration Service - Actually calls FinSight and Archive APIs
 import aiohttp
 import asyncio
 import logging
+import os
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from groq import Groq
@@ -236,9 +237,9 @@ async def test_real_integration():
     """Test the real integration"""
     print("🧪 Testing REAL Integration...")
     
-    groq_api_key = "gsk_test_key"  # Replace with real key
-    if groq_api_key == "gsk_test_key":
-        print("❌ Please set GROQ_API_KEY environment variable")
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    if not groq_api_key or groq_api_key in {"gsk_test_key", "replace-with-new-groq-key"}:
+        print("❌ Please set GROQ_API_KEY environment variable before running this test")
         return False
     
     async with RealIntegrationService(groq_api_key) as service:

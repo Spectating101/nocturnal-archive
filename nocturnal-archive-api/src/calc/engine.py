@@ -5,7 +5,7 @@ Safe expression evaluation with provenance tracking
 
 import re
 import structlog
-from typing import Any, Dict, List, Optional, Union, Tuple
+from typing import Any, Dict, List, Optional, Union, Tuple, Set
 from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
@@ -113,10 +113,25 @@ class CalculationEngine:
                 raise ValueError(f"Unknown metric: {metric}")
             
             # Resolve inputs for the expression
+            input_defs = self.kpi_registry.get_metric_inputs(metric)
+            if not input_defs:
+                logger.warning("No inputs found for metric", metric=metric)
+
+            optional_inputs = self._find_optional_inputs(metric_def.get("expr", ""))
+
             inputs = await self._resolve_inputs(
-                ticker, metric_def["inputs"], period, freq, ttm, segment
+                ticker, input_defs, period, freq, ttm, segment, optional_inputs
             )
-            
+
+            missing_required_inputs = [
+                name for name in input_defs.keys()
+                if name not in inputs and name not in optional_inputs
+            ]
+            if missing_required_inputs:
+                raise ValueError(
+                    f"Missing required inputs for metric '{metric}': {', '.join(sorted(missing_required_inputs))}"
+                )
+
             # Evaluate expression
             value = await self._evaluate_expression(metric_def["expr"], inputs)
             
@@ -205,10 +220,13 @@ class CalculationEngine:
             
             # Parse expression to find input concepts
             input_concepts = self._parse_expression_inputs(expr)
-            
+
+            # Find optional inputs in expression
+            optional_inputs = self._find_optional_inputs(expr)
+
             # Resolve inputs
             inputs = await self._resolve_concepts(
-                ticker, input_concepts, period, freq, ttm
+                ticker, input_concepts, period, freq, ttm, optional_inputs
             )
             
             # Evaluate expression
@@ -264,32 +282,98 @@ class CalculationEngine:
         period: str,
         freq: str,
         ttm: bool,
-        segment: Optional[str]
+        segment: Optional[str],
+        optional_inputs: Set[str]
     ) -> Dict[str, Fact]:
         """Resolve all inputs for a metric calculation"""
-        inputs = {}
-        
+        inputs: Dict[str, Fact] = {}
+        sec_adapter = None
+        concept_map: Dict[str, List[str]] = {}
+
+        try:
+            from src.adapters.sec_facts import get_sec_facts_adapter
+            sec_adapter = get_sec_facts_adapter()
+            concept_map = getattr(sec_adapter, "concept_map", {})
+        except Exception as e:
+            logger.debug("SEC adapter unavailable for input resolution", error=str(e))
+
         for input_name, input_def in input_defs.items():
             concepts = input_def.get("concepts", [])
             prefer_concept = input_def.get("prefer")
-            input_type = input_def.get("type", "duration")
-            
+
             # Try to get fact for this input
             fact = await self._get_best_fact(
                 ticker, concepts, prefer_concept, period, freq, ttm, segment
             )
-            
+
             if fact:
                 inputs[input_name] = fact
             else:
-                logger.warning(
-                    "Missing input for calculation",
-                    ticker=ticker,
-                    input_name=input_name,
-                    concepts=concepts,
-                    period=period
-                )
-        
+                if input_name in optional_inputs:
+                    logger.info(
+                        "Optional input missing, defaulting to zero",
+                        ticker=ticker,
+                        input_name=input_name,
+                        concepts=concepts,
+                        period=period
+                    )
+                else:
+                    logger.warning(
+                        "Missing input for calculation",
+                        ticker=ticker,
+                        input_name=input_name,
+                        concepts=concepts,
+                        period=period
+                    )
+
+        adapter_supported = [
+            name for name in input_defs.keys()
+            if concept_map and name in concept_map
+        ]
+
+        if sec_adapter and adapter_supported:
+            accessions = {
+                fact.accession for fact in inputs.values() if fact.accession
+            }
+            missing_supported = [
+                name for name in adapter_supported if name not in inputs
+            ]
+
+            need_same_filing = len(accessions) > 1 and len(inputs) > 1
+
+            requested_inputs = set(missing_supported)
+            if need_same_filing:
+                requested_inputs.update(adapter_supported)
+
+            if requested_inputs:
+                try:
+                    adapter_facts = await sec_adapter.get_facts_from_same_filing(
+                        ticker,
+                        list(requested_inputs),
+                        period=period,
+                        freq=freq
+                    )
+                    for input_name, fact_data in adapter_facts.items():
+                        inputs[input_name] = self._fact_data_to_object(fact_data)
+                except Exception as e:
+                    logger.debug(
+                        "Failed to resolve adapter inputs from same filing",
+                        error=str(e)
+                    )
+
+        # Log accession mismatches if still present
+        accessions = {
+            fact.accession for fact in inputs.values() if fact.accession
+        }
+        if len(accessions) > 1:
+            logger.warning(
+                "Input accession mismatch detected",
+                ticker=ticker,
+                period=period,
+                freq=freq,
+                accessions=list(accessions)
+            )
+
         return inputs
     
     async def _get_best_fact(
@@ -309,7 +393,7 @@ class CalculationEngine:
                 ticker, prefer_concept, period, freq, ttm, segment
             )
             if fact:
-                return fact
+                return self._convert_store_fact(fact)
         
         # Try other concepts in order
         for concept in concepts:
@@ -320,15 +404,71 @@ class CalculationEngine:
                 ticker, concept, period, freq, ttm, segment
             )
             if fact:
-                return fact
+                return self._convert_store_fact(fact)
         
         return None
+
+    def _fact_data_to_object(self, fact_data: Dict[str, Any]) -> Fact:
+        """Convert fact data dictionary (adapter response) into Fact object"""
+        period_type_raw = fact_data.get("period_type") or fact_data.get("periodType") or PeriodType.DURATION.value
+        try:
+            period_type = PeriodType(period_type_raw)
+        except Exception:
+            period_type = PeriodType.DURATION
+
+        return Fact(
+            concept=fact_data.get("concept", ""),
+            value=float(fact_data.get("value", 0.0) or 0.0),
+            unit=fact_data.get("unit", "USD") or "USD",
+            period=fact_data.get("period") or fact_data.get("end_date") or "",
+            period_type=period_type,
+            accession=fact_data.get("accession", ""),
+            fragment_id=fact_data.get("fragment_id"),
+            url=fact_data.get("url", ""),
+            dimensions=fact_data.get("dimensions", {}) or {},
+            quality_flags=list(fact_data.get("quality_flags", []) or [])
+        )
+
+    def _convert_store_fact(self, store_fact: Any) -> Fact:
+        """Convert FactsStore Fact into CalculationEngine Fact"""
+        period_type_attr = getattr(store_fact, "period_type", PeriodType.DURATION)
+        if isinstance(period_type_attr, PeriodType):
+            period_type = period_type_attr
+        else:
+            period_type_value = getattr(period_type_attr, "value", None) or str(period_type_attr)
+            try:
+                period_type = PeriodType(period_type_value)
+            except Exception:
+                period_type = PeriodType.DURATION
+
+        return Fact(
+            concept=getattr(store_fact, "concept", ""),
+            value=float(getattr(store_fact, "value", 0.0) or 0.0),
+            unit=getattr(store_fact, "unit", "USD") or "USD",
+            period=getattr(store_fact, "period", ""),
+            period_type=period_type,
+            accession=getattr(store_fact, "accession", ""),
+            fragment_id=getattr(store_fact, "fragment_id", None),
+            url=getattr(store_fact, "url", ""),
+            dimensions=getattr(store_fact, "dimensions", {}) or {},
+            quality_flags=list(getattr(store_fact, "quality_flags", []) or [])
+        )
     
     async def _evaluate_expression(self, expr: str, inputs: Dict[str, Fact]) -> float:
         """Safely evaluate a mathematical expression"""
         try:
             # Replace input names with values
             expression = expr
+
+            # Replace optional placeholders (variable?) first
+            def replace_optional(match: re.Match) -> str:
+                name = match.group(1)
+                if name in inputs:
+                    return str(inputs[name].value)
+                return "0"
+
+            expression = re.sub(r'([A-Za-z_][A-Za-z0-9_]*)\?', replace_optional, expression)
+
             for input_name, fact in inputs.items():
                 value = fact.value
                 # Replace variable names in expression
@@ -517,6 +657,15 @@ class CalculationEngine:
             flags.append(f"note: {metric_def['notes']}")
         
         return list(set(flags))  # Remove duplicates
+
+    def _find_optional_inputs(self, expr: str) -> Set[str]:
+        """Identify optional inputs marked with '?' in an expression"""
+        if not expr:
+            return set()
+        return {
+            match.group(1)
+            for match in re.finditer(r'([A-Za-z_][A-Za-z0-9_]*)\?', expr)
+        }
     
     def _parse_expression_inputs(self, expr: str) -> List[str]:
         """Parse expression to find input variable names"""
@@ -535,15 +684,65 @@ class CalculationEngine:
         concepts: List[str],
         period: str,
         freq: str,
-        ttm: bool
+        ttm: bool,
+        optional_inputs: Set[str]
     ) -> Dict[str, Fact]:
         """Resolve concepts to facts"""
-        inputs = {}
-        
+        inputs: Dict[str, Fact] = {}
+        sec_adapter = None
+        concept_map: Dict[str, List[str]] = {}
+
+        try:
+            from src.adapters.sec_facts import get_sec_facts_adapter
+            sec_adapter = get_sec_facts_adapter()
+            concept_map = getattr(sec_adapter, "concept_map", {})
+        except Exception as e:
+            logger.debug("SEC adapter unavailable for concept resolution", error=str(e))
+
+        if sec_adapter:
+            try:
+                same_filing = await sec_adapter.get_facts_from_same_filing(
+                    ticker,
+                    concepts,
+                    period=period,
+                    freq=freq
+                )
+                if same_filing:
+                    for concept_name, fact_data in same_filing.items():
+                        inputs[concept_name] = self._fact_data_to_object(fact_data)
+                    return inputs
+            except Exception as e:
+                logger.warning(
+                    "Failed to resolve concepts from same filing",
+                    ticker=ticker,
+                    error=str(e)
+                )
+
         for concept in concepts:
-            fact = await self.facts_store.get_fact(ticker, concept, period, freq, ttm)
-            if fact:
-                inputs[concept] = fact
-        
+            candidate_concepts: List[str] = []
+            if ":" in concept:
+                candidate_concepts = [concept]
+            elif concept in concept_map:
+                candidate_concepts = [
+                    f"us-gaap:{name}" if ":" not in name else name
+                    for name in concept_map[concept]
+                ]
+            else:
+                candidate_concepts = [concept]
+
+            store_fact = None
+            for candidate in candidate_concepts:
+                store_fact = await self.facts_store.get_fact(ticker, candidate, period, freq, ttm)
+                if store_fact:
+                    break
+
+            if store_fact:
+                inputs[concept] = self._convert_store_fact(store_fact)
+            else:
+                if concept in optional_inputs:
+                    logger.info("Optional concept missing", concept=concept, ticker=ticker)
+                else:
+                    logger.warning("Concept missing for expression", concept=concept, ticker=ticker)
+
         return inputs
 

@@ -224,8 +224,9 @@ async def calculate_series(
 async def explain_expression(req: CalcRequest, request: Request):
     """
     Explain a custom expression with full breakdown
-    
+
     Shows how "A = B - C" is calculated with citations for each input.
+    Uses CalculationEngine for proper period matching.
     """
     try:
         logger.info(
@@ -237,180 +238,73 @@ async def explain_expression(req: CalcRequest, request: Request):
             ttm=req.ttm,
             trace_id=getattr(request.state, "trace_id", "unknown")
         )
-        
-        # Use multi-source router for universal data access
-        from src.services.definitive_router import DefinitiveRouter
-        definitive_router = DefinitiveRouter()
-        
-        # Simple expression parsing for demo
-        if "=" in req.expr:
-            left, right = req.expr.split("=", 1)
-            left = left.strip()
-            right = right.strip()
-        else:
-            left = req.expr
-            right = req.expr
-        
-        # Parse expression to extract concepts
-        import re
-        concepts = re.findall(r'\b(revenue|costOfRevenue|sharesOutstanding|grossProfit|operatingIncome|netIncome|price|market_cap|pe_ratio|eps|dividend_yield)\b', right)
-        
-        # Get input facts using multi-source router
-        input_terms = []
-        for concept in concepts:
-            try:
-                # Try multi-source router first
-                request_data = {
-                    "ticker": req.ticker,
-                    "expr": concept,
-                    "period": req.period,
-                    "freq": req.freq
-                }
-                
-                result = await definitive_router.get_data(request_data)
-                if result:
-                    # Map Yahoo Finance fields to expected format
-                    if "price" in result:
-                        result["value"] = result["price"]
-                    elif "revenue" in result and concept == "revenue":
-                        result["value"] = result["revenue"]
-                    elif "market_cap" in result and concept == "market_cap":
-                        result["value"] = result["market_cap"]
-                    elif "pe_ratio" in result and concept == "pe_ratio":
-                        result["value"] = result["pe_ratio"]
-                    elif "eps" in result and concept == "eps":
-                        result["value"] = result["eps"]
-                    elif "dividend_yield" in result and concept == "dividend_yield":
-                        result["value"] = result["dividend_yield"]
-                
-                if result and "value" in result:
-                    # Handle different data source formats
-                    if "citations" in result:
-                        citation = result["citations"][0] if result["citations"] else {}
-                        input_terms.append({
-                            "concept": concept,
-                            "value": result["value"],
-                            "accession": citation.get("accession", ""),
-                            "unit": citation.get("unit", result.get("currency", "USD")),
-                            "scale": "U",
-                            "fx_used": citation.get("fx_used"),
-                            "amended": False,
-                            "as_reported": True,
-                            "data_source": result.get("data_source", "unknown")
-                        })
-                    else:
-                        # Fallback for simple data format
-                        input_terms.append({
-                            "concept": concept,
-                            "value": result["value"],
-                            "accession": "",
-                            "unit": result.get("currency", "USD"),
-                            "scale": "U", 
-                            "fx_used": None,
-                            "amended": False,
-                            "as_reported": True,
-                            "data_source": result.get("data_source", "unknown")
-                        })
-                else:
-                    # Fallback to SEC adapter for backwards compatibility
-                    from src.adapters.sec_facts import get_sec_facts_adapter
-                    sec_adapter = get_sec_facts_adapter()
-                    fact = await sec_adapter.get_fact(req.ticker, concept, period=req.period, freq=req.freq)
-                    if fact:
-                        input_terms.append({
-                            "concept": concept,
-                            "value": fact["value"],
-                            "accession": fact["citation"]["accession"],
-                            "unit": fact["citation"]["unit"],
-                            "scale": fact["citation"]["scale"],
-                            "fx_used": fact["citation"]["fx_used"],
-                            "amended": fact["citation"]["amended"],
-                            "as_reported": fact["citation"]["as_reported"],
-                            "data_source": "sec_edgar"
-                        })
-            except ValueError as e:
-                # Re-raise ValueError from strict mode
-                raise e
-        
-        # Validate that all concepts in expression were found
-        if len(concepts) > len(input_terms):
-            missing_concepts = set(concepts) - set(term["concept"] for term in input_terms)
-            raise ValueError(f"concept_not_found: Could not find data for concepts: {list(missing_concepts)}")
-        
-        # Validate unit compatibility for arithmetic operations
-        if len(input_terms) > 1:
-            # Check if all terms have compatible units for arithmetic operations
-            units = [term["unit"] for term in input_terms]
-            monetary_units = {"USD", "EUR", "GBP", "JPY", "TWD", "CAD", "AUD", "CHF"}
-            
-            # If any term is monetary and others are not, this is incompatible
-            has_monetary = any(unit in monetary_units for unit in units)
-            has_non_monetary = any(unit not in monetary_units and unit != "USD" for unit in units)
-            
-            if has_monetary and has_non_monetary:
-                raise ValueError(f"unsupported_unit_operation: Cannot perform arithmetic operations between monetary ({[u for u in units if u in monetary_units]}) and non-monetary ({[u for u in units if u not in monetary_units]}) units")
-        
-        # Calculate result based on expression
-        if len(input_terms) == 2:
-            term1, term2 = input_terms
-            if "revenue" in [term1["concept"], term2["concept"]] and "costOfRevenue" in [term1["concept"], term2["concept"]]:
-                # Gross profit calculation
-                revenue_val = next(t["value"] for t in input_terms if t["concept"] == "revenue")
-                cost_val = next(t["value"] for t in input_terms if t["concept"] == "costOfRevenue")
-                result_value = revenue_val - cost_val
-                result_unit = term1["unit"]  # Should be same as term2 after validation
-            else:
-                # Generic subtraction - validate units are compatible
-                if term1["unit"] != term2["unit"]:
-                    raise ValueError(f"unsupported_unit_operation: Cannot subtract {term2['concept']} ({term2['unit']}) from {term1['concept']} ({term1['unit']}) - units must be compatible")
-                result_value = term1["value"] - term2["value"]
-                result_unit = term1["unit"]
-        elif len(input_terms) == 1:
-            result_value = input_terms[0]["value"]
-            result_unit = input_terms[0]["unit"]
-        else:
-            result_value = 0
-            result_unit = "USD"
-        
-        # Build response
+
+        # Use CalculationEngine which has period matching logic
+        result = await calc_engine.explain_expression(
+            ticker=req.ticker,
+            expr=req.expr,
+            period=req.period,
+            freq=req.freq,
+            ttm=req.ttm
+        )
+
+
+        # Format response with citations and breakdown
+        input_terms = [
+            {
+                "concept": fact.concept,
+                "value": fact.value,
+                "accession": fact.accession,
+                "unit": fact.unit,
+                "scale": "U",
+                "fx_used": None,
+                "amended": False,
+                "as_reported": True,
+                "data_source": "sec_edgar"
+            }
+            for fact in result.inputs.values()
+        ]
+
         response_data = {
-            "ticker": req.ticker,
-            "expr": req.expr,
-            "period": req.period,
-            "freq": req.freq,
-            "value": result_value,
-            "data_source": input_terms[0].get("data_source", "sec_edgar") if input_terms else "unknown",
-            "formula": "grossProfit = revenue - costOfRevenue",
+            "ticker": result.ticker,
+            "expr": result.formula,
+            "period": result.period,
+            "freq": result.freq,
+            "value": result.value,
+            "data_source": "sec_edgar",
+            "formula": result.formula,
             "left": {
-                "concept": "grossProfit",
-                "value": result_value,
-                "unit": result_unit
+                "concept": "result",
+                "value": result.value,
+                "unit": "USD"
             },
             "right": {
                 "terms": input_terms
             },
             "citations": [
                 {
-                    "source": "SEC EDGAR 10-K Filing" if input_terms[0].get("data_source") == "sec_edgar" else "Yahoo Finance",
-                    "accession": input_terms[0]["accession"] if input_terms else "N/A",
-                    "url": f"https://www.sec.gov/Archives/edgar/..." if input_terms[0].get("data_source") == "sec_edgar" else "https://finance.yahoo.com/quote/{}/financials".format(req.ticker),
-                    "page": "Consolidated Statements of Operations" if input_terms[0].get("data_source") == "sec_edgar" else "Financial Data"
+                    "concept": citation.get("concept", ""),
+                    "value": citation.get("value", 0),
+                    "unit": citation.get("unit", "USD"),
+                    "period": citation.get("period", ""),
+                    "source_url": citation.get("source_url", ""),
+                    "accession": citation.get("accession", ""),
+                    "fragment_id": citation.get("fragment_id"),
+                    "dimensions": citation.get("dimensions", {})
                 }
-            ] if input_terms else [],
-            "metadata": {
-                "calculated_at": datetime.now().isoformat(),
-                "engine_version": "1.0.0"
-            }
+                for citation in result.citations
+            ],
+            "metadata": result.metadata
         }
-        
+
         logger.info(
             "Finance expression explanation completed",
             ticker=req.ticker,
             expr=req.expr,
-            value=result_value,
+            value=result.value,
             trace_id=getattr(request.state, "trace_id", "unknown")
         )
-        
+
         return response_data
         
     except ValueError as e:

@@ -9,6 +9,7 @@ import yaml
 import os
 from typing import Dict, Any, Optional, List
 from fastapi import HTTPException
+from datetime import datetime
 
 from src.config.settings import get_settings
 from src.utils.resiliency import cache
@@ -50,6 +51,59 @@ class SECFactsAdapter:
             "netIncome": [
                 "NetIncomeLoss",
                 "ProfitLoss"  # IFRS
+            ],
+            "depreciationAndAmortization": [
+                "DepreciationDepletionAndAmortization",
+                "DepreciationAndAmortization"
+            ],
+            "currentAssets": [
+                "AssetsCurrent",
+                "CurrentAssets"
+            ],
+            "currentLiabilities": [
+                "LiabilitiesCurrent",
+                "CurrentLiabilities"
+            ],
+            "totalAssets": [
+                "Assets",
+                "TotalAssets"
+            ],
+            "shareholdersEquity": [
+                "StockholdersEquity",
+                "ShareholdersEquity"
+            ],
+            "cfo": [
+                "NetCashProvidedByUsedInOperatingActivities",
+                "NetCashFromOperatingActivities"
+            ],
+            "cfi": [
+                "NetCashProvidedByUsedInInvestingActivities",
+                "NetCashFromInvestingActivities"
+            ],
+            "cff": [
+                "NetCashProvidedByUsedInFinancingActivities",
+                "NetCashFromFinancingActivities"
+            ],
+            "sharesDiluted": [
+                "WeightedAverageNumberOfDilutedSharesOutstanding",
+                "WeightedAverageNumberOfSharesOutstandingBasicAndDiluted"
+            ],
+            "sharesBasic": [
+                "WeightedAverageNumberOfSharesOutstandingBasic",
+                "WeightedAverageNumberOfSharesOutstanding"
+            ],
+            "totalDebt": [
+                "DebtLongtermAndShorttermCombinedAmount",
+                "LongTermDebt",
+                "DebtCurrent"
+            ],
+            "cashAndEquivalents": [
+                "CashAndCashEquivalentsAtCarryingValue",
+                "CashCashEquivalentsAndShortTermInvestments"
+            ],
+            "interestExpense": [
+                "InterestExpense",
+                "InterestPaid"
             ]
         }
         
@@ -66,6 +120,56 @@ class SECFactsAdapter:
             )
         return self.session
     
+    async def get_facts_from_same_filing(
+        self,
+        ticker: str,
+        concepts: List[str],
+        *,
+        period: str = None,
+        freq: str = "Q"
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Get multiple facts from the SAME filing to ensure period consistency.
+        This prevents mixing data from different years!
+
+        Returns:
+            Dict mapping concept names to fact data, all from same accession
+        """
+        try:
+            # First, get one concept to determine the accession number
+            primary_concept = concepts[0] if concepts else None
+            if not primary_concept:
+                return {}
+
+            primary_fact = await self.get_fact(ticker, primary_concept, period=period, freq=freq)
+            if not primary_fact:
+                logger.warning("No primary fact found", ticker=ticker, concept=primary_concept)
+                return {}
+
+            # Extract the accession number from the primary fact
+            accession = primary_fact.get("citation", {}).get("accession")
+            if not accession:
+                logger.warning("No accession in primary fact", ticker=ticker)
+                return {primary_concept: primary_fact}
+
+            logger.info("Using accession for period consistency", ticker=ticker, accession=accession, concepts=len(concepts))
+
+            # Now get all other concepts from the SAME accession
+            results = {primary_concept: primary_fact}
+
+            for concept in concepts[1:]:
+                fact = await self.get_fact(ticker, concept, period=period, freq=freq, accession=accession)
+                if fact:
+                    results[concept] = fact
+                else:
+                    logger.warning("Concept not found in same filing", ticker=ticker, concept=concept, accession=accession)
+
+            return results
+
+        except Exception as e:
+            logger.error("Failed to get facts from same filing", ticker=ticker, concepts=concepts, error=str(e))
+            return {}
+
     @cache(ttl=900, source_version="sec_facts")  # 15 minutes cache
     async def get_fact(
         self,
@@ -86,67 +190,68 @@ class SECFactsAdapter:
             if not cik:
                 logger.warning("Unknown ticker", ticker=ticker)
                 return None
-            
+
             # Get XBRL concepts for this internal concept
             xbrl_concepts = self.concept_map.get(concept, [])
             if not xbrl_concepts:
                 logger.warning("No XBRL concepts found", concept=concept)
                 return None
-        
+
             session = await self._get_session()
-            
+
             # Fetch company facts
             url = f"{self.base_url}/api/xbrl/companyfacts/CIK{cik}.json"
             logger.info("Fetching company facts", ticker=ticker, cik=cik)
-            
+
             async with session.get(url) as response:
                 if response.status != 200:
                     logger.error("Failed to fetch company facts", status=response.status)
                     return None
-                
+
                 data = await response.json()
                 facts = data.get("facts", {})
-                
+
                 # Try both US-GAAP and IFRS taxonomies
                 taxonomies = ["us-gaap", "ifrs-full"]
-                
+
                 for taxonomy in taxonomies:
                     if taxonomy not in facts:
                         continue
-                        
+
                     taxonomy_data = facts[taxonomy]
-                    
+
                     # Find matching facts in this taxonomy
                     for xbrl_concept in xbrl_concepts:
                         if xbrl_concept in taxonomy_data:
                             concept_data = taxonomy_data[xbrl_concept]
-                            fact = self._find_fact_for_period(concept_data, period, freq)
-                            
+                            normalized_period = period if period not in {"latest", "most_recent", "recent"} else None
+                            fact = self._find_fact_for_period(concept_data, normalized_period, freq, accession)
+
                             if fact:
                                 # Check if we're returning annual data when quarterly was requested
                                 fact_fp = fact.get("fp", "")
                                 if freq == "Q" and fact_fp == "FY":
-                                    logger.warning("No quarterly data available, found annual data instead", 
+                                    logger.warning("No quarterly data available, found annual data instead",
                                                  ticker=ticker, concept=concept, period=period, fact_fp=fact_fp)
                                     continue  # Skip annual data when quarterly was requested
-                                
+
                                 # Validate the financial data (temporarily disabled - validation has bug)
                                 value = fact.get("val", 0)
                                 # if not self._validate_financial_data(ticker, concept, value, period or "", freq):
-                                #     logger.warning("Financial data validation failed", 
+                                #     logger.warning("Financial data validation failed",
                                 #                  ticker=ticker, concept=concept, value=value, period=period)
                                 #     continue  # Try next concept
-                                
-                                logger.info("Fact retrieved", 
-                                          ticker=ticker, concept=concept, 
+
+                                logger.info("Fact retrieved",
+                                          ticker=ticker, concept=concept,
                                           taxonomy=taxonomy, xbrl_concept=xbrl_concept,
-                                          value=value, period=period)
-                                
+                                          value=value, period=period, accession=fact.get("accn"))
+
                                 return await self._build_fact_response(fact, ticker, concept, xbrl_concept, taxonomy)
-                
+
                 logger.warning("No facts found", ticker=ticker, concept=concept, taxonomies=taxonomies)
                 return None
-                
+
         except ValueError as e:
             # Re-raise ValueError from strict mode
             logger.error("Failed to get fact", ticker=ticker, concept=concept, error=str(e))
@@ -154,24 +259,204 @@ class SECFactsAdapter:
         except Exception as e:
             logger.error("Failed to get fact", ticker=ticker, concept=concept, error=str(e))
             return None
+
+    async def fetch_company_facts(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Fetch and normalize full company facts dataset from SEC"""
+        try:
+            from src.jobs.symbol_map import cik_for_ticker
+
+            cik = cik_for_ticker(ticker.upper())
+            if not cik:
+                logger.warning("Unknown ticker when fetching company facts", ticker=ticker)
+                return None
+
+            session = await self._get_session()
+            url = f"{self.base_url}/api/xbrl/companyfacts/CIK{cik}.json"
+            logger.info("Fetching full company facts", ticker=ticker, cik=cik)
+
+            async with session.get(url) as response:
+                if response.status != 200:
+                    logger.error(
+                        "Failed to fetch company facts",
+                        ticker=ticker,
+                        cik=cik,
+                        status=response.status
+                    )
+                    return None
+
+                data = await response.json()
+
+            normalized: Dict[str, Any] = {
+                "cik": cik,
+                "entity_name": data.get("entityName", ""),
+                "sic": data.get("sic"),
+                "sic_description": data.get("sicDescription"),
+                "tickers": data.get("tickers", [ticker.upper()]),
+                "facts": {}
+            }
+
+            facts_payload = data.get("facts", {})
+            total_entries = 0
+
+            for taxonomy, taxonomy_data in facts_payload.items():
+                if not isinstance(taxonomy_data, dict):
+                    continue
+
+                for concept_name, concept_data in taxonomy_data.items():
+                    units = concept_data.get("units", {})
+                    if not isinstance(units, dict):
+                        continue
+
+                    concept_key = f"{taxonomy}:{concept_name}"
+                    concept_facts = normalized["facts"].setdefault(concept_key, [])
+
+                    for unit, facts_list in units.items():
+                        if not isinstance(facts_list, list):
+                            continue
+
+                        for fact_entry in facts_list:
+                            normalized_entry = self._normalize_fact_entry(
+                                taxonomy,
+                                concept_name,
+                                unit,
+                                fact_entry
+                            )
+                            if normalized_entry is None:
+                                continue
+
+                            concept_facts.append(normalized_entry)
+                            total_entries += 1
+
+            normalized["total_concepts"] = len(normalized.get("facts", {}))
+            normalized["total_facts"] = total_entries
+
+            logger.info(
+                "Company facts normalized",
+                ticker=ticker,
+                cik=cik,
+                concepts=normalized["total_concepts"],
+                facts=total_entries
+            )
+
+            return normalized
+
+        except Exception as e:
+            logger.error("Failed to fetch company facts", ticker=ticker, error=str(e))
+            return None
+
+    def _normalize_fact_entry(
+        self,
+        taxonomy: str,
+        concept_name: str,
+        unit: str,
+        fact_entry: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Normalize a raw SEC fact entry into storage-friendly structure"""
+        value = fact_entry.get("val")
+        if value is None:
+            return None
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            logger.debug(
+                "Skipping non-numeric fact",
+                taxonomy=taxonomy,
+                concept=concept_name,
+                unit=unit,
+                raw_value=value
+            )
+            return None
+
+        period_label = self._determine_period_label(fact_entry)
+        frame = fact_entry.get("frame")
+        dimensions = fact_entry.get("dimensions") or {}
+        if not dimensions and frame:
+            dimensions = {"frame": frame}
+
+        normalized = {
+            "concept": f"{taxonomy}:{concept_name}",
+            "value": value,
+            "unit": unit,
+            "end_date": period_label,
+            "end_date_actual": fact_entry.get("end"),
+            "start_date": fact_entry.get("start"),
+            "accession": fact_entry.get("accn", ""),
+            "frame": frame,
+            "dimensions": dimensions,
+            "restated": self._is_restated_fact(fact_entry),
+            "estimated": bool(fact_entry.get("estimate")),
+            "fy": fact_entry.get("fy"),
+            "fp": fact_entry.get("fp"),
+            "filed": fact_entry.get("filed"),
+            "form": fact_entry.get("form"),
+            "taxonomy": taxonomy
+        }
+
+        return normalized
+
+    def _determine_period_label(self, fact_entry: Dict[str, Any]) -> str:
+        fy = fact_entry.get("fy")
+        fp_raw = fact_entry.get("fp")
+        fp = str(fp_raw).upper() if fp_raw else ""
+
+        if fy and fp:
+            if fp.startswith("Q") and len(fp) >= 2 and fp[1].isdigit():
+                return f"{fy}-Q{fp[1]}"
+            if fp == "FY":
+                return f"{fy}-FY"
+            if fp in {"H1", "H2"}:
+                return f"{fy}-{fp}"
+
+        end_date = fact_entry.get("end")
+        if end_date:
+            try:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                quarter = ((end_dt.month - 1) // 3) + 1
+                return f"{end_dt.year}-Q{quarter}"
+            except ValueError:
+                return end_date
+
+        return ""
+
+    def _is_restated_fact(self, fact_entry: Dict[str, Any]) -> bool:
+        form = str(fact_entry.get("form", ""))
+        if form.endswith("/A"):
+            return True
+        if fact_entry.get("amend"):
+            return True
+        return False
     
-    def _find_fact_for_period(self, concept_data: Dict[str, Any], period: str = None, freq: str = "Q") -> Optional[Dict[str, Any]]:
-        """Find fact for specific period, or most recent if period not specified"""
+    def _find_fact_for_period(self, concept_data: Dict[str, Any], period: str = None, freq: str = "Q", target_accession: str = None) -> Optional[Dict[str, Any]]:
+        """Find fact for specific period, or most recent if period not specified
+
+        Args:
+            concept_data: Concept data from SEC Facts API
+            period: Target period (e.g., "2024-Q4")
+            freq: Frequency ("Q" or "A")
+            target_accession: If specified, ONLY return facts from this accession (for period consistency)
+        """
         if "units" not in concept_data:
             return None
-        
+
         # Get the first unit (usually USD)
         for unit, periods in concept_data["units"].items():
             if not periods:
                 continue
-                
+
+            # If target_accession specified, filter facts to only that accession
+            if target_accession:
+                periods = [f for f in periods if f.get("accn") == target_accession]
+                if not periods:
+                    continue
+
             if period:
                 # Try to find exact period match - prefer smaller values when multiple matches
                 matching_facts = []
                 for fact in periods:
                     if self._matches_period(fact, period, freq):
                         matching_facts.append(fact)
-                
+
                 if matching_facts:
                     # If multiple matches, prefer the smaller value (more likely to be quarterly)
                     best_fact = min(matching_facts, key=lambda x: x.get("val", float('inf')))
@@ -179,7 +464,7 @@ class SECFactsAdapter:
                         **best_fact,
                         "unit": unit
                     }
-                
+
                 # If no exact match, find closest period
                 closest = self._find_closest_period(periods, period, freq)
                 if closest:
@@ -190,10 +475,11 @@ class SECFactsAdapter:
             else:
                 # No period specified, return most recent
                 sorted_periods = sorted(periods, key=lambda x: x.get("end", ""), reverse=True)
-                return {
-                    **sorted_periods[0],
-                    "unit": unit
-                }
+                if sorted_periods:
+                    return {
+                        **sorted_periods[0],
+                        "unit": unit
+                    }
         return None
     
     def _matches_period(self, fact: Dict[str, Any], period: str, freq: str) -> bool:
@@ -416,24 +702,81 @@ class SECFactsAdapter:
         if not fact:
             return []
         
-        # Generate simple mock series
-        series = []
-        base_value = fact["value"]
-        
-        for i in range(limit):
-            # Simple growth pattern
-            growth_factor = 1.0 + (i * 0.02)  # 2% growth per period
-            mock_value = base_value * growth_factor
-            mock_period = f"2024-Q{4-i}" if freq == "Q" else f"2024-{12-i:02d}-31"
+        try:
+            from src.jobs.symbol_map import cik_for_ticker
+            cik = cik_for_ticker(ticker.upper())
+            if not cik:
+                logger.warning("Unknown ticker", ticker=ticker)
+                return []
             
-            series.append({
-                "ticker": ticker,
-                "concept": concept,
-                "value": mock_value,
-                "unit": "USD",
-                "period": mock_period,
-                "citation": fact["citation"].copy()
-            })
+            session = await self._get_session()
+            url = f"{self.base_url}/api/xbrl/companyfacts/CIK{cik}.json"
+            async with session.get(url) as response:
+                if response.status != 200:
+                    logger.error("Failed to fetch company facts for series", status=response.status)
+                    return []
+                data = await response.json()
+        except Exception as e:
+            logger.error("Failed to fetch series data", ticker=ticker, concept=concept, error=str(e))
+            return []
+        
+        facts = data.get("facts", {})
+        taxonomies = ["us-gaap", "ifrs-full"]
+        normalized_freq = freq or "Q"
+        allowed_fp = {"Q": {"Q1", "Q2", "Q3", "Q4", "QTR"}, "A": {"FY"}}
+        accepted_fp = allowed_fp.get(normalized_freq.upper(), set())
+        series: List[Dict[str, Any]] = []
+        
+        for taxonomy in taxonomies:
+            taxonomy_data = facts.get(taxonomy)
+            if not taxonomy_data:
+                continue
+            for xbrl_concept in self.concept_map.get(concept, []):
+                concept_data = taxonomy_data.get(xbrl_concept)
+                if not concept_data or "units" not in concept_data:
+                    continue
+                for unit, items in concept_data["units"].items():
+                    if not items:
+                        continue
+                    valid_items = []
+                    for item in items:
+                        fp_value = item.get("fp")
+                        if accepted_fp and fp_value not in accepted_fp:
+                            continue
+                        valid_items.append({**item, "unit": unit})
+                    if not valid_items:
+                        continue
+                    sorted_items = sorted(
+                        valid_items,
+                        key=lambda x: x.get("end", ""),
+                        reverse=True
+                    )
+                    for fact_entry in sorted_items:
+                        try:
+                            normalized = await self._build_fact_response(
+                                fact_entry,
+                                ticker,
+                                concept,
+                                xbrl_concept,
+                                taxonomy
+                            )
+                        except Exception as build_error:
+                            logger.warning(
+                                "Failed to normalize fact for series",
+                                ticker=ticker,
+                                concept=concept,
+                                error=str(build_error)
+                            )
+                            continue
+                        series.append(normalized)
+                        if len(series) >= limit:
+                            break
+                    if series:
+                        break
+                if series:
+                    break
+            if series:
+                break
         
         logger.info("Series generated", ticker=ticker, concept=concept, periods=len(series))
         return series

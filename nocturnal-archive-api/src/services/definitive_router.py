@@ -10,9 +10,11 @@ from enum import Enum
 from datetime import datetime
 import statistics
 
-from src.adapters.sec_filings import SECFilingsAdapter
+from src.adapters.sec_facts import get_sec_facts_adapter  # Use fixed SEC Facts adapter
 from src.adapters.yahoo_finance_direct import YahooFinanceDirectAdapter
 from src.adapters.alpha_vantage import AlphaVantageAdapter
+# Browser adapter disabled pending validation
+# from src.adapters.advanced_browser_finance import get_advanced_browser_finance_adapter
 
 logger = structlog.get_logger(__name__)
 
@@ -20,6 +22,7 @@ class DataSource(Enum):
     SEC_EDGAR = "sec_edgar"
     YAHOO_FINANCE = "yahoo_finance"
     ALPHA_VANTAGE = "alpha_vantage"
+    # BROWSER data source temporarily disabled pending compliance review
 
 class DataType(Enum):
     FINANCIAL_STATEMENTS = "financial_statements"
@@ -31,10 +34,11 @@ class DefinitiveRouter:
     """THE Definitive Financial Data Router with cross-validation"""
     
     def __init__(self, alpha_vantage_key: str = None):
-        self.sec_adapter = SECFilingsAdapter()
+        self.browser_adapter = None  # Browser adapter disabled for now
+        self.sec_adapter = get_sec_facts_adapter()  # Use fixed SEC Facts adapter with period matching
         self.yahoo_adapter = YahooFinanceDirectAdapter()
         self.alpha_adapter = AlphaVantageAdapter(alpha_vantage_key)
-        
+
         # Source priorities by data type
         self.source_priorities = {
             DataType.FINANCIAL_STATEMENTS: [
@@ -163,6 +167,11 @@ class DefinitiveRouter:
         
         return best_result
     
+    async def _try_browser_data(self, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Browser adapter temporarily disabled"""
+        logger.info("Browser data source disabled; skipping", ticker=request.get("ticker"))
+        return None
+
     async def _try_sec_data(self, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Try to get data from SEC EDGAR"""
         try:
@@ -170,9 +179,9 @@ class DefinitiveRouter:
             expr = request.get("expr")
             period = request.get("period")
             freq = request.get("freq", "Q")
-            
-            result = await self.sec_adapter.get_fact(ticker, expr, period, freq)
-            
+
+            result = await self.sec_adapter.get_fact(ticker, expr, period=period, freq=freq)
+
             if result and self._validate_data_quality(result, expr):
                 result["data_source"] = DataSource.SEC_EDGAR.value
                 logger.info("SEC data retrieved", ticker=ticker, expr=expr, value=result.get("value"))
@@ -180,7 +189,7 @@ class DefinitiveRouter:
             else:
                 logger.warning("SEC data validation failed", ticker=ticker, expr=expr)
                 return None
-                
+
         except Exception as e:
             logger.warning("SEC data failed", ticker=request.get("ticker"), error=str(e))
             return None

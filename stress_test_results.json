@@ -1,0 +1,1031 @@
+{
+  "summary": {
+    "total": 42,
+    "passed": 10,
+    "failed": 32,
+    "pass_rate": 23.809523809523807,
+    "avg_response_time_ms": 665.7142857142857
+  },
+  "results": [
+    {
+      "ticker": "CROX",
+      "industry": "Footwear",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 9,
+      "status_code": 500,
+      "data": null,
+      "error": "{\"type\":\"https://nocturnal.dev/errors/internal-error\",\"title\":\"Calculation failed\",\"status\":500,\"detail\":\"Internal error: 'inputs'\",\"instance\":\"a48b5f4f-ec19-4bc4-8806-52d0790181e7\"}",
+      "notes": null
+    },
+    {
+      "ticker": "CROX",
+      "industry": "Footwear",
+      "test_type": "expression_calc",
+      "success": true,
+      "response_time_ms": 4564,
+      "status_code": 200,
+      "data": {
+        "ticker": "CROX",
+        "expr": "revenue - costOfRevenue",
+        "period": "latest",
+        "freq": "Q",
+        "value": -553173000,
+        "data_source": "sec_edgar",
+        "formula": "grossProfit = revenue - costOfRevenue",
+        "left": {
+          "concept": "grossProfit",
+          "value": -553173000,
+          "unit": "USD"
+        },
+        "right": {
+          "terms": [
+            {
+              "concept": "revenue",
+              "value": 283148000,
+              "accession": "0001628280-18-006136",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            },
+            {
+              "concept": "costOfRevenue",
+              "value": 836321000,
+              "accession": "0001334036-25-000085",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            }
+          ]
+        },
+        "citations": [
+          {
+            "source": "SEC EDGAR 10-K Filing",
+            "accession": "0001628280-18-006136",
+            "url": "https://www.sec.gov/Archives/edgar/...",
+            "page": "Consolidated Statements of Operations"
+          }
+        ],
+        "metadata": {
+          "calculated_at": "2025-10-03T11:40:30.546486",
+          "engine_version": "1.0.0"
+        }
+      },
+      "error": null,
+      "notes": "Calculated value: -553173000"
+    },
+    {
+      "ticker": "NKE",
+      "industry": "Footwear",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 3,
+      "status_code": 500,
+      "data": null,
+      "error": "{\"type\":\"https://nocturnal.dev/errors/internal-error\",\"title\":\"Calculation failed\",\"status\":500,\"detail\":\"Internal error: 'inputs'\",\"instance\":\"ebbc114a-2de5-4046-8661-7211ec053b14\"}",
+      "notes": null
+    },
+    {
+      "ticker": "NKE",
+      "industry": "Footwear",
+      "test_type": "expression_calc",
+      "success": true,
+      "response_time_ms": 1429,
+      "status_code": 200,
+      "data": {
+        "ticker": "NKE",
+        "expr": "revenue - costOfRevenue",
+        "period": "latest",
+        "freq": "Q",
+        "value": 12545000000,
+        "data_source": "sec_edgar",
+        "formula": "grossProfit = revenue - costOfRevenue",
+        "left": {
+          "concept": "grossProfit",
+          "value": 12545000000,
+          "unit": "USD"
+        },
+        "right": {
+          "terms": [
+            {
+              "concept": "revenue",
+              "value": 19322000000,
+              "accession": "0000320187-19-000007",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            },
+            {
+              "concept": "costOfRevenue",
+              "value": 6777000000,
+              "accession": "0000320187-25-000097",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            }
+          ]
+        },
+        "citations": [
+          {
+            "source": "SEC EDGAR 10-K Filing",
+            "accession": "0000320187-19-000007",
+            "url": "https://www.sec.gov/Archives/edgar/...",
+            "page": "Consolidated Statements of Operations"
+          }
+        ],
+        "metadata": {
+          "calculated_at": "2025-10-03T11:40:32.482040",
+          "engine_version": "1.0.0"
+        }
+      },
+      "error": null,
+      "notes": "Calculated value: 12545000000"
+    },
+    {
+      "ticker": "LULU",
+      "industry": "Apparel",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 2,
+      "status_code": 500,
+      "data": null,
+      "error": "{\"type\":\"https://nocturnal.dev/errors/internal-error\",\"title\":\"Calculation failed\",\"status\":500,\"detail\":\"Internal error: 'inputs'\",\"instance\":\"ec629785-19fb-40b9-b282-dcd62d1b2690\"}",
+      "notes": null
+    },
+    {
+      "ticker": "LULU",
+      "industry": "Apparel",
+      "test_type": "expression_calc",
+      "success": true,
+      "response_time_ms": 3896,
+      "status_code": 200,
+      "data": {
+        "ticker": "LULU",
+        "expr": "revenue - costOfRevenue",
+        "period": "latest",
+        "freq": "Q",
+        "value": -1385845000,
+        "data_source": "sec_edgar",
+        "formula": "grossProfit = revenue - costOfRevenue",
+        "left": {
+          "concept": "grossProfit",
+          "value": -1385845000,
+          "unit": "USD"
+        },
+        "right": {
+          "terms": [
+            {
+              "concept": "revenue",
+              "value": 649706000,
+              "accession": "0001397187-18-000030",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            },
+            {
+              "concept": "costOfRevenue",
+              "value": 2035551000,
+              "accession": "0001397187-25-000039",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            }
+          ]
+        },
+        "citations": [
+          {
+            "source": "SEC EDGAR 10-K Filing",
+            "accession": "0001397187-18-000030",
+            "url": "https://www.sec.gov/Archives/edgar/...",
+            "page": "Consolidated Statements of Operations"
+          }
+        ],
+        "metadata": {
+          "calculated_at": "2025-10-03T11:40:36.879045",
+          "engine_version": "1.0.0"
+        }
+      },
+      "error": null,
+      "notes": "Calculated value: -1385845000"
+    },
+    {
+      "ticker": "KMX",
+      "industry": "Used Cars",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 3,
+      "status_code": 500,
+      "data": null,
+      "error": "{\"type\":\"https://nocturnal.dev/errors/internal-error\",\"title\":\"Calculation failed\",\"status\":500,\"detail\":\"Internal error: 'inputs'\",\"instance\":\"1e9c27c7-24af-4f6a-b784-41cc3ec7c6bc\"}",
+      "notes": null
+    },
+    {
+      "ticker": "KMX",
+      "industry": "Used Cars",
+      "test_type": "expression_calc",
+      "success": true,
+      "response_time_ms": 2163,
+      "status_code": 200,
+      "data": {
+        "ticker": "KMX",
+        "expr": "revenue - costOfRevenue",
+        "period": "latest",
+        "freq": "Q",
+        "value": -7737344000,
+        "data_source": "sec_edgar",
+        "formula": "grossProfit = revenue - costOfRevenue",
+        "left": {
+          "concept": "grossProfit",
+          "value": -7737344000,
+          "unit": "USD"
+        },
+        "right": {
+          "terms": [
+            {
+              "concept": "revenue",
+              "value": 4792592000,
+              "accession": "0001170010-18-000146",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            },
+            {
+              "concept": "costOfRevenue",
+              "value": 12529936000,
+              "accession": "0001170010-25-000118",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            }
+          ]
+        },
+        "citations": [
+          {
+            "source": "SEC EDGAR 10-K Filing",
+            "accession": "0001170010-18-000146",
+            "url": "https://www.sec.gov/Archives/edgar/...",
+            "page": "Consolidated Statements of Operations"
+          }
+        ],
+        "metadata": {
+          "calculated_at": "2025-10-03T11:40:39.549243",
+          "engine_version": "1.0.0"
+        }
+      },
+      "error": null,
+      "notes": "Calculated value: -7737344000"
+    },
+    {
+      "ticker": "TSLA",
+      "industry": "EVs",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 2,
+      "status_code": 500,
+      "data": null,
+      "error": "{\"type\":\"https://nocturnal.dev/errors/internal-error\",\"title\":\"Calculation failed\",\"status\":500,\"detail\":\"Internal error: 'inputs'\",\"instance\":\"efead41e-7b07-4d45-b9be-aa3d20634810\"}",
+      "notes": null
+    },
+    {
+      "ticker": "TSLA",
+      "industry": "EVs",
+      "test_type": "expression_calc",
+      "success": true,
+      "response_time_ms": 1895,
+      "status_code": 200,
+      "data": {
+        "ticker": "TSLA",
+        "expr": "revenue - costOfRevenue",
+        "period": "latest",
+        "freq": "Q",
+        "value": 7031000000,
+        "data_source": "sec_edgar",
+        "formula": "grossProfit = revenue - costOfRevenue",
+        "left": {
+          "concept": "grossProfit",
+          "value": 7031000000,
+          "unit": "USD"
+        },
+        "right": {
+          "terms": [
+            {
+              "concept": "revenue",
+              "value": 41831000000,
+              "accession": "0001628280-25-035806",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            },
+            {
+              "concept": "costOfRevenue",
+              "value": 34800000000,
+              "accession": "0001628280-25-035806",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            }
+          ]
+        },
+        "citations": [
+          {
+            "source": "SEC EDGAR 10-K Filing",
+            "accession": "0001628280-25-035806",
+            "url": "https://www.sec.gov/Archives/edgar/...",
+            "page": "Consolidated Statements of Operations"
+          }
+        ],
+        "metadata": {
+          "calculated_at": "2025-10-03T11:40:41.948651",
+          "engine_version": "1.0.0"
+        }
+      },
+      "error": null,
+      "notes": "Calculated value: 7031000000"
+    },
+    {
+      "ticker": "F",
+      "industry": "Auto",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 2,
+      "status_code": 500,
+      "data": null,
+      "error": "{\"type\":\"https://nocturnal.dev/errors/internal-error\",\"title\":\"Calculation failed\",\"status\":500,\"detail\":\"Internal error: 'inputs'\",\"instance\":\"5e71d79c-2a77-47e7-b3b3-182adff3e4e1\"}",
+      "notes": null
+    },
+    {
+      "ticker": "F",
+      "industry": "Auto",
+      "test_type": "expression_calc",
+      "success": true,
+      "response_time_ms": 2078,
+      "status_code": 200,
+      "data": {
+        "ticker": "F",
+        "expr": "revenue - costOfRevenue",
+        "period": "latest",
+        "freq": "Q",
+        "value": 26087000000,
+        "data_source": "sec_edgar",
+        "formula": "grossProfit = revenue - costOfRevenue",
+        "left": {
+          "concept": "grossProfit",
+          "value": 26087000000,
+          "unit": "USD"
+        },
+        "right": {
+          "terms": [
+            {
+              "concept": "revenue",
+              "value": 105520000000,
+              "accession": "0000037996-16-000158",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            },
+            {
+              "concept": "costOfRevenue",
+              "value": 79433000000,
+              "accession": "0000037996-25-000147",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            }
+          ]
+        },
+        "citations": [
+          {
+            "source": "SEC EDGAR 10-K Filing",
+            "accession": "0000037996-16-000158",
+            "url": "https://www.sec.gov/Archives/edgar/...",
+            "page": "Consolidated Statements of Operations"
+          }
+        ],
+        "metadata": {
+          "calculated_at": "2025-10-03T11:40:44.531005",
+          "engine_version": "1.0.0"
+        }
+      },
+      "error": null,
+      "notes": "Calculated value: 26087000000"
+    },
+    {
+      "ticker": "ULTA",
+      "industry": "Beauty Retail",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 2,
+      "status_code": 500,
+      "data": null,
+      "error": "{\"type\":\"https://nocturnal.dev/errors/internal-error\",\"title\":\"Calculation failed\",\"status\":500,\"detail\":\"Internal error: 'inputs'\",\"instance\":\"4f4a05c2-f7e1-46ea-971f-9d833e769ddd\"}",
+      "notes": null
+    },
+    {
+      "ticker": "ULTA",
+      "industry": "Beauty Retail",
+      "test_type": "expression_calc",
+      "success": true,
+      "response_time_ms": 5114,
+      "status_code": 200,
+      "data": {
+        "ticker": "ULTA",
+        "expr": "revenue - costOfRevenue",
+        "period": "latest",
+        "freq": "Q",
+        "value": 2205915000,
+        "data_source": "sec_edgar",
+        "formula": "grossProfit = revenue - costOfRevenue",
+        "left": {
+          "concept": "grossProfit",
+          "value": 2205915000,
+          "unit": "USD"
+        },
+        "right": {
+          "terms": [
+            {
+              "concept": "revenue",
+              "value": 5636836000,
+              "accession": "0001558370-25-011804",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            },
+            {
+              "concept": "costOfRevenue",
+              "value": 3430921000,
+              "accession": "0001558370-25-011804",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            }
+          ]
+        },
+        "citations": [
+          {
+            "source": "SEC EDGAR 10-K Filing",
+            "accession": "0001558370-25-011804",
+            "url": "https://www.sec.gov/Archives/edgar/...",
+            "page": "Consolidated Statements of Operations"
+          }
+        ],
+        "metadata": {
+          "calculated_at": "2025-10-03T11:40:50.148746",
+          "engine_version": "1.0.0"
+        }
+      },
+      "error": null,
+      "notes": "Calculated value: 2205915000"
+    },
+    {
+      "ticker": "ZUMZ",
+      "industry": "Retail",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 3,
+      "status_code": 500,
+      "data": null,
+      "error": "{\"type\":\"https://nocturnal.dev/errors/internal-error\",\"title\":\"Calculation failed\",\"status\":500,\"detail\":\"Internal error: 'inputs'\",\"instance\":\"866d45d3-559e-4334-9128-ee06dd4624b7\"}",
+      "notes": null
+    },
+    {
+      "ticker": "ZUMZ",
+      "industry": "Retail",
+      "test_type": "expression_calc",
+      "success": true,
+      "response_time_ms": 2438,
+      "status_code": 200,
+      "data": {
+        "ticker": "ZUMZ",
+        "expr": "revenue - costOfRevenue",
+        "period": "latest",
+        "freq": "Q",
+        "value": -60998000,
+        "data_source": "sec_edgar",
+        "formula": "grossProfit = revenue - costOfRevenue",
+        "left": {
+          "concept": "grossProfit",
+          "value": -60998000,
+          "unit": "USD"
+        },
+        "right": {
+          "terms": [
+            {
+              "concept": "revenue",
+              "value": 206287000,
+              "accession": "0001564590-18-015388",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            },
+            {
+              "concept": "costOfRevenue",
+              "value": 267285000,
+              "accession": "0001318008-25-000005",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            }
+          ]
+        },
+        "citations": [
+          {
+            "source": "SEC EDGAR 10-K Filing",
+            "accession": "0001564590-18-015388",
+            "url": "https://www.sec.gov/Archives/edgar/...",
+            "page": "Consolidated Statements of Operations"
+          }
+        ],
+        "metadata": {
+          "calculated_at": "2025-10-03T11:40:53.090703",
+          "engine_version": "1.0.0"
+        }
+      },
+      "error": null,
+      "notes": "Calculated value: -60998000"
+    },
+    {
+      "ticker": "RH",
+      "industry": "Furniture",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 2,
+      "status_code": 500,
+      "data": null,
+      "error": "{\"type\":\"https://nocturnal.dev/errors/internal-error\",\"title\":\"Calculation failed\",\"status\":500,\"detail\":\"Internal error: 'inputs'\",\"instance\":\"d4b7d7bd-95d1-484d-a46b-df5f1249246f\"}",
+      "notes": null
+    },
+    {
+      "ticker": "RH",
+      "industry": "Furniture",
+      "test_type": "expression_calc",
+      "success": true,
+      "response_time_ms": 2000,
+      "status_code": 200,
+      "data": {
+        "ticker": "RH",
+        "expr": "revenue - costOfRevenue",
+        "period": "latest",
+        "freq": "Q",
+        "value": 886251000,
+        "data_source": "sec_edgar",
+        "formula": "grossProfit = revenue - costOfRevenue",
+        "left": {
+          "concept": "grossProfit",
+          "value": 886251000,
+          "unit": "USD"
+        },
+        "right": {
+          "terms": [
+            {
+              "concept": "revenue",
+              "value": 1834762000,
+              "accession": "0001564590-18-030436",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            },
+            {
+              "concept": "costOfRevenue",
+              "value": 948511000,
+              "accession": "0001558370-25-012015",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            }
+          ]
+        },
+        "citations": [
+          {
+            "source": "SEC EDGAR 10-K Filing",
+            "accession": "0001564590-18-030436",
+            "url": "https://www.sec.gov/Archives/edgar/...",
+            "page": "Consolidated Statements of Operations"
+          }
+        ],
+        "metadata": {
+          "calculated_at": "2025-10-03T11:40:55.595122",
+          "engine_version": "1.0.0"
+        }
+      },
+      "error": null,
+      "notes": "Calculated value: 886251000"
+    },
+    {
+      "ticker": "HRB",
+      "industry": "Tax Services",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 3,
+      "status_code": 500,
+      "data": null,
+      "error": "{\"type\":\"https://nocturnal.dev/errors/internal-error\",\"title\":\"Calculation failed\",\"status\":500,\"detail\":\"Internal error: 'inputs'\",\"instance\":\"2d446699-c869-4f73-b5ce-6fb2150f7544\"}",
+      "notes": null
+    },
+    {
+      "ticker": "HRB",
+      "industry": "Tax Services",
+      "test_type": "expression_calc",
+      "success": true,
+      "response_time_ms": 2321,
+      "status_code": 200,
+      "data": {
+        "ticker": "HRB",
+        "expr": "revenue - costOfRevenue",
+        "period": "latest",
+        "freq": "Q",
+        "value": -1242019000,
+        "data_source": "sec_edgar",
+        "formula": "grossProfit = revenue - costOfRevenue",
+        "left": {
+          "concept": "grossProfit",
+          "value": -1242019000,
+          "unit": "USD"
+        },
+        "right": {
+          "terms": [
+            {
+              "concept": "revenue",
+              "value": 311163000,
+              "accession": "0001574842-19-000041",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            },
+            {
+              "concept": "costOfRevenue",
+              "value": 1553182000,
+              "accession": "0001605297-25-000005",
+              "unit": "USD",
+              "scale": "U",
+              "fx_used": null,
+              "amended": false,
+              "as_reported": true,
+              "data_source": "sec_edgar"
+            }
+          ]
+        },
+        "citations": [
+          {
+            "source": "SEC EDGAR 10-K Filing",
+            "accession": "0001574842-19-000041",
+            "url": "https://www.sec.gov/Archives/edgar/...",
+            "page": "Consolidated Statements of Operations"
+          }
+        ],
+        "metadata": {
+          "calculated_at": "2025-10-03T11:40:58.421008",
+          "engine_version": "1.0.0"
+        }
+      },
+      "error": null,
+      "notes": "Calculated value: -1242019000"
+    },
+    {
+      "ticker": "FUN",
+      "industry": "Amusement Parks",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 2,
+      "status_code": 429,
+      "data": {
+        "error": "rate_limit_exceeded",
+        "message": "Too many requests. Please try again later.",
+        "trace_id": null
+      },
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "FUN",
+      "industry": "Amusement Parks",
+      "test_type": "expression_calc",
+      "success": false,
+      "response_time_ms": 2,
+      "status_code": 429,
+      "data": null,
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "NVDA",
+      "industry": "Semiconductors",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 3,
+      "status_code": 429,
+      "data": {
+        "error": "rate_limit_exceeded",
+        "message": "Too many requests. Please try again later.",
+        "trace_id": null
+      },
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "NVDA",
+      "industry": "Semiconductors",
+      "test_type": "expression_calc",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": null,
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "AMD",
+      "industry": "Semiconductors",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 2,
+      "status_code": 429,
+      "data": {
+        "error": "rate_limit_exceeded",
+        "message": "Too many requests. Please try again later.",
+        "trace_id": null
+      },
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "AMD",
+      "industry": "Semiconductors",
+      "test_type": "expression_calc",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": null,
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "INTC",
+      "industry": "Semiconductors",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": {
+        "error": "rate_limit_exceeded",
+        "message": "Too many requests. Please try again later.",
+        "trace_id": null
+      },
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "INTC",
+      "industry": "Semiconductors",
+      "test_type": "expression_calc",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": null,
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "BABA",
+      "industry": "China E-commerce",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": {
+        "error": "rate_limit_exceeded",
+        "message": "Too many requests. Please try again later.",
+        "trace_id": null
+      },
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "BABA",
+      "industry": "China E-commerce",
+      "test_type": "expression_calc",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": null,
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "TSM",
+      "industry": "Taiwan Semiconductor",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": {
+        "error": "rate_limit_exceeded",
+        "message": "Too many requests. Please try again later.",
+        "trace_id": null
+      },
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "TSM",
+      "industry": "Taiwan Semiconductor",
+      "test_type": "expression_calc",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": null,
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "BMBL",
+      "industry": "Dating App",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": {
+        "error": "rate_limit_exceeded",
+        "message": "Too many requests. Please try again later.",
+        "trace_id": null
+      },
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "BMBL",
+      "industry": "Dating App",
+      "test_type": "expression_calc",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": null,
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "BYND",
+      "industry": "Plant-Based Food",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": {
+        "error": "rate_limit_exceeded",
+        "message": "Too many requests. Please try again later.",
+        "trace_id": null
+      },
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "BYND",
+      "industry": "Plant-Based Food",
+      "test_type": "expression_calc",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": null,
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "GME",
+      "industry": "Gaming Retail",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 2,
+      "status_code": 429,
+      "data": {
+        "error": "rate_limit_exceeded",
+        "message": "Too many requests. Please try again later.",
+        "trace_id": null
+      },
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "GME",
+      "industry": "Gaming Retail",
+      "test_type": "expression_calc",
+      "success": false,
+      "response_time_ms": 3,
+      "status_code": 429,
+      "data": null,
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "AMC",
+      "industry": "Theaters",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": {
+        "error": "rate_limit_exceeded",
+        "message": "Too many requests. Please try again later.",
+        "trace_id": null
+      },
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "AMC",
+      "industry": "Theaters",
+      "test_type": "expression_calc",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": null,
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "BTC-USD",
+      "industry": "Cryptocurrency",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 1,
+      "status_code": 429,
+      "data": {
+        "error": "rate_limit_exceeded",
+        "message": "Too many requests. Please try again later.",
+        "trace_id": null
+      },
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    },
+    {
+      "ticker": "ETH-USD",
+      "industry": "Cryptocurrency",
+      "test_type": "basic_metric",
+      "success": false,
+      "response_time_ms": 2,
+      "status_code": 429,
+      "data": {
+        "error": "rate_limit_exceeded",
+        "message": "Too many requests. Please try again later.",
+        "trace_id": null
+      },
+      "error": "{\"error\":\"rate_limit_exceeded\",\"message\":\"Too many requests. Please try again later.\",\"trace_id\":null}",
+      "notes": null
+    }
+  ]
+}

@@ -144,9 +144,31 @@ async def add_process_time_header(request: Request, call_next):
     return response
 
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions (auth errors, validation, etc.)"""
+    logger.warning(
+        "HTTP exception",
+        status_code=exc.status_code,
+        detail=exc.detail,
+        path=request.url.path,
+        method=request.method,
+        trace_id=getattr(request.state, "trace_id", "unknown")
+    )
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": "authentication_error" if exc.status_code in (401, 403) else "http_error",
+            "message": exc.detail,
+            "request_id": getattr(request.state, "trace_id", "unknown")
+        }
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler"""
+    """Global exception handler for unexpected errors"""
     logger.error(
         "Unhandled exception",
         exception=str(exc),
@@ -154,7 +176,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         method=request.method,
         exc_info=True
     )
-    
+
     return JSONResponse(
         status_code=500,
         content={

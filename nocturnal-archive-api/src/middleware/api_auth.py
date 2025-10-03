@@ -135,11 +135,16 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 if self.settings.environment == "test" and request.url.path.startswith("/api/"):
                     api_key = "demo-key-123"
                 else:
-                    raise HTTPException(
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(
                         status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Invalid authentication credentials"
+                        content={
+                            "error": "authentication_error",
+                            "message": "Missing API key. Provide X-API-Key header or Authorization: Bearer <key>",
+                            "request_id": getattr(request.state, "trace_id", "unknown")
+                        }
                     )
-            
+
             # Validate API key
             if api_key not in self.api_keys:
                 logger.warning(
@@ -147,16 +152,26 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                     api_key_hash=hashlib.sha256(api_key.encode()).hexdigest()[:8],
                     ip=request.client.host if request.client else "unknown"
                 )
-                raise HTTPException(
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid authentication credentials"
+                    content={
+                        "error": "authentication_error",
+                        "message": "Invalid API key",
+                        "request_id": getattr(request.state, "trace_id", "unknown")
+                    }
                 )
-            
+
             key_info = self.api_keys[api_key]
             if not key_info["active"]:
-                raise HTTPException(
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="API key inactive"
+                    content={
+                        "error": "authentication_error",
+                        "message": "API key is inactive",
+                        "request_id": getattr(request.state, "trace_id", "unknown")
+                    }
                 )
 
             # Permission model: read access for GET, write access for mutating operations
@@ -167,9 +182,14 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 required_permission = "research"
 
             if required_permission and required_permission not in key_info.get("permissions", set()):
-                raise HTTPException(
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Insufficient permissions"
+                    content={
+                        "error": "permission_denied",
+                        "message": f"Insufficient permissions. Required: {required_permission}",
+                        "request_id": getattr(request.state, "trace_id", "unknown")
+                    }
                 )
             
             # Check rate limit

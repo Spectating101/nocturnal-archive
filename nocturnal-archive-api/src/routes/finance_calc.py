@@ -38,6 +38,13 @@ class VerifyRequest(BaseModel):
     period: str = Field("latest", description="Period to verify")
     freq: str = Field("Q", description="Frequency")
 
+
+class ValidationRequest(BaseModel):
+    ticker: str = Field(..., description="Company ticker symbol")
+    metric: str = Field(..., description="Metric to validate")
+    period: str = Field("latest", description="Period (e.g., '2024-Q4', 'latest')")
+    freq: str = Field("Q", description="Frequency ('Q' for quarterly, 'A' for annual)")
+
 @router.get("/{ticker}/{metric}")
 async def calculate_metric(
     ticker: str,
@@ -46,6 +53,7 @@ async def calculate_metric(
     freq: str = Query("Q", description="Frequency ('Q' for quarterly, 'A' for annual)"),
     ttm: bool = Query(False, description="Calculate trailing twelve months"),
     segment: Optional[str] = Query(None, description="Business segment filter"),
+    validate: bool = Query(False, description="Cross-check metric across external providers"),
     request: Request = None
 ):
     """
@@ -72,7 +80,8 @@ async def calculate_metric(
             period=period,
             freq=freq,
             ttm=ttm,
-            segment=segment
+            segment=segment,
+            validate=validate,
         )
         
         # Build response
@@ -103,6 +112,15 @@ async def calculate_metric(
             "quality_flags": result.quality_flags,
             "metadata": result.metadata
         }
+
+        if result.validation:
+            response_data["trust_score"] = result.validation.trust_score
+            response_data["validation"] = result.validation.to_dict()
+        elif validate:
+            response_data["validation"] = {
+                "status": "error",
+                "detail": result.metadata.get("validation_error", "Validation attempted but no data was returned"),
+            }
         
         logger.info(
             "Finance metric calculation completed",
@@ -143,7 +161,7 @@ async def calculate_metric(
             "validation-error",
             "Calculation failed",
             detail,
-            extra_info if extra_info else None
+            **(extra_info if extra_info else {})
         )
         
     except Exception as e:
@@ -159,6 +177,85 @@ async def calculate_metric(
             "internal-error",
             "Calculation failed",
             f"Internal error: {str(e)}"
+        )
+
+
+@router.post("/validate")
+async def validate_metric(req: ValidationRequest, request: Request):
+    """Cross-source validation for a metric without running a full calculation."""
+
+    try:
+        logger.info(
+            "Finance metric validation request",
+            ticker=req.ticker,
+            metric=req.metric,
+            period=req.period,
+            freq=req.freq,
+            trace_id=getattr(request.state, "trace_id", "unknown")
+        )
+
+        validation = await calc_engine.validator.cross_validate(
+            ticker=req.ticker,
+            metric=req.metric,
+            period=req.period,
+            freq=req.freq,
+        )
+
+        response_data = {
+            "ticker": req.ticker,
+            "metric": req.metric,
+            "period": req.period,
+            "freq": req.freq,
+            "trust_score": validation.trust_score,
+            "consensus_value": validation.consensus_value,
+            "sources_count": validation.sources_count,
+            "discrepancies": validation.discrepancies,
+            "validation_time": validation.validation_time,
+            "sources": [source.to_dict() for source in validation.sources],
+        }
+
+        logger.info(
+            "Finance metric validation completed",
+            ticker=req.ticker,
+            metric=req.metric,
+            trust_score=validation.trust_score,
+            discrepancies=len(validation.discrepancies),
+            trace_id=getattr(request.state, "trace_id", "unknown")
+        )
+
+        return response_data
+
+    except ValueError as e:
+        logger.warning(
+            "Finance metric validation failed - validation error",
+            ticker=req.ticker,
+            metric=req.metric,
+            error=str(e),
+            trace_id=getattr(request.state, "trace_id", "unknown")
+        )
+
+        return create_problem_response(
+            request,
+            422,
+            "validation-error",
+            "Cross-source validation failed",
+            str(e),
+        )
+
+    except Exception as e:
+        logger.error(
+            "Finance metric validation failed",
+            ticker=req.ticker,
+            metric=req.metric,
+            error=str(e),
+            trace_id=getattr(request.state, "trace_id", "unknown")
+        )
+        return create_problem_response(
+            request,
+            500,
+            "internal-error",
+            "Cross-source validation failed",
+            f"Internal error: {str(e)}",
         )
 
 @router.get("/series/{ticker}/{metric}")
@@ -345,7 +442,7 @@ async def explain_expression(req: CalcRequest, request: Request):
             "validation-error",
             "Expression evaluation failed",
             detail,
-            extra_info if extra_info else None
+            **(extra_info if extra_info else {})
         )
         
     except Exception as e:

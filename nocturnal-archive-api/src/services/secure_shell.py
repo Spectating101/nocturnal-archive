@@ -14,15 +14,23 @@ from fastapi import HTTPException, status
 import docker
 from docker.errors import DockerException
 
+from src.config.settings import get_settings
+
 logger = structlog.get_logger(__name__)
 
 class SecureShell:
     """Production-ready secure shell with Docker isolation"""
     
     def __init__(self):
+        self.settings = get_settings()
+        self.test_mode = self.settings.environment == "test"
         self.docker_client = None
         self.containers = {}  # Track active containers per user
         self.max_containers = 10  # Limit concurrent containers
+        
+        if self.test_mode:
+            logger.info("SecureShell running in test mode with mocked execution")
+            return
         
         try:
             self.docker_client = docker.from_env()
@@ -102,6 +110,12 @@ class SecureShell:
     
     async def _create_secure_container(self, user_id: str) -> Optional[docker.models.containers.Container]:
         """Create a secure Docker container for shell access"""
+        if self.test_mode:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Secure shell containerization disabled in test mode"
+            )
+
         if not self.docker_client:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -223,6 +237,23 @@ class SecureShell:
             }
         
         try:
+            if self.test_mode:
+                execution_time = 0.01
+                logger.info(
+                    "Mock command executed",
+                    user_id=user_id,
+                    command=command,
+                    success=True,
+                    execution_time=execution_time
+                )
+                return {
+                    "success": True,
+                    "output": f"[mocked stdout] {command}",
+                    "exit_code": 0,
+                    "execution_time": execution_time,
+                    "command": command
+                }
+
             # Get or create container for user
             container = await self._get_or_create_container(user_id)
             
@@ -311,6 +342,10 @@ class SecureShell:
     
     async def cleanup_all_containers(self):
         """Clean up all containers"""
+        if self.test_mode:
+            self.containers.clear()
+            return
+
         for user_id in list(self.containers.keys()):
             await self.cleanup_user_container(user_id)
     

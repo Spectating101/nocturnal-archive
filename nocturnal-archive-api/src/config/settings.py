@@ -2,6 +2,7 @@
 Application settings and configuration
 """
 
+import os
 from functools import lru_cache
 from typing import List
 
@@ -91,4 +92,22 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     """Get cached settings instance"""
-    return Settings()
+    settings = Settings()
+
+    # Automatically switch to test mode when running under pytest without needing env vars
+    is_test_env = (
+        settings.environment.lower() == "test"
+        or os.getenv("PYTEST_CURRENT_TEST")
+        or os.getenv("PYTEST_ENV")
+    )
+
+    if is_test_env:
+        settings.environment = "test"
+        settings.debug = True
+        settings.finsight_strict = False
+
+        # Provide deterministic low rate limits suitable for unit tests unless explicitly overridden
+        settings.rate_limit_per_hour = int(os.getenv("NA_TEST_RATE_LIMIT_PER_HOUR", "120"))
+        settings.rate_limit_burst = int(os.getenv("NA_TEST_RATE_LIMIT_BURST", "30"))
+
+    return settings

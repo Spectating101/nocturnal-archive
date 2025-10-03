@@ -7,16 +7,31 @@ import io
 import structlog
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-from reportlab.graphics.shapes import Drawing, Rect, String
-from reportlab.graphics import renderPDF
+
+try:
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+    plt = None
+    patches = None
+
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    from reportlab.graphics.shapes import Drawing, Rect, String
+    from reportlab.graphics import renderPDF
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+    colors = letter = A4 = getSampleStyleSheet = ParagraphStyle = None
+    inch = SimpleDocTemplate = Paragraph = Spacer = Table = TableStyle = Image = None
+    TA_CENTER = TA_LEFT = TA_RIGHT = Drawing = Rect = String = renderPDF = None
 
 from src.adapters.sec_facts import get_sec_facts_adapter
 

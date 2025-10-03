@@ -6,6 +6,7 @@ import structlog
 import uuid
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from typing import List, Optional
 
 from src.config.settings import Settings, get_settings
@@ -13,6 +14,7 @@ from src.models.request import SearchRequest
 from src.models.paper import SearchResult, Paper, Author
 from src.services.paper_search import PaperSearcher
 from src.services.performance_integration import performance_integration
+from src.utils.async_utils import resolve_awaitable
 from src.engine.research_engine import sophisticated_engine
 
 logger = structlog.get_logger(__name__)
@@ -100,13 +102,17 @@ async def search_papers(
         # Apply performance enhancements if requested
         if enhance:
             logger.info("Applying performance enhancements", trace_id=trace_id)
-            papers_dict = await performance_integration.enhance_paper_search(papers_dict)
+            papers_dict = await resolve_awaitable(
+                performance_integration.enhance_paper_search(papers_dict)
+            )
         
         # Extract research insights if requested
         insights = {}
         if extract_insights:
             logger.info("Extracting research insights", trace_id=trace_id)
-            insights = await performance_integration.extract_research_insights(papers_dict)
+            insights = await resolve_awaitable(
+                performance_integration.extract_research_insights(papers_dict)
+            )
         
         # Convert back to Paper objects
         enhanced_papers = []
@@ -191,9 +197,11 @@ async def search_papers(
             query=request.query,
             exc_info=True
         )
-        raise HTTPException(
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
             status_code=500,
-            detail={
+            content={
                 "error": "search_failed",
                 "message": "Failed to search papers",
                 "trace_id": trace_id

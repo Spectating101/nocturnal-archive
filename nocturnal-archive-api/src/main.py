@@ -28,7 +28,27 @@ from src.middleware.api_auth import APIKeyAuthMiddleware
 from src.middleware.security import SecurityMiddleware
 from src.middleware.pilot_guards import PilotGuardsMiddleware
 from src.middleware.request_id import RequestIdMiddleware
-from src.routes import health, search, format, synthesize, analytics, diagnostics, finance, jobs, admin, papers_demo, finance_filings, finance_calc, finance_kpis, finance_segments, finance_status, finance_reports, nlp, qa, quota, ops
+from src.routes import (
+    health,
+    search,
+    format,
+    synthesize,
+    analytics,
+    diagnostics,
+    finance,
+    jobs,
+    admin,
+    papers_demo,
+    finance_filings,
+    finance_calc,
+    finance_kpis,
+    finance_segments,
+    finance_status,
+    finance_reports,
+    nlp,
+    quota,
+    ops,
+)
 from src import errors
 from src.utils.logger import setup_logging
 
@@ -178,7 +198,12 @@ app.include_router(nlp.router, tags=["FinSight"])
 
 # RAG Q&A API (feature flag controlled)
 if settings.enable_rag:
-    app.include_router(qa.router, tags=["FinSight"])
+    try:
+        from src.routes import qa
+
+        app.include_router(qa.router, tags=["FinSight"])
+    except ImportError as exc:
+        logger.warning("RAG QA routes not available", error=str(exc))
 
 # Quota management API (pilot mode)
 app.include_router(quota.router, tags=["FinSight"])

@@ -1,17 +1,40 @@
 """
-PGVector index operations for RAG
+PGVector index operations for RAG with graceful degradation when dependencies are missing.
 """
 import os
-import sqlalchemy as sa
 from datetime import date
-from typing import List, Dict, Optional
-from src.rag.embeddings import embed
+from typing import Dict, List, Optional
+
+import sqlalchemy as sa
+import structlog
+
 from src.rag.chunk import chunk_text
+from src.rag.embeddings import embed
 
 
 # Database configuration
 DB_URL = os.getenv("DB_URL", "postgresql+psycopg2://postgres:postgres@localhost:5432/finsight")
-engine = sa.create_engine(DB_URL)
+logger = structlog.get_logger(__name__)
+
+engine: Optional[sa.engine.Engine] = None
+_engine_error: Optional[Exception] = None
+
+try:
+    engine = sa.create_engine(DB_URL)
+except ModuleNotFoundError as exc:  # pragma: no cover - environment specific
+    _engine_error = exc
+    logger.warning("Vector database driver not available", error=str(exc))
+except Exception as exc:  # pragma: no cover - connection issue
+    _engine_error = exc
+    logger.warning("Vector database connection failed", error=str(exc), db_url=DB_URL)
+
+
+def _require_engine() -> sa.engine.Engine:
+    """Return the SQLAlchemy engine or raise a descriptive error."""
+
+    if engine is None:
+        raise RuntimeError(f"Vector database engine unavailable: {_engine_error}")
+    return engine
 
 
 def upsert_docs(docs: List[Dict]) -> int:
@@ -59,8 +82,10 @@ def upsert_docs(docs: List[Dict]) -> int:
     texts = [row["text"] for row in rows]
     embeddings = embed(texts)
     
+    db_engine = _require_engine()
+
     # Insert/update chunks with embeddings
-    with engine.begin() as conn:
+    with db_engine.begin() as conn:
         for row, embedding in zip(rows, embeddings):
             conn.execute(sa.text("""
                 INSERT INTO docs (id, title, url, date, ticker, cik, section, text, embedding)
@@ -129,7 +154,9 @@ def search(
         LIMIT :k
     """
     
-    with engine.begin() as conn:
+    db_engine = _require_engine()
+
+    with db_engine.begin() as conn:
         results = conn.execute(sa.text(sql), params)
         rows = [dict(row) for row in results]
     
@@ -286,7 +313,9 @@ def get_doc_stats() -> Dict:
     Returns:
         Dict: Statistics about the document collection
     """
-    with engine.begin() as conn:
+    db_engine = _require_engine()
+
+    with db_engine.begin() as conn:
         # Total documents
         total_result = conn.execute(sa.text("SELECT COUNT(*) as count FROM docs"))
         total_docs = total_result.scalar()
@@ -343,7 +372,9 @@ def clear_docs(ticker: Optional[str] = None) -> int:
     Returns:
         int: Number of documents deleted
     """
-    with engine.begin() as conn:
+    db_engine = _require_engine()
+
+    with db_engine.begin() as conn:
         if ticker:
             result = conn.execute(sa.text("DELETE FROM docs WHERE ticker = :ticker"), {"ticker": ticker})
         else:

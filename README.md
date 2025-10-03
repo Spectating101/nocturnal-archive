@@ -15,49 +15,64 @@ Nocturnal Archive is a **production-ready API** that provides clean endpoints fo
 
 ## 🚀 Quick Start
 
+**New unified management tool:** All operations now use `./manage.py` - see [OPTIMIZED_SETUP.md](OPTIMIZED_SETUP.md) for details.
+
 ### 1. Get the API
 
 ```bash
 # Clone the repository
 git clone https://github.com/Spectating101/nocturnal-archive.git
-cd nocturnal-archive/nocturnal-archive-api
+cd nocturnal-archive
 
-# Install dependencies
-pip install -r requirements.txt
+# Clean up any bloat (optional, if repo is large)
+./manage.py cleanup
 
-# Set up environment
-cp env.example .env
+# Set up development environment
+./manage.py setup dev --type dev  # Install with dev tools
+./manage.py setup env              # Create .env from template
+
 # Edit .env with your API keys
-
-# (Optional) Back up legacy `.env.local` secrets before cleanup
-python scripts/backup_env.py
+nano nocturnal-archive-api/.env
 ```
 
 ### 2. Run the API
 
 ```bash
-# Development
-python -m uvicorn src.main:app --reload
+# Development (with auto-reload)
+./manage.py server start --reload
 
 # Production
-python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
+./manage.py server start
 ```
 
 ### 3. Use the API
 
 Visit **http://localhost:8000/docs** for interactive API documentation.
 
-### 4. Run the smoke test (optional)
+### 4. Run tests (optional)
 
 ```bash
-python scripts/smoke_test.py
+./manage.py test api              # Run all tests
+./manage.py test api --coverage   # With coverage report
+./manage.py test smoke            # Quick smoke test
 ```
-
-This boots the API, performs a health check, and runs a sample agent query end-to-end.
 
 ### 5. Explore ready-made research kits
 
 Check the [`kits/`](kits/) directory for curated prompts and workflows (e.g., rapid literature review, financial briefing) that showcase best practices with the enhanced agent.
+
+---
+
+## 📦 Repository Size: Optimized!
+
+**Before:** 8.7GB → **After:** 602MB (93% reduction!)
+
+- ✅ Virtual environments removed (install on-demand)
+- ✅ Python cache cleaned
+- ✅ Test artifacts removed
+- ✅ Dependencies split into minimal/dev/full tiers
+
+See [OPTIMIZED_SETUP.md](OPTIMIZED_SETUP.md) for optimization details.
 
 ## 📚 API Endpoints
 

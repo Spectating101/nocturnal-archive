@@ -21,9 +21,12 @@ wheels/
 *.egg
 MANIFEST
 
-# Virtual Environment
+# Virtual Environment (STRICT - prevent all venvs)
 .venv/
+*/.venv/
+**/.venv/
 unified-platform/.venv/
+nocturnal-archive-api/.venv/
 venv/
 env/
 ENV/
@@ -83,3 +86,39 @@ deployment/.env.production
 # Temporary files
 *.tmp
 *.temp
+
+# Test Coverage & Artifacts (ADDED)
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.pytest_cache/
+.tox/
+.hypothesis/
+
+# Large Data Files (ADDED)
+*.parquet
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+data/sec/sec-edgar-filings/
+data/cache/
+
+# ML Models & Weights (ADDED)
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+models/
+checkpoints/
+
+# Stress Test Results (ADDED)
+stress_test_results.json
+**/stress_test_results.json
+
+# Build Artifacts (ADDED)
+*.whl
+*.tar.gz
+=0.4.0

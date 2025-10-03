@@ -3,12 +3,20 @@ Financial Facts Store
 Normalizes and indexes XBRL facts for efficient retrieval
 """
 
+import asyncio
 import structlog
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, date
 from dataclasses import dataclass
 from enum import Enum
 import json
+
+from src.config.settings import get_settings
+try:
+    from src.facts.test_data import TEST_COMPANY_DATA, TEST_COMPANY_BY_CIK
+except ModuleNotFoundError:  # pragma: no cover - optional during runtime packaging
+    TEST_COMPANY_DATA = {}
+    TEST_COMPANY_BY_CIK = {}
 
 logger = structlog.get_logger(__name__)
 
@@ -36,9 +44,26 @@ class FactsStore:
     """Store for financial facts with indexing and retrieval"""
     
     def __init__(self):
+        self.settings = get_settings()
         self.facts_by_company: Dict[str, Dict[str, List[Fact]]] = {}
         self.facts_by_concept: Dict[str, List[Fact]] = {}
         self.company_metadata: Dict[str, Dict[str, Any]] = {}
+        self._ticker_to_cik: Dict[str, str] = {}
+
+        if self.settings.environment == "test" and TEST_COMPANY_DATA:
+            async def _load_fixtures():
+                for ticker, company_data in TEST_COMPANY_DATA.items():
+                    company_data.setdefault("tickers", [ticker])
+                    cik = company_data.get("cik", "")
+                    if cik:
+                        self._ticker_to_cik[ticker.upper()] = cik
+                    await self.store_company_facts(company_data)
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_load_fixtures())
+            except RuntimeError:
+                asyncio.run(_load_fixtures())
         
     async def store_company_facts(self, company_data: Dict[str, Any]):
         """
@@ -75,6 +100,10 @@ class FactsStore:
             # Initialize company facts storage
             if cik not in self.facts_by_company:
                 self.facts_by_company[cik] = {}
+
+            # Ensure ticker mappings are recorded
+            for ticker in company_data.get("tickers", []):
+                self._ticker_to_cik[ticker.upper()] = cik
             
             # Process facts
             facts_data = company_data.get("facts", {})
@@ -126,9 +155,16 @@ class FactsStore:
                 return None
             
             # Determine period type based on concept or data
-            period_type = PeriodType.DURATION  # Default
-            if "Assets" in concept or "Liabilities" in concept or "Equity" in concept:
-                period_type = PeriodType.INSTANT
+            period_label = fact_data.get("period_type")
+            if period_label:
+                try:
+                    period_type = PeriodType(period_label.lower())
+                except ValueError:
+                    period_type = PeriodType.DURATION
+            else:
+                period_type = PeriodType.DURATION  # Default
+                if "Assets" in concept or "Liabilities" in concept or "Equity" in concept:
+                    period_type = PeriodType.INSTANT
             
             # Build quality flags
             quality_flags = []
@@ -188,13 +224,22 @@ class FactsStore:
                 logger.warning("Could not resolve ticker to CIK", ticker=ticker)
                 return None
             
-            # Get facts for company and concept
+            # Get facts for company and concept (with lazy loading from SEC if not cached)
             company_facts = self.facts_by_company.get(cik, {})
             concept_facts = company_facts.get(concept, [])
-            
+
+            # If no facts found in cache, try lazy-loading from SEC Facts API
             if not concept_facts:
-                logger.warning("No facts found", ticker=ticker, concept=concept)
-                return None
+                logger.info("Facts not cached, lazy-loading from SEC", ticker=ticker, cik=cik, concept=concept)
+                await self._lazy_load_company_facts(ticker, cik)
+
+                # Try again after lazy-loading
+                company_facts = self.facts_by_company.get(cik, {})
+                concept_facts = company_facts.get(concept, [])
+
+                if not concept_facts:
+                    logger.warning("No facts found even after lazy-loading", ticker=ticker, concept=concept)
+                    return None
             
             # Filter by segment if specified
             if segment:
@@ -291,20 +336,61 @@ class FactsStore:
             return []
     
     async def _resolve_ticker_to_cik(self, ticker: str) -> Optional[str]:
-        """Resolve ticker symbol to CIK"""
-        # For now, use a simple mapping - in production, this would use the identifier resolver
-        ticker_to_cik = {
-            "AAPL": "0000320193",
-            "MSFT": "0000789019",
-            "GOOGL": "0001652044",
-            "AMZN": "0001018724",
-            "TSLA": "0001318605",
-            "META": "0001326801",
-            "NVDA": "0001045810",
-        }
-        
-        return ticker_to_cik.get(ticker.upper())
-    
+        """Resolve ticker symbol to CIK using IdentifierResolver (supports 10,123+ companies)"""
+        try:
+            from src.identifiers.resolve import resolve_ticker
+
+            # Use the IdentifierResolver to resolve ticker to CIK
+            ticker_upper = ticker.upper()
+            if ticker_upper in self._ticker_to_cik:
+                return self._ticker_to_cik[ticker_upper]
+
+            mapping = await resolve_ticker(ticker)
+            if mapping and mapping.cik:
+                logger.info("Resolved ticker to CIK", ticker=ticker, cik=mapping.cik, company=mapping.company_name)
+                return mapping.cik
+
+            logger.warning("Could not resolve ticker to CIK via IdentifierResolver", ticker=ticker)
+            return None
+
+        except Exception as e:
+            logger.error("Ticker to CIK resolution failed", ticker=ticker, error=str(e))
+            return None
+
+    async def _lazy_load_company_facts(self, ticker: str, cik: str) -> None:
+        """
+        Lazy-load company facts from SEC Facts API when not in cache.
+        This enables "just works" UX - any ticker can be queried without pre-loading!
+        """
+        try:
+            from src.adapters.sec_facts import get_sec_facts_adapter
+
+            logger.info("Fetching company facts from SEC", ticker=ticker, cik=cik)
+
+            if self.settings.environment == "test":
+                fixture = TEST_COMPANY_DATA.get(ticker.upper()) or TEST_COMPANY_BY_CIK.get(cik)
+                if fixture:
+                    await self.store_company_facts(fixture)
+                    return
+
+            # Get the SEC Facts adapter
+            sec_adapter = get_sec_facts_adapter()
+
+            # Fetch company facts from SEC
+            company_data = await sec_adapter.fetch_company_facts(ticker)
+
+            if company_data:
+                # Store the facts for future use
+                await self.store_company_facts(company_data)
+                logger.info("Successfully lazy-loaded company facts", ticker=ticker, cik=cik,
+                           concepts_count=company_data.get("total_concepts", 0))
+            else:
+                logger.warning("No company data returned from SEC", ticker=ticker, cik=cik)
+
+        except Exception as e:
+            logger.error("Failed to lazy-load company facts", ticker=ticker, cik=cik, error=str(e))
+            # Don't raise - let the calling code handle missing data gracefully
+
     async def _calculate_ttm(
         self,
         cik: str,
@@ -362,18 +448,31 @@ class FactsStore:
         return None
     
     def _resolve_ticker_to_cik_sync(self, ticker: str) -> Optional[str]:
-        """Synchronous ticker to CIK resolution"""
-        ticker_to_cik = {
-            "AAPL": "0000320193",
-            "MSFT": "0000789019",
-            "GOOGL": "0001652044",
-            "AMZN": "0001018724",
-            "TSLA": "0001318605",
-            "META": "0001326801",
-            "NVDA": "0001045810",
-        }
-        
-        return ticker_to_cik.get(ticker.upper())
+        """Synchronous ticker to CIK resolution (uses async under the hood)"""
+        try:
+            import asyncio
+            from src.identifiers.resolve import resolve_ticker
+
+            # Run async resolution in sync context
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If event loop is already running, we can't use asyncio.run()
+                # Fall back to checking metadata cache first
+                for cik, metadata in self.company_metadata.items():
+                    if ticker.upper() in [t.upper() for t in metadata.get("tickers", [])]:
+                        return cik
+                logger.warning("Could not resolve ticker synchronously (event loop running)", ticker=ticker)
+                return None
+            else:
+                # Event loop not running, safe to use asyncio.run()
+                mapping = asyncio.run(resolve_ticker(ticker))
+                if mapping and mapping.cik:
+                    return mapping.cik
+                return None
+
+        except Exception as e:
+            logger.error("Sync ticker to CIK resolution failed", ticker=ticker, error=str(e))
+            return None
     
     def get_store_stats(self) -> Dict[str, Any]:
         """Get statistics about the facts store"""

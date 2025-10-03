@@ -14,6 +14,7 @@ from src.models.request import SynthesizeRequest
 from src.models.paper import SynthesisResult
 from src.services.synthesizer import Synthesizer
 from src.services.performance_integration import performance_integration
+from src.utils.async_utils import resolve_awaitable
 from src.engine.research_engine import sophisticated_engine
 
 logger = structlog.get_logger(__name__)
@@ -29,6 +30,19 @@ async def synthesize_papers(
 ):
     """Synthesize research findings across multiple papers with performance optimizations"""
     
+    def _coerce_mapping(value):
+        if isinstance(value, dict):
+            return value
+        data = {}
+        for attr in ("summary", "key_findings", "citations_used", "word_count", "metadata", "routing_metadata"):
+            if hasattr(value, attr):
+                data[attr] = getattr(value, attr)
+        if hasattr(value, "__dict__"):
+            for key, val in value.__dict__.items():
+                if not key.startswith("_") and key not in data:
+                    data[key] = val
+        return data
+
     try:
         # Generate trace ID
         trace_id = str(uuid.uuid4())
@@ -74,38 +88,44 @@ async def synthesize_papers(
                              error=advanced_result.get("error"), trace_id=trace_id)
                 # Fallback to basic synthesis
                 synthesizer = Synthesizer()
-                basic = await synthesizer.synthesize_papers(
+                basic = await resolve_awaitable(
+                    synthesizer.synthesize_papers(
                     paper_ids=request.paper_ids,
                     max_words=request.max_words,
                     focus=request.focus,
                     style=request.style,
                     papers=request.papers
+                    )
                 )
-                routing_md = basic.get("routing_metadata", {}) if isinstance(basic, dict) else {}
+                basic_data = _coerce_mapping(basic)
+                routing_md = basic_data.get("routing_metadata", {})
                 result = SynthesisResult(
-                    summary=basic.get("summary", ""),
-                    key_findings=basic.get("key_findings", []),
-                    citations_used=basic.get("citations_used", {}),
-                    word_count=basic.get("word_count", 0),
+                    summary=basic_data.get("summary", ""),
+                    key_findings=basic_data.get("key_findings", []),
+                    citations_used=basic_data.get("citations_used", {}),
+                    word_count=basic_data.get("word_count", 0),
                     trace_id=trace_id
                 )
         else:
             logger.info("Using basic synthesis engine", trace_id=trace_id)
             # Use basic synthesis
             synthesizer = Synthesizer()
-            basic = await synthesizer.synthesize_papers(
+            basic = await resolve_awaitable(
+                synthesizer.synthesize_papers(
                 paper_ids=request.paper_ids,
                 max_words=request.max_words,
                 focus=request.focus,
                 style=request.style,
                 papers=request.papers
+                )
             )
-            routing_md = basic.get("routing_metadata", {}) if isinstance(basic, dict) else {}
+            basic_data = _coerce_mapping(basic)
+            routing_md = basic_data.get("routing_metadata", {})
             result = SynthesisResult(
-                summary=basic.get("summary", ""),
-                key_findings=basic.get("key_findings", []),
-                citations_used=basic.get("citations_used", {}),
-                word_count=basic.get("word_count", 0),
+                summary=basic_data.get("summary", ""),
+                key_findings=basic_data.get("key_findings", []),
+                citations_used=basic_data.get("citations_used", {}),
+                word_count=basic_data.get("word_count", 0),
                 trace_id=trace_id
             )
         
@@ -117,13 +137,19 @@ async def synthesize_papers(
         if enhance:
             logger.info("Applying synthesis enhancements", trace_id=trace_id)
             papers_data = [{"id": pid, "title": f"Paper {pid}", "abstract": "Sample abstract"} for pid in request.paper_ids]
-            enhanced_metadata = await performance_integration.enhance_synthesis(papers_data, result.summary)
+            enhanced_metadata = _coerce_mapping(
+                await resolve_awaitable(
+                    performance_integration.enhance_synthesis(papers_data, result.summary)
+                )
+            ) or {}
         
         # Extract insights if requested (attach outside model)
         if extract_insights:
             logger.info("Extracting synthesis insights", trace_id=trace_id)
             papers_data = [{"id": pid, "title": f"Paper {pid}", "abstract": "Sample abstract"} for pid in request.paper_ids]
-            insights = await performance_integration.extract_research_insights(papers_data)
+            insights = await resolve_awaitable(
+                performance_integration.extract_research_insights(papers_data)
+            )
             enhanced_metadata['insights'] = insights
         
         logger.info(

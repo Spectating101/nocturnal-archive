@@ -10,6 +10,8 @@ from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
 
+from src.services.data_validator import DataValidator, ValidationResult
+
 logger = structlog.get_logger(__name__)
 
 class PeriodType(Enum):
@@ -50,11 +52,12 @@ class CalculationResult:
     citations: List[Dict[str, Any]]
     quality_flags: List[str]
     metadata: Dict[str, Any]
+    validation: Optional[ValidationResult] = None
 
 class CalculationEngine:
     """Engine for evaluating financial expressions with provenance"""
     
-    def __init__(self, facts_store, kpi_registry):
+    def __init__(self, facts_store, kpi_registry, validator: Optional[DataValidator] = None):
         """
         Initialize calculation engine
         
@@ -72,6 +75,7 @@ class CalculationEngine:
             "cagr": self._cagr_function,
             "per_share": self._per_share_function,
         }
+        self.validator = validator or DataValidator()
     
     async def calculate_metric(
         self,
@@ -80,7 +84,8 @@ class CalculationEngine:
         period: str = "latest",
         freq: str = "Q",
         ttm: bool = False,
-        segment: Optional[str] = None
+        segment: Optional[str] = None,
+        validate: bool = False
     ) -> CalculationResult:
         """
         Calculate a specific metric for a company
@@ -149,14 +154,42 @@ class CalculationEngine:
             validation_flags = self._validate_calculation_result(ticker, metric, value, inputs)
             quality_flags.extend(validation_flags)
 
+            validation_result: Optional[ValidationResult] = None
+            validation_error: Optional[str] = None
+
+            if validate:
+                try:
+                    validation_result = await self.validator.cross_validate(
+                        ticker=ticker,
+                        metric=metric,
+                        period=period,
+                        freq=freq,
+                    )
+                except Exception as exc:
+                    validation_error = str(exc)
+                    logger.warning(
+                        "Metric validation failed",
+                        ticker=ticker,
+                        metric=metric,
+                        error=validation_error,
+                    )
+                    quality_flags.append("VALIDATION_FAILED")
+
             # Build metadata
             metadata = {
                 "calculated_at": datetime.now().isoformat(),
                 "engine_version": "1.0",
                 "ttm": ttm,
                 "segment": segment,
-                "formula": metric_def["expr"]
+                "formula": metric_def["expr"],
+                "validated": validate,
             }
+
+            if validation_result:
+                metadata["validation"] = validation_result.to_dict()
+                metadata["trust_score"] = validation_result.trust_score
+            elif validation_error:
+                metadata["validation_error"] = validation_error
             
             result = CalculationResult(
                 ticker=ticker,
@@ -169,7 +202,8 @@ class CalculationEngine:
                 inputs=inputs,
                 citations=citations,
                 quality_flags=quality_flags,
-                metadata=metadata
+                metadata=metadata,
+                validation=validation_result,
             )
             
             logger.info(

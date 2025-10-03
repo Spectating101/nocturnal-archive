@@ -12,8 +12,12 @@ from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
-from sentry_sdk.integrations.fastapi import FastApiIntegration
-import sentry_sdk
+try:
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    import sentry_sdk
+    SENTRY_AVAILABLE = True
+except ImportError:
+    SENTRY_AVAILABLE = False
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from src.config.settings import get_settings
@@ -44,7 +48,7 @@ init_job_queue()
 settings = get_settings()
 
 # Initialize Sentry
-if settings.sentry_dsn and settings.sentry_dsn != "your-sentry-dsn-here":
+if SENTRY_AVAILABLE and settings.sentry_dsn and settings.sentry_dsn != "your-sentry-dsn-here":
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
         integrations=[FastApiIntegration()],
@@ -90,7 +94,7 @@ app.add_middleware(
 
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["*"] if settings.environment == "development" else ["api.nocturnal-archive.com"]
+    allowed_hosts=["*"] if settings.environment in {"development", "test"} else ["api.nocturnal-archive.com"]
 )
 
 app.add_middleware(SecurityMiddleware)

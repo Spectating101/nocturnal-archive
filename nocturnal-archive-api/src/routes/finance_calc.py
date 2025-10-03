@@ -123,11 +123,27 @@ async def calculate_metric(
             error=str(e),
             trace_id=getattr(request.state, "trace_id", "unknown")
         )
+
+        # Parse error and provide helpful guidance
+        error_msg = str(e)
+        detail = error_msg
+        extra_info = {}
+
+        if "not found" in error_msg.lower() or "unknown metric" in error_msg.lower():
+            detail = f"Metric '{metric}' not available for {ticker}. {error_msg}"
+            extra_info["available_metrics"] = kpi_registry.list_metrics()[:15]
+            extra_info["hint"] = "Choose from the available metrics list or try a custom expression via /explain"
+            extra_info["example"] = f"/v1/finance/calc/{ticker}/revenue"
+        elif "concept" in error_msg.lower():
+            detail = f"Data concept issue: {error_msg}"
+            extra_info["hint"] = f"SEC may not have this data for {ticker}. Try Yahoo Finance or recent filings."
+
         return create_problem_response(
             request, 422,
             "validation-error",
             "Calculation failed",
-            str(e)
+            detail,
+            extra_info if extra_info else None
         )
         
     except Exception as e:
@@ -308,11 +324,28 @@ async def explain_expression(req: CalcRequest, request: Request):
         return response_data
         
     except ValueError as e:
+        # Parse common errors and provide helpful messages
+        error_msg = str(e)
+        detail = error_msg
+        extra_info = {}
+
+        if "Unsafe expression" in error_msg:
+            detail = f"Expression validation failed. Check for typos in: '{req.expr}'"
+            extra_info["hint"] = "Ensure all variable names are spelled correctly (revenue, costOfRevenue, etc.)"
+        elif "not found" in error_msg.lower() or "unknown" in error_msg.lower():
+            detail = f"Metric or concept not available for {req.ticker}. {error_msg}"
+            extra_info["available_metrics"] = kpi_registry.list_metrics()[:10]
+            extra_info["hint"] = "Try alternative metrics from the list above"
+        elif "period" in error_msg.lower():
+            detail = f"Period/date issue: {error_msg}"
+            extra_info["hint"] = "Try 'latest' period or specific format like '2025-Q2'"
+
         return create_problem_response(
             request, 422,
             "validation-error",
             "Expression evaluation failed",
-            str(e)
+            detail,
+            extra_info if extra_info else None
         )
         
     except Exception as e:

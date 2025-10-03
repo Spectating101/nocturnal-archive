@@ -144,7 +144,11 @@ class CalculationEngine:
             
             # Collect quality flags
             quality_flags = self._collect_quality_flags(inputs, metric_def)
-            
+
+            # Add validation flags (sanity checks)
+            validation_flags = self._validate_calculation_result(ticker, metric, value, inputs)
+            quality_flags.extend(validation_flags)
+
             # Build metadata
             metadata = {
                 "calculated_at": datetime.now().isoformat(),
@@ -235,7 +239,13 @@ class CalculationEngine:
             # Build result
             citations = self._build_citations(inputs)
             quality_flags = self._collect_quality_flags(inputs, {"expr": expr})
-            
+
+            # Add validation flags (sanity checks)
+            # Try to extract metric name from expression for better validation
+            metric_name = "custom" if "-" in expr else expr.split()[0] if expr else "custom"
+            validation_flags = self._validate_calculation_result(ticker, metric_name, value, inputs)
+            quality_flags.extend(validation_flags)
+
             metadata = {
                 "calculated_at": datetime.now().isoformat(),
                 "engine_version": "1.0",
@@ -657,6 +667,56 @@ class CalculationEngine:
             flags.append(f"note: {metric_def['notes']}")
         
         return list(set(flags))  # Remove duplicates
+
+    def _validate_calculation_result(
+        self,
+        ticker: str,
+        metric: str,
+        result: float,
+        inputs: Dict[str, Fact]
+    ) -> List[str]:
+        """Validate calculation makes business sense - catch data errors"""
+        flags = []
+        from datetime import datetime
+
+        # Check 1: Gross profit shouldn't exceed revenue
+        if metric == "grossProfit" and "revenue" in inputs:
+            revenue = inputs["revenue"].value
+            if result > revenue:
+                flags.append(f"INVALID_GROSS_PROFIT_EXCEEDS_REVENUE:{result}>{revenue}")
+
+        # Check 2: COGS should be positive
+        if "costOfRevenue" in inputs:
+            cogs = inputs["costOfRevenue"].value
+            if cogs < 0:
+                flags.append(f"NEGATIVE_COGS:{cogs}")
+
+        # Check 3: Period mismatch detection (different dates for inputs)
+        periods = {name: fact.period for name, fact in inputs.items() if fact.period}
+        unique_periods = set(periods.values())
+        if len(unique_periods) > 1:
+            flags.append(f"PERIOD_MISMATCH:{','.join(unique_periods)}")
+
+        # Check 4: Data freshness - warn if data is old
+        current_year = datetime.now().year
+        for name, fact in inputs.items():
+            if fact.period:
+                try:
+                    # Extract year from period (supports 2025-Q2, 2025-06-30, etc.)
+                    year = int(fact.period.split("-")[0])
+                    age_years = current_year - year
+                    if age_years > 2:
+                        flags.append(f"OLD_DATA_{name}:{fact.period}_{age_years}_years_old")
+                except (ValueError, IndexError):
+                    pass  # Skip if period format is unexpected
+
+        # Check 5: Result reasonableness (not zero or extremely large)
+        if result == 0:
+            flags.append("ZERO_RESULT")
+        elif abs(result) > 1e15:  # $1 quadrillion
+            flags.append(f"UNREASONABLY_LARGE_RESULT:{result}")
+
+        return flags
 
     def _find_optional_inputs(self, expr: str) -> Set[str]:
         """Identify optional inputs marked with '?' in an expression"""

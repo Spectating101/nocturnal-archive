@@ -460,15 +460,20 @@ class CalculationEngine:
         except Exception:
             period_type = PeriodType.DURATION
 
+        # Extract citation data (may be nested in citation object or at top level)
+        citation = fact_data.get("citation", {})
+        accession = fact_data.get("accession") or citation.get("accession", "")
+        url = fact_data.get("url") or citation.get("url", "")
+
         return Fact(
             concept=fact_data.get("concept", ""),
             value=float(fact_data.get("value", 0.0) or 0.0),
             unit=fact_data.get("unit", "USD") or "USD",
             period=fact_data.get("period") or fact_data.get("end_date") or "",
             period_type=period_type,
-            accession=fact_data.get("accession", ""),
+            accession=accession,
             fragment_id=fact_data.get("fragment_id"),
-            url=fact_data.get("url", ""),
+            url=url,
             dimensions=fact_data.get("dimensions", {}) or {},
             quality_flags=list(fact_data.get("quality_flags", []) or [])
         )

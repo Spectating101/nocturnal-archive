@@ -214,6 +214,43 @@ class SECFactsAdapter:
                 # Try both US-GAAP and IFRS taxonomies
                 taxonomies = ["us-gaap", "ifrs-full"]
 
+                # If looking for latest data (not specific accession), find the NEWEST available concept
+                # This handles schema drift where companies switch to newer XBRL tags
+                if not accession and period in {"latest", "most_recent", "recent", None}:
+                    candidates = []
+
+                    for taxonomy in taxonomies:
+                        if taxonomy not in facts:
+                            continue
+                        taxonomy_data = facts[taxonomy]
+
+                        for xbrl_concept in xbrl_concepts:
+                            if xbrl_concept in taxonomy_data:
+                                concept_data = taxonomy_data[xbrl_concept]
+                                fact = self._find_fact_for_period(concept_data, None, freq, None)
+
+                                if fact and fact.get("fp") != "FY" if freq == "Q" else True:
+                                    candidates.append({
+                                        "fact": fact,
+                                        "xbrl_concept": xbrl_concept,
+                                        "taxonomy": taxonomy,
+                                        "end_date": fact.get("end", "")
+                                    })
+
+                    # Pick the candidate with the most recent end date
+                    if candidates:
+                        best = max(candidates, key=lambda x: x["end_date"])
+                        logger.info("Selected newest concept",
+                                  ticker=ticker, concept=concept,
+                                  xbrl_concept=best["xbrl_concept"],
+                                  end_date=best["end_date"],
+                                  total_candidates=len(candidates))
+
+                        return await self._build_fact_response(
+                            best["fact"], ticker, concept, best["xbrl_concept"], best["taxonomy"]
+                        )
+
+                # Original logic for specific periods or when accession is specified
                 for taxonomy in taxonomies:
                     if taxonomy not in facts:
                         continue

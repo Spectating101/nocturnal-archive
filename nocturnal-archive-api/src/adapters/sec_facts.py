@@ -426,7 +426,79 @@ class SECFactsAdapter:
         if fact_entry.get("amend"):
             return True
         return False
-    
+
+    def _calculate_fact_duration_days(self, fact: Dict[str, Any]) -> Optional[int]:
+        """Calculate duration of a fact in days from start to end date"""
+        start = fact.get("start")
+        end = fact.get("end")
+
+        if not start or not end:
+            return None
+
+        try:
+            start_date = datetime.strptime(start, "%Y-%m-%d")
+            end_date = datetime.strptime(end, "%Y-%m-%d")
+            duration = (end_date - start_date).days
+            return duration
+        except (ValueError, TypeError):
+            return None
+
+    def _filter_by_duration(self, facts: List[Dict[str, Any]], freq: str) -> List[Dict[str, Any]]:
+        """Filter facts to match expected duration for frequency
+
+        Args:
+            facts: List of fact entries
+            freq: "Q" for quarterly, "A" for annual
+
+        Returns:
+            Filtered list preferring facts with appropriate duration
+        """
+        if not facts:
+            return facts
+
+        # Define expected duration ranges (in days)
+        if freq == "Q":
+            min_days, max_days = 60, 120  # Quarterly: ~90 days (allow 60-120 for flexibility)
+        elif freq == "A":
+            min_days, max_days = 300, 400  # Annual: ~365 days
+        else:
+            return facts  # No filtering for other frequencies
+
+        # Calculate durations for all facts
+        facts_with_duration = []
+        facts_without_duration = []
+
+        for fact in facts:
+            duration = self._calculate_fact_duration_days(fact)
+            if duration is not None:
+                facts_with_duration.append((fact, duration))
+            else:
+                facts_without_duration.append(fact)
+
+        # If NO facts have duration data, can't filter - return originals
+        if not facts_with_duration:
+            logger.warning("No facts with duration data, cannot filter by period length")
+            return facts
+
+        # First try to find facts within expected duration range
+        filtered = [
+            fact for fact, duration in facts_with_duration
+            if min_days <= duration <= max_days
+        ]
+
+        if filtered:
+            logger.info(f"Filtered to {len(filtered)} facts with correct duration ({min_days}-{max_days} days)")
+            return filtered
+
+        # If no facts in expected range, prefer shortest duration (most specific)
+        # This handles edge cases like 89-day quarters or 180-day semiannual
+        logger.warning(f"No facts in expected range {min_days}-{max_days} days, using shortest duration")
+        facts_with_duration.sort(key=lambda x: x[1])  # Sort by duration ascending
+        shortest_duration = facts_with_duration[0][1]
+
+        # Return all facts with the shortest duration (in case of ties)
+        return [fact for fact, dur in facts_with_duration if dur == shortest_duration]
+
     def _find_fact_for_period(self, concept_data: Dict[str, Any], period: str = None, freq: str = "Q", target_accession: str = None) -> Optional[Dict[str, Any]]:
         """Find fact for specific period, or most recent if period not specified
 
@@ -451,19 +523,23 @@ class SECFactsAdapter:
                     continue
 
             if period:
-                # Try to find exact period match - prefer smaller values when multiple matches
+                # Try to find exact period match
                 matching_facts = []
                 for fact in periods:
                     if self._matches_period(fact, period, freq):
                         matching_facts.append(fact)
 
                 if matching_facts:
-                    # If multiple matches, prefer the smaller value (more likely to be quarterly)
-                    best_fact = min(matching_facts, key=lambda x: x.get("val", float('inf')))
-                    return {
-                        **best_fact,
-                        "unit": unit
-                    }
+                    # Filter by duration to get quarterly (not YTD) values
+                    duration_filtered = self._filter_by_duration(matching_facts, freq)
+
+                    if duration_filtered:
+                        # If multiple matches after filtering, prefer the most recent
+                        best_fact = max(duration_filtered, key=lambda x: x.get("end", ""))
+                        return {
+                            **best_fact,
+                            "unit": unit
+                        }
 
                 # If no exact match, find closest period
                 closest = self._find_closest_period(periods, period, freq)
@@ -473,8 +549,12 @@ class SECFactsAdapter:
                         "unit": unit
                     }
             else:
-                # No period specified, return most recent
-                sorted_periods = sorted(periods, key=lambda x: x.get("end", ""), reverse=True)
+                # No period specified, return most recent with correct duration
+                # First filter by duration to avoid YTD/cumulative values
+                duration_filtered = self._filter_by_duration(periods, freq)
+
+                # Then sort by end date to get most recent
+                sorted_periods = sorted(duration_filtered, key=lambda x: x.get("end", ""), reverse=True)
                 if sorted_periods:
                     return {
                         **sorted_periods[0],

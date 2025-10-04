@@ -39,6 +39,8 @@ class Fact:
     quality_flags: List[str]
     company_name: str
     cik: str
+    start_date: Optional[str] = None  # Start date for duration facts (YYYY-MM-DD)
+    end_date: Optional[str] = None    # End date (YYYY-MM-DD)
 
 class FactsStore:
     """Store for financial facts with indexing and retrieval"""
@@ -141,6 +143,65 @@ class FactsStore:
             logger.error("Failed to store company facts", error=str(e))
             raise
     
+    def _filter_facts_by_duration(self, facts: List[Fact], freq: str) -> List[Fact]:
+        """Filter facts to match expected duration for frequency
+
+        Args:
+            facts: List of Fact objects
+            freq: "Q" for quarterly, "A" for annual
+
+        Returns:
+            Filtered list preferring facts with appropriate duration
+        """
+        if not facts:
+            return facts
+
+        # Define expected duration ranges (in days)
+        if freq == "Q":
+            min_days, max_days = 60, 120  # Quarterly: ~90 days
+        elif freq == "A":
+            min_days, max_days = 300, 400  # Annual: ~365 days
+        else:
+            return facts
+
+        # Calculate durations for all facts
+        facts_with_duration = []
+        facts_without_duration = []
+
+        for fact in facts:
+            if fact.start_date and fact.end_date:
+                try:
+                    start = datetime.strptime(fact.start_date, "%Y-%m-%d")
+                    end = datetime.strptime(fact.end_date, "%Y-%m-%d")
+                    duration = (end - start).days
+                    facts_with_duration.append((fact, duration))
+                except (ValueError, TypeError):
+                    facts_without_duration.append(fact)
+            else:
+                facts_without_duration.append(fact)
+
+        # If NO facts have duration data, can't filter
+        if not facts_with_duration:
+            logger.warning("No facts with duration data, cannot filter by period length")
+            return facts
+
+        # First try to find facts within expected duration range
+        filtered = [
+            fact for fact, duration in facts_with_duration
+            if min_days <= duration <= max_days
+        ]
+
+        if filtered:
+            logger.info(f"Filtered to {len(filtered)} facts with correct duration ({min_days}-{max_days} days)")
+            return filtered
+
+        # If no facts in expected range, prefer shortest duration (most specific)
+        logger.warning(f"No facts in expected range {min_days}-{max_days} days, using shortest duration")
+        facts_with_duration.sort(key=lambda x: x[1])
+        shortest_duration = facts_with_duration[0][1]
+
+        return [fact for fact, dur in facts_with_duration if dur == shortest_duration]
+
     def _create_fact_from_data(
         self,
         fact_data: Dict[str, Any],
@@ -185,7 +246,9 @@ class FactsStore:
                 dimensions=fact_data.get("dimensions", {}),
                 quality_flags=quality_flags,
                 company_name=company_name,
-                cik=cik
+                cik=cik,
+                start_date=fact_data.get("start_date"),
+                end_date=fact_data.get("end_date_actual")
             )
             
             return fact
@@ -250,13 +313,20 @@ class FactsStore:
                 concept_facts = [f for f in concept_facts if "Q" in f.period]
             elif freq == "A":
                 concept_facts = [f for f in concept_facts if "Q" not in f.period]
-            
+
             if not concept_facts:
                 logger.warning("No facts found for frequency", ticker=ticker, concept=concept, freq=freq)
                 return None
-            
-            # Sort by period (most recent first)
-            concept_facts.sort(key=lambda x: x.period, reverse=True)
+
+            # Filter by duration to avoid YTD/cumulative values
+            concept_facts = self._filter_facts_by_duration(concept_facts, freq)
+
+            if not concept_facts:
+                logger.warning("No facts found after duration filtering", ticker=ticker, concept=concept, freq=freq)
+                return None
+
+            # Sort by actual end date (most recent first), fallback to period label if no date
+            concept_facts.sort(key=lambda x: x.end_date or x.period, reverse=True)
             
             # Get fact for specific period
             if period == "latest":

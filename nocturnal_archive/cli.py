@@ -4,16 +4,25 @@ Nocturnal Archive CLI - Command Line Interface
 Provides a terminal interface similar to cursor-agent
 """
 
-import asyncio
-import sys
 import argparse
+import asyncio
 import os
+import random
+import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.theme import Theme
+
 from .enhanced_ai_agent import EnhancedNocturnalAgent, ChatRequest
-from .setup_config import NocturnalConfig
+from .setup_config import NocturnalConfig, DEFAULT_QUERY_LIMIT
+from .telemetry import TelemetryManager
 from .updater import NocturnalUpdater
 
 class NocturnalCLI:
@@ -22,57 +31,145 @@ class NocturnalCLI:
     def __init__(self):
         self.agent: Optional[EnhancedNocturnalAgent] = None
         self.session_id = f"cli_{os.getpid()}"
+        self.telemetry = None
+        self.console = Console(theme=Theme({
+            "banner": "bold magenta",
+            "success": "bold green",
+            "warning": "bold yellow",
+            "error": "bold red",
+        }))
+        self._tips = [
+            "Use [bold]nocturnal --setup[/] to rerun the onboarding wizard anytime.",
+            "Run [bold]nocturnal tips[/] when you need a refresher on power moves.",
+            "Pass a one-off question directly: [bold]nocturnal \"summarize the latest 10-Q\"[/].",
+            "Enable verbose logging by exporting [bold]NOCTURNAL_DEBUG=1[/] before launching.",
+            "Use [bold]/plan[/] inside the chat to nudge the agent toward structured research steps.",
+            "Hit [bold]Ctrl+C[/] to stop a long-running call; the agent will clean up gracefully.",
+            "Remember the sandbox: prefix shell commands with [bold]![/] to execute safe utilities only.",
+            "If you see an auto-update notice, the CLI will restart itself to load the latest build.",
+        ]
     
-    async def initialize(self, auto_update=True):
+    async def initialize(self):
         """Initialize the agent with automatic updates"""
-        print("🌙 Initializing Nocturnal Archive...")
-        
         # Check for update notifications from previous runs
         self._check_update_notification()
-        
-        # Check for updates automatically (background, non-blocking)
-        if auto_update:
-            await self._check_and_update_background()
+        self._show_intro_panel()
+
+        self._enforce_latest_build()
+
+        config = NocturnalConfig()
+        had_config = config.setup_environment()
+        TelemetryManager.refresh()
+        self.telemetry = TelemetryManager.get()
+
+        if not config.check_setup():
+            self.console.print("\n[warning]👋 Hey there, looks like this machine hasn't met Nocturnal yet.[/warning]")
+            self.console.print("[banner]Let's get you signed in — this only takes a minute.[/banner]")
+            try:
+                if not config.interactive_setup():
+                    self.console.print("[error]❌ Setup was cancelled. Exiting without starting the agent.[/error]")
+                    return False
+            except (KeyboardInterrupt, EOFError):
+                self.console.print("\n[error]❌ Setup interrupted. Exiting without starting the agent.[/error]")
+                return False
+            config.setup_environment()
+            TelemetryManager.refresh()
+            self.telemetry = TelemetryManager.get()
+        elif not had_config:
+            # config.setup_environment() may have populated env vars from file silently
+            self.console.print("[success]⚙️  Loaded saved credentials for this device.[/success]")
         
         self.agent = EnhancedNocturnalAgent()
-        # Disable agent's auto-update if CLI auto-update is disabled
-        if not auto_update:
-            self.agent._auto_update_enabled = False
         success = await self.agent.initialize()
         
         if not success:
-            print("❌ Failed to initialize agent. Please check your API keys.")
-            print("\n💡 Setup help:")
-            print("   1. Create .env.local file with GROQ_API_KEY")
-            print("   2. Or run: nocturnal --setup")
+            self.console.print("[error]❌ Failed to initialize agent. Please check your API keys.[/error]")
+            self.console.print("\n💡 Setup help:")
+            self.console.print("   • Ensure your Groq API key is correct (re-run `nocturnal` to update it).")
+            self.console.print("   • You can edit ~/.nocturnal_archive/config.env or set GROQ_API_KEY manually.")
             return False
         
-        print("✅ Nocturnal Archive ready!")
+        self._show_ready_panel()
+        self._show_beta_banner()
         return True
+
+    def _show_beta_banner(self):
+        account_email = os.getenv("NOCTURNAL_ACCOUNT_EMAIL", "")
+        configured_limit = DEFAULT_QUERY_LIMIT
+        if configured_limit <= 0:
+            limit_text = "Unlimited"
+        else:
+            limit_text = f"{configured_limit}"
+        details = [
+            f"Daily limit: [bold]{limit_text}[/] queries",
+            "Telemetry streaming: [bold]enabled[/] (control plane)",
+            "Auto-update: [bold]enforced[/] on launch",
+            "Sandbox: safe shell commands only • SQL workflows supported",
+        ]
+        if account_email:
+            details.insert(0, f"Signed in as: [bold]{account_email}[/]")
+
+        panel = Panel(
+            "\n".join(details),
+            title="🎟️  Beta Access Active",
+            border_style="magenta",
+            padding=(1, 2),
+            box=box.ROUNDED,
+        )
+        self.console.print(panel)
+
+    def _show_intro_panel(self):
+        message = (
+            "Warming up your research cockpit…\n"
+            "[dim]Loading config, telemetry, and background update checks.[/dim]"
+        )
+        panel = Panel(
+            message,
+            title="🌙  Initializing Nocturnal Archive",
+            border_style="magenta",
+            padding=(1, 2),
+            box=box.ROUNDED,
+        )
+        self.console.print(panel)
+
+    def _show_ready_panel(self):
+        panel = Panel(
+            "Systems check complete.\n"
+            "Type [bold]help[/] for commands or [bold]tips[/] for power moves.",
+            title="✅ Nocturnal Archive ready!",
+            border_style="green",
+            padding=(1, 2),
+            box=box.ROUNDED,
+        )
+        self.console.print(panel)
     
-    async def _check_and_update_background(self):
-        """Check for updates in background without blocking user experience"""
-        import asyncio
-        import threading
-        
-        def update_check():
-            try:
-                updater = NocturnalUpdater()
-                update_info = updater.check_for_updates()
-                
-                if update_info and update_info["available"]:
-                    # Silent update - no user interruption
-                    success = updater.update_package()
-                    if success:
-                        # Only notify on next run
-                        self._save_update_notification(update_info['latest'])
-                        
-            except Exception:
-                # Completely silent - don't interrupt user experience
-                pass
-        
-        # Run update check in separate thread (non-blocking)
-        threading.Thread(target=update_check, daemon=True).start()
+    def _enforce_latest_build(self):
+        """Ensure the CLI is running the most recent published build."""
+        try:
+            updater = NocturnalUpdater()
+            update_info = updater.check_for_updates()
+        except Exception:
+            return
+
+        if not update_info or not update_info.get("available"):
+            return
+
+        latest_version = update_info.get("latest", "latest")
+        self.console.print(f"[banner]⬆️  Updating Nocturnal Archive to {latest_version} before launch...[/banner]")
+
+        if updater.update_package():
+            self._save_update_notification(latest_version)
+            self.console.print("[warning]♻️  Restarting to finish applying the update...[/warning]")
+            self._restart_cli()
+
+    def _restart_cli(self):
+        """Re-exec the CLI using the current interpreter and arguments."""
+        try:
+            argv = [sys.executable, "-m", "nocturnal_archive.cli", *sys.argv[1:]]
+            os.execv(sys.executable, argv)
+        except Exception:
+            # If restart fails just continue in the current process.
+            pass
     
     def _save_update_notification(self, new_version):
         """Save update notification for next run"""
@@ -105,7 +202,7 @@ class NocturnalCLI:
                 
                 # Show notification if update happened in last 24 hours
                 if time.time() - data.get("timestamp", 0) < 86400:
-                    print(f"🎉 Updated to version {data['updated_to']}!")
+                    self.console.print(f"[success]🎉 Updated to version {data['updated_to']}![/success]")
                     
                 # Clean up notification
                 notify_file.unlink()
@@ -113,29 +210,35 @@ class NocturnalCLI:
         except Exception:
             pass
     
-    async def interactive_mode(self, auto_update=True):
+    async def interactive_mode(self):
         """Interactive chat mode"""
-        if not await self.initialize(auto_update):
+        if not await self.initialize():
             return
         
-        print("\n🤖 Interactive Mode - Type your questions or 'quit' to exit")
-        print("=" * 60)
+        self.console.print("\n[bold]🤖 Interactive Mode[/] — Type your questions or 'quit' to exit")
+        self.console.rule(style="magenta")
         
         try:
             while True:
                 try:
-                    user_input = input("\n👤 You: ").strip()
+                    user_input = self.console.input("\n[bold cyan]👤 You[/]: ").strip()
                     
                     if user_input.lower() in ['quit', 'exit', 'q']:
                         break
+                    if user_input.lower() == 'tips':
+                        self.show_tips()
+                        continue
+                    if user_input.lower() == 'feedback':
+                        self.collect_feedback()
+                        continue
                     
                     if not user_input:
                         continue
                 except (EOFError, KeyboardInterrupt):
-                    print("\n👋 Goodbye!")
+                    self.console.print("\n[warning]👋 Goodbye![/warning]")
                     break
                 
-                print("🤖 Agent: ", end="", flush=True)
+                self.console.print("[bold violet]🤖 Agent[/]: ", end="", highlight=False)
                 
                 try:
                     request = ChatRequest(
@@ -147,29 +250,29 @@ class NocturnalCLI:
                     response = await self.agent.process_request(request)
                     
                     # Print response with proper formatting
-                    print(response.response)
+                    self.console.print(response.response)
                     
                     # Show usage stats occasionally
                     if hasattr(self.agent, 'daily_token_usage') and self.agent.daily_token_usage > 0:
                         stats = self.agent.get_usage_stats()
                         if stats['usage_percentage'] > 10:  # Show if >10% used
-                            print(f"\n📊 Usage: {stats['usage_percentage']:.1f}% of daily limit")
+                            self.console.print(f"\n📊 Usage: {stats['usage_percentage']:.1f}% of daily limit")
                 
                 except Exception as e:
-                    print(f"\n❌ Error: {e}")
+                    self.console.print(f"\n[error]❌ Error: {e}[/error]")
         
         finally:
             if self.agent:
                 await self.agent.close()
     
-    async def single_query(self, question: str, auto_update=True):
+    async def single_query(self, question: str):
         """Process a single query"""
-        if not await self.initialize(auto_update):
+        if not await self.initialize():
             return
         
         try:
-            print(f"🤖 Processing: {question}")
-            print("=" * 50)
+            self.console.print(f"🤖 [bold]Processing[/]: {question}")
+            self.console.rule(style="magenta")
             
             request = ChatRequest(
                 question=question,
@@ -179,14 +282,17 @@ class NocturnalCLI:
             
             response = await self.agent.process_request(request)
             
-            print(f"\n📝 Response:\n{response.response}")
+            self.console.print(f"\n📝 [bold]Response[/]:\n{response.response}")
             
             if response.tools_used:
-                print(f"\n🔧 Tools used: {', '.join(response.tools_used)}")
+                self.console.print(f"\n🔧 Tools used: {', '.join(response.tools_used)}")
             
             if response.tokens_used > 0:
                 stats = self.agent.get_usage_stats()
-                print(f"\n📊 Tokens used: {response.tokens_used} (Daily usage: {stats['usage_percentage']:.1f}%)")
+                self.console.print(
+                    f"\n📊 Tokens used: {response.tokens_used} "
+                    f"(Daily usage: {stats['usage_percentage']:.1f}%)"
+                )
         
         finally:
             if self.agent:
@@ -194,56 +300,66 @@ class NocturnalCLI:
     
     def setup_wizard(self):
         """Interactive setup wizard"""
-        print("🚀 Nocturnal Archive Setup Wizard")
-        print("=" * 40)
-        
         config = NocturnalConfig()
-        
-        if config.check_setup():
-            print("✅ Nocturnal Archive is already configured!")
+        return config.interactive_setup()
+
+    def show_tips(self):
+        """Display a rotating set of CLI power tips"""
+        sample_count = 4 if len(self._tips) >= 4 else len(self._tips)
+        tips = random.sample(self._tips, sample_count)
+        table = Table(show_header=False, box=box.MINIMAL_DOUBLE_HEAD, padding=(0, 1))
+        for tip in tips:
+            table.add_row(f"• {tip}")
+
+        self.console.print(Panel(table, title="✨ Quick Tips", border_style="cyan", padding=(1, 2)))
+        self.console.print("[dim]Run `nocturnal tips` again for a fresh batch.[/dim]")
+
+    def collect_feedback(self) -> int:
+        """Collect feedback from the user and store it locally"""
+        self.console.print(
+            Panel(
+                "Share what’s working, what feels rough, or any paper/finance workflows you wish existed.\n"
+                "Press Enter on an empty line to finish.",
+                title="📝 Beta Feedback",
+                border_style="cyan",
+                padding=(1, 2),
+            )
+        )
+
+        lines = []
+        while True:
             try:
-                response = input("Do you want to reconfigure? (y/N): ").strip().lower()
-                if response not in ['y', 'yes']:
-                    return True
-            except (EOFError, KeyboardInterrupt):
-                print("\n👋 Setup cancelled")
-                return False
-        
-        print("\n📋 Let's set up your API keys:")
-        
-        # Groq API key (required)
-        try:
-            groq_key = input("Enter your Groq API key (required): ").strip()
-            if not groq_key:
-                print("❌ Groq API key is required for the AI agent")
-                return False
-        except (EOFError, KeyboardInterrupt):
-            print("\n👋 Setup cancelled")
-            return False
-        
-        # Optional keys
-        print("\n📚 Optional API keys (press Enter to skip):")
-        try:
-            openalex_key = input("OpenAlex API key: ").strip()
-            pubmed_key = input("PubMed API key: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n👋 Setup cancelled")
-            return False
-        
-        # Save configuration
-        config_data = {
-            'GROQ_API_KEY': groq_key,
-            'OPENALEX_API_KEY': openalex_key,
-            'PUBMED_API_KEY': pubmed_key,
-        }
-        
-        config.save_config(config_data)
-        config.setup_environment()
-        
-        print("\n✅ Configuration saved!")
-        print("🎉 You can now run: nocturnal")
-        
-        return True
+                line = self.console.input("[dim]> [/]")
+            except (KeyboardInterrupt, EOFError):
+                self.console.print("[warning]Feedback capture cancelled.[/warning]")
+                return 1
+
+            if not line.strip():
+                break
+            lines.append(line)
+
+        if not lines:
+            self.console.print("[warning]No feedback captured — nothing was saved.[/warning]")
+            return 1
+
+        feedback_dir = Path.home() / ".nocturnal_archive" / "feedback"
+        feedback_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        feedback_path = feedback_dir / f"feedback-{timestamp}.md"
+
+        content = "\n".join(lines)
+        with open(feedback_path, "w", encoding="utf-8") as handle:
+            handle.write("# Nocturnal Archive Beta Feedback\n")
+            handle.write(f"timestamp = {timestamp}Z\n")
+            handle.write("\n")
+            handle.write(content)
+            handle.write("\n")
+
+        self.console.print(
+            f"[success]Thanks for the intel! Saved to[/success] [bold]{feedback_path}[/bold]"
+        )
+        self.console.print("[dim]Attach that file when you send feedback to the team.[/dim]")
+        return 0
 
 def main():
     """Main CLI entry point"""
@@ -295,10 +411,18 @@ Examples:
         help='Check for available updates'
     )
     
+    # Auto-update is now enforced; no CLI flag provided to disable it.
+
     parser.add_argument(
-        '--no-auto-update',
+        '--tips',
         action='store_true',
-        help='Disable automatic background updates'
+        help='Show quick CLI tips and exit'
+    )
+
+    parser.add_argument(
+        '--feedback',
+        action='store_true',
+        help='Capture beta feedback and save it locally'
     )
     
     args = parser.parse_args()
@@ -308,6 +432,16 @@ Examples:
         print("Nocturnal Archive v1.0.0")
         print("AI Research Assistant with real data integration")
         return
+
+    if args.tips or (args.query and args.query.lower() == "tips" and not args.interactive):
+        cli = NocturnalCLI()
+        cli.show_tips()
+        return
+
+    if args.feedback or (args.query and args.query.lower() == "feedback" and not args.interactive):
+        cli = NocturnalCLI()
+        exit_code = cli.collect_feedback()
+        sys.exit(exit_code)
     
     # Handle setup
     if args.setup:
@@ -329,13 +463,10 @@ Examples:
     async def run_cli():
         cli = NocturnalCLI()
         
-        # Pass auto_update flag
-        auto_update = not args.no_auto_update
-        
         if args.query and not args.interactive:
-            await cli.single_query(args.query, auto_update)
+            await cli.single_query(args.query)
         else:
-            await cli.interactive_mode(auto_update)
+            await cli.interactive_mode()
     
     try:
         asyncio.run(run_cli())

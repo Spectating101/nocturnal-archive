@@ -6,13 +6,17 @@ Supports multiple citation formats and automatic reference management.
 import re
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from urllib.parse import urlparse
 import json
 from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 class CitationFormat(Enum):
     """Supported citation formats."""
@@ -91,7 +95,7 @@ class CitationManager:
             title=title,
             authors=authors,
             publication_date=pub_date,
-            access_date=datetime.utcnow().strftime("%Y-%m-%d"),
+            access_date=_utc_now().strftime("%Y-%m-%d"),
             source_type=source_type,
             doi=metadata.get('doi'),
             journal=metadata.get('journal'),

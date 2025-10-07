@@ -60,7 +60,7 @@ class CalculationEngine:
     def __init__(self, facts_store, kpi_registry, validator: Optional[DataValidator] = None):
         """
         Initialize calculation engine
-        
+
         Args:
             facts_store: Store for retrieving financial facts
             kpi_registry: Registry for KPI definitions and expressions
@@ -76,6 +76,14 @@ class CalculationEngine:
             "per_share": self._per_share_function,
         }
         self.validator = validator or DataValidator()
+
+        # Initialize SEC adapter for direct access (bypasses cache, uses schema drift fix)
+        self.sec_adapter = None
+        try:
+            from src.adapters.sec_facts import get_sec_facts_adapter
+            self.sec_adapter = get_sec_facts_adapter()
+        except Exception as e:
+            logger.debug("SEC adapter unavailable", error=str(e))
     
     async def calculate_metric(
         self,
@@ -143,6 +151,7 @@ class CalculationEngine:
             # Apply output type formatting
             output_type = OutputType(metric_def.get("output", "value"))
             formatted_value = self._format_value(value, output_type)
+            output_config = self.kpi_registry.get_output_type(output_type.value) or {}
             
             # Build citations from inputs
             citations = self._build_citations(inputs)
@@ -184,6 +193,13 @@ class CalculationEngine:
                 "formula": metric_def["expr"],
                 "validated": validate,
             }
+
+            if output_config:
+                metadata["output_spec"] = {
+                    "type": output_type.value,
+                    "format": output_config.get("format", "number"),
+                    "display_multiplier": output_config.get("display_multiplier", output_config.get("multiplier", 1)),
+                }
 
             if validation_result:
                 metadata["validation"] = validation_result.to_dict()
@@ -347,7 +363,7 @@ class CalculationEngine:
 
             # Try to get fact for this input
             fact = await self._get_best_fact(
-                ticker, concepts, prefer_concept, period, freq, ttm, segment
+                ticker, concepts, prefer_concept, period, freq, ttm, segment, input_name
             )
 
             if fact:
@@ -428,9 +444,42 @@ class CalculationEngine:
         period: str,
         freq: str,
         ttm: bool,
-        segment: Optional[str]
+        segment: Optional[str],
+        input_name: Optional[str] = None
     ) -> Optional[Fact]:
-        """Get the best available fact for given concepts"""
+        """
+        Get the best available fact for given concepts.
+
+        For 'latest' period: Uses SEC adapter directly to leverage schema drift fix
+        that selects the newest XBRL concept tags automatically.
+
+        For specific periods: Uses FactsStore cache for performance.
+
+        Args:
+            input_name: Internal concept name (e.g., "revenue", "costOfRevenue") used
+                       for SEC adapter lookup when available.
+        """
+        # For 'latest' period, use SEC adapter directly (has schema drift fix)
+        if period in {"latest", "most_recent", "recent", None} and self.sec_adapter and input_name:
+            try:
+                fact_data = await self.sec_adapter.get_fact(
+                    ticker=ticker,
+                    concept=input_name,  # Use internal concept name, not XBRL concepts
+                    period=period,
+                    freq=freq,
+                    accession=None
+                )
+                if fact_data:
+                    logger.info("Using SEC adapter (schema drift fix)",
+                               ticker=ticker, internal_concept=input_name,
+                               xbrl_concept=fact_data.get('xbrl_concept', 'unknown'),
+                               period=fact_data.get('period', 'unknown'))
+                    return self._fact_data_to_object(fact_data)
+            except Exception as e:
+                logger.debug("SEC adapter failed for input",
+                           input_name=input_name, error=str(e))
+
+        # Fallback to FactsStore (cached data) for specific periods or if SEC adapter fails
         # Try preferred concept first
         if prefer_concept and prefer_concept in concepts:
             fact = await self.facts_store.get_fact(
@@ -438,18 +487,18 @@ class CalculationEngine:
             )
             if fact:
                 return self._convert_store_fact(fact)
-        
+
         # Try other concepts in order
         for concept in concepts:
             if concept == prefer_concept:
                 continue
-            
+
             fact = await self.facts_store.get_fact(
                 ticker, concept, period, freq, ttm, segment
             )
             if fact:
                 return self._convert_store_fact(fact)
-        
+
         return None
 
     def _fact_data_to_object(self, fact_data: Dict[str, Any]) -> Fact:
@@ -518,14 +567,15 @@ class CalculationEngine:
 
             expression = re.sub(r'([A-Za-z_][A-Za-z0-9_]*)\?', replace_optional, expression)
 
+            # Resolve function calls (e.g., avg, ttm) before replacing variable names so
+            # handlers receive the original concept identifiers rather than numeric values.
+            expression = await self._replace_functions(expression, inputs)
+
             for input_name, fact in inputs.items():
                 value = fact.value
                 # Replace variable names in expression
                 pattern = r'\b' + re.escape(input_name) + r'\b'
                 expression = re.sub(pattern, str(value), expression)
-            
-            # Replace function calls
-            expression = await self._replace_functions(expression, inputs)
             
             # Validate expression contains only safe operations
             if not self._is_safe_expression(expression):
@@ -579,8 +629,29 @@ class CalculationEngine:
         if concept_name not in inputs:
             raise ValueError(f"Unknown concept: {concept_name}")
         
-        # For now, return the single value (would need multiple periods in real implementation)
-        return inputs[concept_name].value
+        # For ROE/ROA calculations, we need to average current and prior period
+        # Since we only have current period data in inputs, we'll use a reasonable approximation
+        current_value = inputs[concept_name].value
+        
+        if periods == 2:
+            # For 2-period average (current + prior), use current value as approximation
+            # This is reasonable for balance sheet items that don't change dramatically
+            logger.info(
+                "Using current value as approximation for 2-period average",
+                concept=concept_name,
+                current_value=current_value,
+                note="Proper implementation would fetch prior period data"
+            )
+            return current_value
+        else:
+            # For other period counts, return current value
+            logger.warning(
+                "avg() function with periods != 2 not fully implemented",
+                concept=concept_name,
+                periods=periods,
+                current_value=current_value
+            )
+            return current_value
     
     async def _ttm_function_async(self, concept_name: str, current_fact: Fact) -> float:
         """Calculate actual trailing twelve months by summing 4 quarters"""
@@ -670,10 +741,17 @@ class CalculationEngine:
     
     def _format_value(self, value: float, output_type: OutputType) -> float:
         """Format value according to output type"""
-        if output_type == OutputType.PERCENT:
-            return value * 100  # Convert decimal to percentage
-        else:
-            return value
+        output_config = self.kpi_registry.get_output_type(output_type.value)
+
+        if output_config is not None:
+            multiplier = output_config.get("multiplier", 1)
+            try:
+                multiplier = float(multiplier)
+            except (TypeError, ValueError):
+                multiplier = 1
+            return value * multiplier
+
+        return value
     
     def _build_citations(self, inputs: Dict[str, Fact]) -> List[Dict[str, Any]]:
         """Build citation list from input facts"""

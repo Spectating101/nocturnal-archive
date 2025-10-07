@@ -6,9 +6,13 @@ import os
 import asyncio
 import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 class RealLLMClient:
     """Real LLM client using Groq API."""
@@ -92,7 +96,7 @@ class RealLLMClient:
                     "status": "success",
                     "analysis": analysis,
                     "llm_response": content,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _utc_timestamp()
                 }
                 
             except json.JSONDecodeError:
@@ -302,7 +306,7 @@ class RealLLMClient:
                 "reasoning": reasoning
             },
             "llm_response": "Fallback analysis (LLM not available)",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_timestamp()
         }
     
     async def _fallback_decomposition(self, problem_description: str, analysis: Dict[str, Any]) -> List[Dict[str, Any]]:

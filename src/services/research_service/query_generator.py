@@ -5,12 +5,16 @@ import re
 import asyncio
 import json
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.services.llm_service.llm_manager import LLMManager
 
 # Configure structured logging
 logger = logging.getLogger(__name__)
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 class EnhancedQueryGenerator:
     """
@@ -747,7 +751,7 @@ Format your response EXACTLY as a JSON object with these sections.
         try:
             health_status = {
                 "status": "healthy",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": _utc_timestamp(),
                 "components": {}
             }
             
@@ -769,5 +773,5 @@ Format your response EXACTLY as a JSON object with these sections.
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }

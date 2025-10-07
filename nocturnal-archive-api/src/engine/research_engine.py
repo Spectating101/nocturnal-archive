@@ -8,7 +8,7 @@ import os
 import asyncio
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Add the sophisticated research engine to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
@@ -17,13 +17,12 @@ ADVANCED_ENGINE_AVAILABLE = False
 logger = logging.getLogger(__name__)
 
 try:
-    from services.research_service.enhanced_research import EnhancedResearchService
-    from services.research_service.enhanced_synthesizer import EnhancedSynthesizer
-    from services.search_service.search_engine import SearchEngine
-    from services.paper_service.openalex import OpenAlexClient
-    from services.performance_service.rust_performance import HighPerformanceService
-    from services.llm_service.llm_manager import LLMManager
-    from storage.db.operations import DatabaseOperations
+    from src.services.research_service.enhanced_research import EnhancedResearchService
+    from src.services.research_service.enhanced_synthesizer import EnhancedSynthesizer
+    from src.services.search_service import SearchEngine
+    from src.services.paper_service import OpenAlexClient
+    from src.services.performance_service.rust_performance import HighPerformanceService
+    from src.services.llm_service import LLMManager
     ADVANCED_ENGINE_AVAILABLE = True
     logger.info("Advanced research engine loaded successfully")
 except ImportError as e:
@@ -40,17 +39,33 @@ class SophisticatedResearchEngine:
         self.openalex_client = None
         self.performance_service = None
         self.llm_manager = None
-        self.db_operations = None
         
         if ADVANCED_ENGINE_AVAILABLE:
             try:
-                self.enhanced_research = EnhancedResearchService()
-                self.enhanced_synthesizer = EnhancedSynthesizer()
-                self.search_engine = SearchEngine()
+                redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
                 self.openalex_client = OpenAlexClient()
                 self.performance_service = HighPerformanceService()
-                self.llm_manager = LLMManager()
-                self.db_operations = DatabaseOperations()
+                self.llm_manager = LLMManager(redis_url=redis_url)
+
+                search_engine = SearchEngine(
+                    openalex_client=self.openalex_client,
+                    performance_service=self.performance_service,
+                )
+                synthesizer = EnhancedSynthesizer(
+                    llm_manager=self.llm_manager,
+                    openalex_client=self.openalex_client,
+                    performance_service=self.performance_service,
+                    redis_url=redis_url,
+                )
+                self.enhanced_research = EnhancedResearchService(
+                    search_engine=search_engine,
+                    synthesizer=synthesizer,
+                    llm_manager=self.llm_manager,
+                    openalex_client=self.openalex_client,
+                    performance_service=self.performance_service,
+                )
+                self.enhanced_synthesizer = synthesizer
+                self.search_engine = search_engine
                 logger.info("All sophisticated components initialized")
             except Exception as e:
                 logger.error(f"Failed to initialize sophisticated components: {e}")
@@ -83,8 +98,13 @@ class SophisticatedResearchEngine:
             logger.error(f"Advanced search failed: {e}")
             return {"error": f"Search failed: {str(e)}"}
     
-    async def synthesize_advanced(self, paper_ids: List[str], max_words: int = 500, 
-                                style: str = "comprehensive", context: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def synthesize_advanced(
+        self,
+        paper_ids: List[str],
+        max_words: int = 500,
+        style: str = "comprehensive",
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Advanced synthesis with sophisticated capabilities"""
         if not ADVANCED_ENGINE_AVAILABLE or not self.enhanced_synthesizer:
             return {"error": "Advanced synthesis not available"}
@@ -106,10 +126,10 @@ class SophisticatedResearchEngine:
                 papers=papers,
                 max_words=max_words,
                 style=style,
-                context=context,
+                context=context or {},
                 include_visualizations=True,
                 include_topic_modeling=True,
-                include_quality_assessment=True
+                include_quality_assessment=True,
             )
             
             return synthesis_result
@@ -117,6 +137,37 @@ class SophisticatedResearchEngine:
         except Exception as e:
             logger.error(f"Advanced synthesis failed: {e}")
             return {"error": f"Synthesis failed: {str(e)}"}
+
+    async def synthesize_strict(
+        self,
+        paper_ids: List[str],
+        max_words: int = 500,
+        style: str = "technical",
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Strict synthesis pathway that enforces heavy-model semantics."""
+
+        if not ADVANCED_ENGINE_AVAILABLE or not self.enhanced_synthesizer:
+            return {"error": "Advanced synthesis not available"}
+
+        merged_context = dict(context or {})
+        merged_context.setdefault("mode", "strict")
+        merged_context.setdefault("strict", True)
+
+        result = await self.synthesize_advanced(
+            paper_ids=paper_ids,
+            max_words=max_words,
+            style=style,
+            context=merged_context,
+        )
+
+        if isinstance(result, dict) and "error" not in result:
+            routing_md = result.setdefault("routing_metadata", {})
+            decision = routing_md.setdefault("routing_decision", {})
+            decision.setdefault("complexity", "heavy")
+            decision.setdefault("strategy", "advanced_synthesizer_strict")
+            decision.setdefault("model", decision.get("model", "llm-heavy"))
+        return result
     
     async def format_citations_advanced(self, paper_ids: List[str], format_style: str = "bibtex") -> Dict[str, Any]:
         """Advanced citation formatting with multiple styles"""
@@ -154,7 +205,7 @@ class SophisticatedResearchEngine:
         health_status = {
             "advanced_engine": ADVANCED_ENGINE_AVAILABLE,
             "components": {},
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
         if ADVANCED_ENGINE_AVAILABLE:
@@ -166,7 +217,6 @@ class SophisticatedResearchEngine:
                 "openalex_client": self.openalex_client,
                 "performance_service": self.performance_service,
                 "llm_manager": self.llm_manager,
-                "db_operations": self.db_operations
             }
             
             for name, component in components.items():

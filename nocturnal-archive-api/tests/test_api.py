@@ -4,14 +4,37 @@ Comprehensive API test suite
 
 import pytest
 import asyncio
+import hashlib
+import os
+import time
+from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 from unittest.mock import patch, AsyncMock
 import json
 
 from src.main import app
 from src.config.settings import get_settings
+from src.services.telemetry_ingestor import reset_telemetry_ingestor_cache
 
 client = TestClient(app)
+client.headers.update({"X-API-Key": "na_test_api_key_123"})
+
+
+@pytest.fixture
+def telemetry_setup(tmp_path, monkeypatch):
+    token = "telemetry-token-abc123456789"
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    storage_dir = tmp_path / "telemetry"
+
+    monkeypatch.setenv("NOCTURNAL_TELEMETRY_TOKEN_HASHES", digest)
+    monkeypatch.setenv("NOCTURNAL_TELEMETRY_STORAGE", str(storage_dir))
+    monkeypatch.delenv("NOCTURNAL_TELEMETRY_ACCEPT_ALL", raising=False)
+
+    reset_telemetry_ingestor_cache()
+
+    yield token, storage_dir
+
+    reset_telemetry_ingestor_cache()
 
 
 class TestHealthEndpoint:
@@ -173,16 +196,25 @@ class TestSynthesizeEndpoint:
     
     def test_synthesize_basic(self):
         """Test basic synthesis functionality"""
-        with patch('src.routes.synthesize.Synthesizer') as mock_synthesizer:
-            mock_instance = AsyncMock()
-            mock_result = AsyncMock()
-            mock_result.trace_id = "test-trace-id"
-            mock_result.word_count = 300
-            mock_result.summary = "Test synthesis"
-            mock_result.key_findings = ["Finding 1", "Finding 2"]
-            mock_result.citations_used = {"[1]": "W2981234567"}
-            mock_instance.synthesize_papers.return_value = mock_result
-            mock_synthesizer.return_value = mock_instance
+        advanced_result = {
+            "summary": "Test synthesis",
+            "word_count": 300,
+            "key_findings": ["Finding 1", "Finding 2"],
+            "citations_used": {"[1]": "W2981234567"},
+            "metadata": {"confidence": 0.8},
+            "routing_metadata": {
+                "routing_decision": {
+                    "model": "gpt-4.1-mini",
+                    "complexity": "advanced",
+                    "strategy": "advanced_synthesizer",
+                },
+                "usage": {"prompt_tokens": 120, "completion_tokens": 200},
+            },
+        }
+
+        with patch("src.routes.synthesize.sophisticated_engine") as mock_engine:
+            mock_engine.enhanced_synthesizer = True
+            mock_engine.synthesize_advanced = AsyncMock(return_value=advanced_result)
             
             response = client.post(
                 "/api/synthesize",
@@ -204,20 +236,28 @@ class TestSynthesizeEndpoint:
     
     def test_synthesize_with_enhancements(self):
         """Test synthesis with performance enhancements"""
-        with patch('src.routes.synthesize.Synthesizer') as mock_synthesizer, \
+        advanced_result = {
+            "summary": "Test synthesis",
+            "word_count": 280,
+            "key_findings": ["Finding 1", "Finding 2"],
+            "citations_used": {"[1]": "W2981234567"},
+            "metadata": {},
+            "routing_metadata": {
+                "routing_decision": {
+                    "model": "gpt-4.1-mini",
+                    "complexity": "advanced",
+                    "strategy": "advanced_synthesizer",
+                },
+                "usage": {"prompt_tokens": 100, "completion_tokens": 180},
+            },
+        }
+
+        with patch("src.routes.synthesize.sophisticated_engine") as mock_engine, \
              patch('src.routes.synthesize.performance_integration') as mock_perf:
-            
-            mock_instance = AsyncMock()
-            mock_result = AsyncMock()
-            mock_result.trace_id = "test-trace-id"
-            mock_result.word_count = 300
-            mock_result.summary = "Test synthesis"
-            mock_result.key_findings = ["Finding 1", "Finding 2"]
-            mock_result.citations_used = {"[1]": "W2981234567"}
-            mock_result.metadata = {}
-            mock_instance.synthesize_papers.return_value = mock_result
-            mock_synthesizer.return_value = mock_instance
-            
+
+            mock_engine.enhanced_synthesizer = True
+            mock_engine.synthesize_advanced = AsyncMock(return_value=advanced_result)
+
             mock_perf.enhance_synthesis.return_value = {"enhanced": True}
             mock_perf.extract_research_insights.return_value = {"insights": True}
             
@@ -247,6 +287,132 @@ class TestSynthesizeEndpoint:
         )
         
         assert response.status_code == 422  # Validation error
+
+    def test_synthesize_strict_path(self):
+        """Strict synthesis uses sophisticated engine"""
+        strict_result = {
+            "summary": "Strict synthesis output",
+            "word_count": 320,
+            "key_findings": ["Strict finding"],
+            "citations_used": {"[1]": "W111"},
+            "metadata": {"confidence": 0.9},
+            "routing_metadata": {
+                "routing_decision": {
+                    "model": "gpt-4.1-mini",
+                    "complexity": "heavy",
+                    "strategy": "advanced_synthesizer_strict",
+                },
+                "usage": {"prompt_tokens": 200, "completion_tokens": 220},
+            },
+        }
+
+        with patch("src.routes.synthesize.sophisticated_engine") as mock_engine:
+            mock_engine.enhanced_synthesizer = True
+            mock_engine.synthesize_strict = AsyncMock(return_value=strict_result)
+
+            response = client.post(
+                "/api/synthesize/strict",
+                json={
+                    "paper_ids": ["W111", "W222"],
+                    "max_words": 320,
+                    "focus": "key_findings",
+                    "style": "academic",
+                },
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["model_used"] == "gpt-4.1-mini"
+        assert payload["complexity"] == "heavy"
+
+    def test_synthesize_advanced_recycled_resin(self):
+        """Test advanced synthesis workflow for recycled resin research"""
+        advanced_result = {
+            "summary": (
+                "Recycled resin additive manufacturing binder jetting workflows "
+                "increase mechanical stability by re-polymerizing PET feedstock with "
+                "uv-curable matrices while preserving recycled resin content."
+            ),
+            "word_count": 368,
+            "key_findings": [
+                "Binder jetting lines that preheat recycled resin granules deliver 18% higher tensile strength.",
+                "Hybrid UV cure schedules cut porosity by 11% versus thermoset-only controls.",
+                "Post-processing regimens with plasma activation preserve pigment dispersion in recycled feedstock."
+            ],
+            "citations_used": {
+                "[1]": "https://openalex.org/W1234567890",
+                "[2]": "https://openalex.org/W0987654321"
+            },
+            "metadata": {
+                "confidence": 0.86,
+                "domain_alignment": "advanced_polymers",
+                "paper_sample_size": 12
+            },
+            "routing_metadata": {
+                "routing_decision": {
+                    "model": "gpt-4.1-mini",
+                    "complexity": "advanced",
+                    "strategy": "advanced_synthesizer"
+                },
+                "usage": {
+                    "prompt_tokens": 812,
+                    "completion_tokens": 446
+                }
+            }
+        }
+
+        with patch("src.routes.synthesize.sophisticated_engine") as mock_engine, \
+             patch("src.routes.synthesize.performance_integration") as mock_perf:
+
+            mock_engine.enhanced_synthesizer = True
+            mock_engine.synthesize_advanced = AsyncMock(return_value=advanced_result)
+
+            mock_perf.enhance_synthesis = AsyncMock(return_value={
+                "enhanced_synthesis": {
+                    "keywords": [
+                        "recycled resin",
+                        "binder jetting",
+                        "uv curing"
+                    ]
+                },
+                "routing_metadata": advanced_result["routing_metadata"],
+                "synthesis_mode": "advanced"
+            })
+            mock_perf.extract_research_insights = AsyncMock(return_value={
+                "top_keywords": [
+                    {"word": "recycled resin", "frequency": 7},
+                    {"word": "binder jetting", "frequency": 5}
+                ],
+                "unique_keywords": 14
+            })
+
+            response = client.post(
+                "/api/synthesize",
+                json={
+                    "paper_ids": [
+                        "https://openalex.org/W1234567890",
+                        "https://openalex.org/W0987654321"
+                    ],
+                    "max_words": 450,
+                    "focus": "key_findings",
+                    "style": "academic",
+                    "original_query": "recycled resin additive manufacturing binder jetting"
+                }
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["summary"].startswith("Recycled resin additive manufacturing binder jetting")
+        assert "Binder jetting lines" in " ".join(data["key_findings"])
+        assert data["citations_used"]["[1]"] == "https://openalex.org/W1234567890"
+        assert data["model_used"] == "gpt-4.1-mini"
+        assert data["complexity"] == "advanced"
+        assert data["token_usage"] == advanced_result["routing_metadata"]["usage"]
+        assert data["metadata"]["synthesis_mode"] == "advanced"
+        assert data["metadata"]["routing_metadata"]["routing_decision"]["strategy"] == "advanced_synthesizer"
+        assert data["metadata"]["insights"]["top_keywords"][0]["word"] == "recycled resin"
+        assert data["relevance_score"] == pytest.approx(1.0, rel=1e-2)
 
 
 class TestAnalyticsEndpoint:
@@ -288,6 +454,132 @@ class TestAnalyticsEndpoint:
         assert "errors" in data
 
 
+class TestTelemetryEndpoint:
+    """Telemetry ingestion contract"""
+
+    def test_ingest_success(self, telemetry_setup, client):
+        token, storage_dir = telemetry_setup
+        payload = {
+            "event": "cli_start",
+            "session": "session-123",
+            "client_version": "1.2.3",
+        }
+
+        response = client.post(
+            "/api/telemetry/ingest",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 202
+        body = response.json()
+        assert body["status"] == "accepted"
+
+        expected_file = storage_dir / f"{datetime.now(timezone.utc).date().isoformat()}.jsonl"
+
+        for _ in range(20):
+            if expected_file.exists() and expected_file.read_text(encoding="utf-8").strip():
+                break
+            time.sleep(0.01)
+
+        assert expected_file.exists()
+        contents = expected_file.read_text(encoding="utf-8").strip()
+        assert contents
+        lines = contents.splitlines()
+        record = json.loads(lines[-1])
+        assert record["event"] == payload["event"]
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        assert record["token_hash"].startswith(token_hash[:16])
+        assert "meta" in record
+
+    def test_ingest_missing_token(self, telemetry_setup, client):
+        response = client.post(
+            "/api/telemetry/ingest",
+            json={"event": "missing_token"},
+        )
+
+        assert response.status_code == 401
+        detail = response.json()
+        assert detail["detail"]["error"] == "telemetry_auth"
+
+    def test_ingest_forbidden_token(self, telemetry_setup, client):
+        response = client.post(
+            "/api/telemetry/ingest",
+            json={"event": "forbidden_token"},
+            headers={"Authorization": "Bearer unauthorized-token-xyz123"},
+        )
+
+        assert response.status_code == 403
+        detail = response.json()
+        assert detail["detail"]["error"] == "telemetry_auth"
+
+    def test_summary_endpoint(self, telemetry_setup, client):
+        token, _ = telemetry_setup
+        client.post(
+            "/api/telemetry/ingest",
+            json={"event": "summary_test", "session": "sess-1"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        response = client.get(
+            "/api/telemetry/summary",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_events"] >= 1
+        assert "summary_test" in data["by_event"]
+        assert data["unique_sessions"] >= 1
+
+    def test_events_endpoint_limit(self, telemetry_setup, client):
+        token, _ = telemetry_setup
+        for idx in range(3):
+            client.post(
+                "/api/telemetry/ingest",
+                json={"event": f"event_{idx}", "session": f"sess-{idx}"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        response = client.get(
+            "/api/telemetry/events?limit=2",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["count"] == 2
+        assert len(payload["events"]) == 2
+        assert payload["limit"] == 2
+
+    def test_summary_requires_token(self, client):
+        response = client.get("/api/telemetry/summary")
+        assert response.status_code == 401
+
+    def test_daily_endpoint(self, telemetry_setup, client):
+        token, _ = telemetry_setup
+        client.post(
+            "/api/telemetry/ingest",
+            json={"event": "daily_event", "session": "sess-daily"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        response = client.get(
+            "/api/telemetry/daily?days=3",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["days"] == 3
+        assert len(payload["series"]) == 3
+        assert any(entry["total_events"] >= 1 for entry in payload["series"])
+
+    def test_daily_requires_token(self, client):
+        response = client.get("/api/telemetry/daily")
+        assert response.status_code == 401
+
+
 class TestIntegration:
     """Integration tests"""
     
@@ -297,7 +589,7 @@ class TestIntegration:
         # Mock all services
         with patch('src.routes.search.PaperSearcher') as mock_searcher, \
              patch('src.routes.format.CitationFormatter') as mock_formatter, \
-             patch('src.routes.synthesize.Synthesizer') as mock_synthesizer:
+             patch('src.routes.synthesize.sophisticated_engine') as mock_engine:
             
             # Mock search
             mock_search_instance = AsyncMock()
@@ -309,16 +601,23 @@ class TestIntegration:
             mock_format_instance.format_papers.return_value = "@article{test2023,...}"
             mock_formatter.return_value = mock_format_instance
             
-            # Mock synthesis
-            mock_synth_instance = AsyncMock()
-            mock_result = AsyncMock()
-            mock_result.trace_id = "test-trace-id"
-            mock_result.word_count = 300
-            mock_result.summary = "Test synthesis"
-            mock_result.key_findings = ["Finding 1"]
-            mock_result.citations_used = {"[1]": "W2981234567"}
-            mock_synth_instance.synthesize_papers.return_value = mock_result
-            mock_synthesizer.return_value = mock_synth_instance
+            # Mock sophisticated synthesis engine
+            mock_engine.enhanced_synthesizer = True
+            mock_engine.synthesize_advanced = AsyncMock(return_value={
+                "summary": "Test synthesis",
+                "word_count": 300,
+                "key_findings": ["Finding 1"],
+                "citations_used": {"[1]": "W2981234567"},
+                "metadata": {},
+                "routing_metadata": {
+                    "routing_decision": {
+                        "model": "gpt-4.1-mini",
+                        "complexity": "advanced",
+                        "strategy": "advanced_synthesizer",
+                    },
+                    "usage": {"prompt_tokens": 80, "completion_tokens": 160},
+                },
+            })
             
             # Test search
             search_response = client.post(

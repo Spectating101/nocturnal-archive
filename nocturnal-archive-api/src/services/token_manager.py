@@ -4,7 +4,7 @@ Production-ready token budget management system
 
 import asyncio
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple
 import structlog
 import redis.asyncio as redis
@@ -36,7 +36,7 @@ class TokenBudget:
     
     def _get_time_key(self, period: str) -> str:
         """Generate Redis key for time-based tracking"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         if period == "daily":
             return f"tokens:daily:{now.strftime('%Y-%m-%d')}"

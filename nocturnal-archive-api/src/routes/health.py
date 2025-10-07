@@ -3,7 +3,7 @@ Health check endpoint
 """
 
 import structlog
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from typing import Dict
 
@@ -79,7 +79,7 @@ async def health_check(settings: Settings = Depends(get_settings)):
     
     return HealthResponse(
         status=overall_status,
-        timestamp=datetime.utcnow(),
+    timestamp=datetime.now(timezone.utc),
         services=services,
         version="1.0.0",
         issues=issues if issues else None

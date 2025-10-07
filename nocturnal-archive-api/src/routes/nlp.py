@@ -36,7 +36,7 @@ def sentiment_api(payload: SentimentIn, request: Request, _=Depends(rate_limit),
 
 class BatchSentimentIn(BaseModel):
     """Batch sentiment analysis request"""
-    texts: List[str] = Field(min_items=1, max_items=50, description="List of texts to analyze")
+    texts: List[str] = Field(min_length=1, max_length=50, description="List of texts to analyze")
 
 
 class BatchSentimentOut(BaseModel):

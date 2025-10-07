@@ -4,9 +4,13 @@ Knowledge Graph - Entity relationship management
 
 import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 class KnowledgeGraph:
     """Knowledge graph for entity relationship management."""
@@ -25,7 +29,7 @@ class KnowledgeGraph:
                 self.nodes[entity] = {
                     "id": entity,
                     "type": "entity",
-                    "created_at": datetime.utcnow(),
+                    "created_at": _utc_now(),
                     "interactions": []
                 }
             self.nodes[entity]["interactions"].append(interaction_id)
@@ -37,7 +41,7 @@ class KnowledgeGraph:
                 "target": relationship.get("target"),
                 "relationship": relationship.get("type"),
                 "interaction_id": interaction_id,
-                "created_at": datetime.utcnow()
+                "created_at": _utc_now()
             })
     
     async def semantic_search(self, query: str, limit: int = 10) -> List[Dict]:

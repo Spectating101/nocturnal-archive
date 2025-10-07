@@ -6,9 +6,13 @@ import asyncio
 import logging
 import json
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 class LLMReasoner:
     """Real LLM-powered reasoning engine."""
@@ -34,7 +38,7 @@ class LLMReasoner:
                 analysis = await self._simulate_llm_analysis(problem_description, context)
             
             self.reasoning_history.append({
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": _utc_timestamp(),
                 "type": "problem_analysis",
                 "input": problem_description,
                 "output": analysis
@@ -43,7 +47,7 @@ class LLMReasoner:
             return {
                 "status": "success",
                 "analysis": analysis,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
             
         except Exception as e:
@@ -51,7 +55,7 @@ class LLMReasoner:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
     
     async def decompose_problem(self, problem_description: str, analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -69,7 +73,7 @@ class LLMReasoner:
                 steps = await self._simulate_llm_decomposition(problem_description, analysis)
             
             self.reasoning_history.append({
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": _utc_timestamp(),
                 "type": "problem_decomposition",
                 "input": {"problem": problem_description, "analysis": analysis},
                 "output": steps
@@ -96,7 +100,7 @@ class LLMReasoner:
                 synthesis = await self._simulate_llm_synthesis(steps_results, original_problem)
             
             self.reasoning_history.append({
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": _utc_timestamp(),
                 "type": "solution_synthesis",
                 "input": {"steps": steps_results, "problem": original_problem},
                 "output": synthesis
@@ -105,7 +109,7 @@ class LLMReasoner:
             return {
                 "status": "success",
                 "synthesis": synthesis,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
             
         except Exception as e:
@@ -113,7 +117,7 @@ class LLMReasoner:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
     
     async def _simulate_llm_analysis(self, problem: str, context: Dict[str, Any]) -> Dict[str, Any]:

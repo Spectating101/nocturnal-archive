@@ -8,10 +8,15 @@ import os
 import json
 import glob
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+def _timestamp() -> str:
+    """Return an ISO8601 timestamp in UTC."""
+    return datetime.now(timezone.utc).isoformat()
 
 class FileOperationsTool:
     """
@@ -93,7 +98,7 @@ class FileOperationsTool:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
     
     async def _read_file(self, file_path: str) -> Dict[str, Any]:
@@ -102,7 +107,7 @@ class FileOperationsTool:
             return {
                 "status": "error",
                 "error": "Path not allowed for security reasons",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
         
         try:
@@ -111,14 +116,14 @@ class FileOperationsTool:
                 return {
                     "status": "error",
                     "error": f"File not found: {file_path}",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _timestamp()
                 }
             
             if path.is_dir():
                 return {
                     "status": "error",
                     "error": f"Path is a directory, not a file: {file_path}",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _timestamp()
                 }
             
             # Check file size
@@ -127,7 +132,7 @@ class FileOperationsTool:
                 return {
                     "status": "error",
                     "error": f"File too large: {file_size} bytes (max: {self.max_file_size})",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _timestamp()
                 }
             
             # Read file content
@@ -140,14 +145,14 @@ class FileOperationsTool:
                 "content": content,
                 "file_size": file_size,
                 "file_type": path.suffix,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
             
         except Exception as e:
             return {
                 "status": "error",
                 "error": f"Failed to read file: {str(e)}",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
     
     async def _write_file(self, file_path: str, content: str) -> Dict[str, Any]:
@@ -156,7 +161,7 @@ class FileOperationsTool:
             return {
                 "status": "error",
                 "error": "Path not allowed for security reasons",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
         
         try:
@@ -174,14 +179,14 @@ class FileOperationsTool:
                 "file_path": file_path,
                 "content_length": len(content),
                 "message": "File written successfully",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
             
         except Exception as e:
             return {
                 "status": "error",
                 "error": f"Failed to write file: {str(e)}",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
     
     async def _list_directory(self, directory: str) -> Dict[str, Any]:
@@ -190,7 +195,7 @@ class FileOperationsTool:
             return {
                 "status": "error",
                 "error": "Path not allowed for security reasons",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
         
         try:
@@ -199,14 +204,14 @@ class FileOperationsTool:
                 return {
                     "status": "error",
                     "error": f"Directory not found: {directory}",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _timestamp()
                 }
             
             if not path.is_dir():
                 return {
                     "status": "error",
                     "error": f"Path is not a directory: {directory}",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _timestamp()
                 }
             
             # List contents
@@ -219,12 +224,12 @@ class FileOperationsTool:
                         "name": item.name,
                         "size": item.stat().st_size,
                         "extension": item.suffix,
-                        "modified": datetime.fromtimestamp(item.stat().st_mtime).isoformat()
+                        "modified": datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc).isoformat()
                     })
                 elif item.is_dir():
                     directories.append({
                         "name": item.name,
-                        "modified": datetime.fromtimestamp(item.stat().st_mtime).isoformat()
+                        "modified": datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc).isoformat()
                     })
             
             return {
@@ -234,14 +239,14 @@ class FileOperationsTool:
                 "directories": directories,
                 "total_files": len(files),
                 "total_directories": len(directories),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
             
         except Exception as e:
             return {
                 "status": "error",
                 "error": f"Failed to list directory: {str(e)}",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
     
     async def _search_files(self, pattern: str, directory: str) -> Dict[str, Any]:
@@ -250,7 +255,7 @@ class FileOperationsTool:
             return {
                 "status": "error",
                 "error": "Path not allowed for security reasons",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
         
         try:
@@ -259,7 +264,7 @@ class FileOperationsTool:
                 return {
                     "status": "error",
                     "error": f"Invalid directory: {directory}",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _timestamp()
                 }
             
             # Search for files matching pattern
@@ -279,14 +284,14 @@ class FileOperationsTool:
                 "directory": directory,
                 "matches": matches,
                 "total_matches": len(matches),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
             
         except Exception as e:
             return {
                 "status": "error",
                 "error": f"Failed to search files: {str(e)}",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _timestamp()
             }
     
     async def _analyze_file(self, file_path: str) -> Dict[str, Any]:
@@ -321,7 +326,7 @@ class FileOperationsTool:
         return {
             "status": "success",
             "analysis": analysis,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _timestamp()
         }
     
     def _is_path_safe(self, path: str) -> bool:

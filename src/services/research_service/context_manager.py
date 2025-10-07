@@ -2,14 +2,13 @@
 
 from typing import Dict, List, Optional, Any
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import json
 import os
 import redis.asyncio as redis
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime
 import hashlib
 
 from ...utils.logger import logger, log_operation
@@ -18,6 +17,14 @@ from ...storage.db.models import ResearchSession
 from .synthesizer import ResearchSynthesizer
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _utc_timestamp() -> str:
+    return _utc_now().isoformat()
 
 class ResearchContextManager:
     """
@@ -33,8 +40,8 @@ class ResearchContextManager:
         
     async def create_research_session(self, user_id: str, topic: str, research_questions: List[str]) -> str:
         """Create a new research session with streaming support."""
-        session_id = hashlib.md5(f"{user_id}_{topic}_{datetime.utcnow().isoformat()}".encode()).hexdigest()
-        
+        session_id = hashlib.md5(f"{user_id}_{topic}_{_utc_timestamp()}".encode()).hexdigest()
+
         session_data = {
             "id": session_id,
             "user_id": user_id,
@@ -45,15 +52,15 @@ class ResearchContextManager:
             "current_step": "Initializing research session",
             "papers": json.dumps([]),  # Convert list to JSON string
             "notes": json.dumps([]),  # Convert list to JSON string
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "created_at": _utc_timestamp(),
+            "updated_at": _utc_timestamp(),
             "synthesis": "",  # Convert None to empty string
             "error": ""  # Convert None to empty string
         }
-        
+
         # Store in Redis for persistence
         await self.redis_client.hset(f"research_session:{session_id}", mapping=session_data)
-        
+
         # Store in memory with proper types
         self.active_sessions[session_id] = {
             "id": session_id,
@@ -65,20 +72,20 @@ class ResearchContextManager:
             "current_step": "Initializing research session",
             "papers": [],
             "notes": [],
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "created_at": _utc_timestamp(),
+            "updated_at": _utc_timestamp(),
             "synthesis": None,
             "error": None
         }
         self.stream_subscribers[session_id] = []
-        
+
         # Send initial update
         await self._broadcast_update(session_id, {
             "type": "session_created",
             "session_id": session_id,
             "data": self.active_sessions[session_id]
         })
-        
+
         logger.info(f"Created research session {session_id} for user {user_id}")
         return session_id
     
@@ -91,7 +98,7 @@ class ResearchContextManager:
         session = self.active_sessions[session_id]
         session["status"] = status
         session["current_step"] = message
-        session["updated_at"] = datetime.utcnow().isoformat()
+        session["updated_at"] = _utc_timestamp()
         
         if progress is not None:
             session["progress"] = progress
@@ -117,7 +124,7 @@ class ResearchContextManager:
             "status": status,
             "message": message,
             "progress": session["progress"],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_timestamp()
         }
         await self._broadcast_update(session_id, update_data)
         
@@ -130,7 +137,7 @@ class ResearchContextManager:
             
         session = self.active_sessions[session_id]
         session["papers"].append(paper_id)
-        session["updated_at"] = datetime.utcnow().isoformat()
+        session["updated_at"] = _utc_timestamp()
         
         # Update Redis
         await self.redis_client.hset(f"research_session:{session_id}", mapping=session)
@@ -142,7 +149,7 @@ class ResearchContextManager:
             "paper_id": paper_id,
             "paper_info": paper_info,
             "total_papers": len(session["papers"]),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_timestamp()
         })
     
     async def update_session_synthesis(self, session_id: str, synthesis: Dict[str, Any]):
@@ -154,7 +161,7 @@ class ResearchContextManager:
         session["synthesis"] = synthesis
         session["status"] = "completed"
         session["progress"] = 100.0
-        session["updated_at"] = datetime.utcnow().isoformat()
+        session["updated_at"] = _utc_timestamp()
         
         # Update Redis
         await self.redis_client.hset(f"research_session:{session_id}", mapping=session)
@@ -169,7 +176,7 @@ class ResearchContextManager:
                 "gaps_count": len(synthesis.get("research_gaps", [])),
                 "contradictions_count": len(synthesis.get("contradictions", []))
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_timestamp()
         })
     
     async def subscribe_to_updates(self, session_id: str) -> asyncio.Queue:
@@ -278,13 +285,13 @@ class ResearchContextManager:
                 "status": "healthy",
                 "active_sessions": active_sessions,
                 "total_subscribers": total_subscribers,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
         except Exception as e:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
 
     # ---------------- Caching & Reporting Utilities ----------------
@@ -374,7 +381,7 @@ class ResearchContextManager:
             md_lines = [
                 f"# Research Report: {topic}",
                 "",
-                f"Generated: {datetime.utcnow().isoformat()}Z",
+                f"Generated: {_utc_timestamp()}Z",
                 "",
                 "## Summary",
                 summary if isinstance(summary, str) else json.dumps(summary, ensure_ascii=False, indent=2),
@@ -398,8 +405,8 @@ class ResearchContextManager:
             user_id=user_id,
             topic=topic,
             context=context or {},
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=_utc_now(),
+            updated_at=_utc_now(),
             status="initializing",
             papers=[],
             notes=[],
@@ -577,7 +584,7 @@ class ResearchContextManager:
             processing_request = {
                 "session_id": session_id,
                 "paper": paper,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
             
             await self.redis_client.lpush(
@@ -622,21 +629,21 @@ class ResearchContextManager:
             "content": note.get("content"),
             "type": note.get("type", "general"),
             "references": note.get("references", []),
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": _utc_timestamp()
         }
         
         session.notes.append(note_entry)
-        session.updated_at = datetime.utcnow()
+        session.updated_at = _utc_now()
         
         await self._update_session(session)
         return True
 
     async def _update_session(self, session: ResearchSession):
         """Update session in database and cache."""
-        session.updated_at = datetime.utcnow()
+        session.updated_at = _utc_now()
         await self.db.update_research_session(session.dict())
         self.active_sessions[session.id] = session
-        
+
         # Prepare Redis-compatible mapping
         redis_mapping = {}
         for key, value in session.dict().items():
@@ -651,7 +658,7 @@ class ResearchContextManager:
                 redis_mapping[key] = json.dumps(value)
             else:
                 redis_mapping[key] = value
-        
+
         # Update Redis cache
         try:
             await self.redis_client.hset(
@@ -737,8 +744,8 @@ class ResearchContextManager:
                 "explored_concepts": [topic],
                 "discovered_concepts": []
             },
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=_utc_now(),
+            updated_at=_utc_now(),
             status="initializing",
             papers=[],
             notes=[],

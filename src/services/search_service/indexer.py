@@ -1,13 +1,17 @@
 #indexer.py
 from typing import List, Dict, Optional
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 import redis.asyncio as redis
 import json
 
 from ...utils.logger import logger, log_operation
 from ...storage.db.operations import DatabaseOperations
 from .vector_search import VectorSearchEngine
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 class DocumentIndexer:
     def __init__(self, db_ops: DatabaseOperations, vector_search: VectorSearchEngine, redis_url: str):
@@ -65,7 +69,7 @@ class DocumentIndexer:
         await self.indexing_queue.put({
             "doc_id": doc_id,
             "session_id": session_id,
-            "queued_at": datetime.utcnow().isoformat()
+            "queued_at": _utc_timestamp()
         })
         
         if session_id:
@@ -118,7 +122,7 @@ class DocumentIndexer:
                 mapping={
                     doc_id: json.dumps({
                         "status": status,
-                        "updated_at": datetime.utcnow().isoformat()
+                        "updated_at": _utc_timestamp()
                     })
                 }
             )

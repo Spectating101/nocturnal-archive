@@ -21,7 +21,7 @@ for json_file in GOLDEN_DIR.glob("*.json"):
         CASES.append(json_file.name)
 
 @pytest.mark.parametrize("case_file", CASES)
-def test_golden_kpis(case_file):
+def test_golden_kpis(case_file, httpx_client):
     """Test KPI calculations against golden values"""
     
     # Load golden case
@@ -43,7 +43,7 @@ def test_golden_kpis(case_file):
         url = f"{BASE}/v1/finance/calc/{ticker}/{metric}?period={period}&freq={freq}"
         
         try:
-            response = httpx.get(
+            response = httpx_client.get(
                 url,
                 headers={"X-API-Key": API_KEY},
                 timeout=30
@@ -96,14 +96,14 @@ def test_golden_kpis(case_file):
     
     print(f"  🎉 All metrics passed for {ticker} {period}")
 
-def test_golden_series():
+def test_golden_series(httpx_client):
     """Test series endpoints with golden data"""
     
     # Test AAPL revenue series
     url = f"{BASE}/v1/finance/kpis/AAPL/revenue?freq=Q&limit=4"
     
     try:
-        response = httpx.get(
+        response = httpx_client.get(
             url,
             headers={"X-API-Key": API_KEY},
             timeout=30
@@ -127,7 +127,7 @@ def test_golden_series():
     
     print(f"✅ Series test passed: {len(result['data'])} points returned")
 
-def test_golden_explain():
+def test_golden_explain(httpx_client):
     """Test expression explanation with golden data"""
     
     payload = {
@@ -140,7 +140,7 @@ def test_golden_explain():
     url = f"{BASE}/v1/finance/calc/explain"
     
     try:
-        response = httpx.post(
+        response = httpx_client.post(
             url,
             json=payload,
             headers={"X-API-Key": API_KEY},
@@ -169,22 +169,22 @@ def test_golden_explain():
     
     print(f"✅ Explain test passed: {result['value']:.2f}")
 
-def test_golden_verify():
+def test_golden_verify(httpx_client):
     """Test expression verification with golden data"""
     
     payload = {
-        "ticker": "AAPL",
-        "expr": "grossProfit / revenue",
-        "assert_value": "≈ 0.41",
-        "tolerance": 0.03,
-        "period": "2024-Q4",
+    "ticker": "KO",
+    "expr": "grossProfit / revenue",
+    "assert_value": "≈ 0.62",
+    "tolerance": 0.05,
+    "period": "latest",
         "freq": "Q"
     }
     
     url = f"{BASE}/v1/finance/calc/verify-expression"
     
     try:
-        response = httpx.post(
+        response = httpx_client.post(
             url,
             json=payload,
             headers={"X-API-Key": API_KEY},

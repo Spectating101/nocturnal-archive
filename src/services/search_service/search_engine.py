@@ -1,388 +1,342 @@
-#search_engine.py
-from typing import List, Dict, Optional
+"""High-level scholarly search orchestration service.
+
+The engine aggregates OpenAlex, optional PubMed, and lightweight web results to
+provide the advanced research surface required by the beta release. Emphasis is
+placed on resilience: network failures or missing API keys degrade gracefully
+instead of crashing the request path.
+"""
+
+from __future__ import annotations
+
 import asyncio
-import redis.asyncio as redis
-import json
-from datetime import datetime
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import OpenAIEmbeddings
+import logging
 import os
-import aiohttp
-from ...utils.logger import logger, log_operation
-from ...storage.db.operations import DatabaseOperations
-from ...storage.db.models import SearchResult, Paper
-from ..llm_service.embeddings import EmbeddingManager
-from ..rerank.reranker import Reranker
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+
+import httpx
+
+from ..paper_service import OpenAlexClient
+from ..performance_service.rust_performance import HighPerformanceService
+
+logger = logging.getLogger(__name__)
+
+_PUBMED_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+_DDG_PROXY = os.getenv("DDG_PROXY_URL", "https://ddg-webapp-aagd.vercel.app/search")
+
+
+@dataclass(slots=True)
+class SearchResult:
+    """Canonical representation of a scholarly item."""
+
+    id: str
+    title: str
+    abstract: str
+    source: str
+    authors: List[str]
+    year: Optional[int]
+    doi: str
+    url: str
+    relevance: float
+    citations: int
+    keywords: List[str]
+    metadata: Dict[str, Any]
+
 
 class SearchEngine:
-    def __init__(self, db_ops: DatabaseOperations, redis_url: str):
-        #logger.info("Initializing SearchEngine")
-        self.db = db_ops
-        self.redis_client = redis.from_url(redis_url)
-        from .vector_search import VectorSearchEngine
-        self.vector_search = VectorSearchEngine(redis_url=redis_url)
-        self.embeddings = EmbeddingManager()
-        self.reranker = Reranker()
-        self.vector_store = None
-        self._initialize_lock = asyncio.Lock()
-        self.active_searches: Dict[str, Dict] = {}
-        #logger.info("SearchEngine initialized")
+    """Advanced scholarly search with optional enrichment."""
 
-    @log_operation("start_search_session")
-    async def start_search_session(self, session_id: str, query: str, context: Optional[Dict] = None) -> str:
-        """Start a new search session with context."""
-        #logger.info(f"Starting search session for: {query}")
-        
-        search_id = f"search:{session_id}:{datetime.utcnow().isoformat()}"
-        self.active_searches[search_id] = {
-            "session_id": session_id,
-            "query": query,
-            "context": context or {},
-            "status": "starting",
-            "results": [],
-            "started_at": datetime.utcnow().isoformat()
-        }
-        
-        # Start async search process
-        asyncio.create_task(self._conduct_search(search_id))
-        return search_id
-
-    async def _conduct_search(self, search_id: str):
-        """Conduct comprehensive search with progress tracking."""
-        search = self.active_searches[search_id]
-        try:
-            await self._update_search_status(search_id, "searching")
-            
-            # Run searches concurrently
-            semantic_results, keyword_results = await asyncio.gather(
-                self.semantic_search(search["query"]),
-                self.keyword_search(search["query"])
-            )
-            
-            # Combine results
-            combined_results = await self._combine_results(
-                semantic_results,
-                keyword_results,
-                search["context"]
-            )
-            
-            # Optional re-ranking
-            try:
-                ranked = await self._rerank_results(search["query"], combined_results)
-            except Exception:
-                ranked = combined_results
-
-            # Store results
-            self.active_searches[search_id]["results"] = ranked
-            await self._update_search_status(search_id, "completed")
-            
-            # Notify completion
-            await self.redis_client.publish(
-                "search_updates",
-                json.dumps({
-                    "search_id": search_id,
-                    "status": "completed",
-                    "result_count": len(combined_results)
-                })
-            )
-            
-        except Exception as e:
-            logger.error(f"Error in search {search_id}: {str(e)}")
-            await self._update_search_status(search_id, "error", str(e))
-
-    @log_operation("semantic_search")
-    async def semantic_search(self, query: str, limit: int = 5) -> List[SearchResult]:
-        """Perform semantic search with retries."""
-        # Use Qdrant similarity search
-        try:
-            pairs = await self.vector_search.similarity_search_with_score(query, k=limit)
-            results = []
-            for doc, score in pairs:
-                results.append(
-                    SearchResult(
-                        paper_id=doc.get('metadata', {}).get('paper_id'),
-                        score=float(score),
-                        content=doc.get('page_content', ''),
-                        metadata=doc.get('metadata', {})
-                    )
-                )
-            if results:
-                return results
-        except Exception as e:
-            logger.error(f"Vector search error: {e}")
-        # Fallback
-        return await self.keyword_search(query)
-
-    @log_operation("keyword_search")
-    async def keyword_search(self, query: str, fields: List[str] = None) -> List[Paper]:
-        """Perform keyword search with field boosting."""
-        if not fields:
-            fields = {
-                'title': 2.0,  # Title matches are more important
-                'abstract': 1.5,  # Abstract matches are somewhat important
-                'content': 1.0  # Content matches have normal weight
-            }
-        
-        results = []
-        for field, boost in fields.items():
-            field_results = await self.db.search_papers({
-                field: {"$regex": query, "$options": "i"}
-            })
-            for paper in field_results:
-                paper.score = paper.score * boost if hasattr(paper, 'score') else boost
-                results.append(paper)
-        
-        # Deduplicate and sort by score
-        seen = set()
-        unique_results = []
-        for paper in sorted(results, key=lambda x: getattr(x, 'score', 0), reverse=True):
-            if paper.id not in seen:
-                seen.add(paper.id)
-                unique_results.append(paper)
-        
-        return unique_results
-
-    async def _combine_results(
+    def __init__(
         self,
-        semantic_results: List[SearchResult],
-        keyword_results: List[Paper],
-        context: Dict
-    ) -> List[SearchResult]:
-        """Combine and rank results considering search context."""
-        combined = {}
-        
-        # Add semantic results
-        for result in semantic_results:
-            combined[result.paper_id] = {
-                "result": result,
-                "semantic_score": result.score,
-                "keyword_score": 0.0
-            }
-        
-        # Add keyword results
-        for paper in keyword_results:
-            if paper.id in combined:
-                combined[paper.id]["keyword_score"] = getattr(paper, 'score', 0.5)
-            else:
-                combined[paper.id] = {
-                    "result": SearchResult(
-                        paper_id=paper.id,
-                        score=getattr(paper, 'score', 0.5),
-                        content="",
-                        metadata=paper.metadata
-                    ),
-                    "semantic_score": 0.0,
-                    "keyword_score": getattr(paper, 'score', 0.5)
+        *,
+        openalex_client: Optional[OpenAlexClient] = None,
+        performance_service: Optional[HighPerformanceService] = None,
+        redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379"),
+        timeout: float = float(os.getenv("SEARCH_TIMEOUT", "12.0")),
+    ) -> None:
+        self.openalex = openalex_client or OpenAlexClient()
+        self.performance = performance_service or HighPerformanceService()
+        self.redis_url = redis_url
+        self.timeout = timeout
+        self._session = httpx.AsyncClient(timeout=timeout)
+        self._lock = asyncio.Lock()
+
+    # ------------------------------------------------------------------
+    async def search_papers(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        sources: Optional[Sequence[str]] = None,
+        include_metadata: bool = True,
+        include_abstracts: bool = True,
+        include_citations: bool = True,
+    ) -> Dict[str, Any]:
+        """Search across configured scholarly sources."""
+
+        if not query or not query.strip():
+            raise ValueError("Query must be a non-empty string")
+
+        limit = max(1, min(limit, 100))
+        sources = sources or ("openalex",)
+        gathered: List[SearchResult] = []
+
+        if "openalex" in sources:
+            gathered.extend(await self._search_openalex(query, limit))
+
+        if "pubmed" in sources:
+            try:
+                gathered.extend(await self._search_pubmed(query, limit))
+            except Exception as exc:  # pragma: no cover - optional remote dependency
+                logger.info("PubMed search failed", extra={"error": str(exc)})
+
+        deduped = self._deduplicate_results(gathered)
+        sorted_results = sorted(deduped, key=lambda item: item.relevance, reverse=True)[:limit]
+
+        payload = {
+            "query": query,
+            "count": len(sorted_results),
+            "sources_used": list(dict.fromkeys([res.source for res in sorted_results])),
+            "papers": [self._result_to_payload(res, include_metadata, include_abstracts, include_citations) for res in sorted_results],
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        }
+        return payload
+
+    async def web_search(self, query: str, *, num_results: int = 5) -> List[Dict[str, Any]]:
+        """Perform a lightweight DuckDuckGo-backed web search."""
+
+        params = {"q": query, "max_results": max(1, min(num_results, 10))}
+        try:
+            response = await self._session.get(_DDG_PROXY, params=params)
+            response.raise_for_status()
+            data = response.json()
+            results = data.get("results", []) if isinstance(data, dict) else []
+            formatted = [
+                {
+                    "title": item.get("title", ""),
+                    "url": item.get("href") or item.get("link") or "",
+                    "snippet": item.get("body") or item.get("snippet") or "",
+                    "source": item.get("source", "duckduckgo"),
                 }
-        
-        # Calculate final scores considering context
-        results = []
-        for paper_id, scores in combined.items():
-            context_boost = self._calculate_context_boost(scores["result"], context)
-            final_score = (
-                scores["semantic_score"] * 0.6 +
-                scores["keyword_score"] * 0.3 +
-                context_boost * 0.1
-            )
+                for item in results[:num_results]
+            ]
+            return formatted
+        except Exception as exc:  # pragma: no cover - network optional
+            logger.info("Web search fallback", extra={"error": str(exc)})
+            return []
+
+    async def fetch_paper_bundle(self, paper_ids: Iterable[str]) -> List[Dict[str, Any]]:
+        """Convenience helper for fetching OpenAlex metadata for multiple IDs."""
+
+        papers = await self.openalex.get_papers_bulk(paper_ids)
+        formatted: List[Dict[str, Any]] = []
+        for paper in papers:
+            formatted.append(self._format_openalex_work(paper))
+        return formatted
+
+    async def close(self) -> None:
+        await self.openalex.close()
+        try:
+            await self._session.aclose()
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    async def _search_openalex(self, query: str, limit: int) -> List[SearchResult]:
+        payload = await self.openalex.search_works(
+            query,
+            limit=limit,
+            filters={"type": "journal-article"},
+        )
+        results = payload.get("results", []) if isinstance(payload, dict) else []
+        formatted = [self._format_openalex_work(item) for item in results]
+
+        if formatted:
+            try:
+                combined = "\n".join(res.abstract for res in formatted if res.abstract)
+                if combined:
+                    keywords = await self.performance.extract_keywords(combined, max_keywords=10)
+                    for res in formatted:
+                        res.metadata.setdefault("query_keywords", keywords)
+            except Exception:
+                # Keyword enrichment is best-effort
+                pass
+
+        return formatted
+
+    async def _search_pubmed(self, query: str, limit: int) -> List[SearchResult]:
+        params = {
+            "db": "pubmed",
+            "term": query,
+            "retmax": max(1, min(limit, 50)),
+            "retmode": "json",
+            "sort": "relevance",
+        }
+        search_url = f"{_PUBMED_BASE}/esearch.fcgi"
+        response = await self._session.get(search_url, params=params)
+        response.raise_for_status()
+        id_list = response.json().get("esearchresult", {}).get("idlist", [])
+        if not id_list:
+            return []
+
+        summary_params = {
+            "db": "pubmed",
+            "id": ",".join(id_list[:limit]),
+            "retmode": "json",
+        }
+        summary_url = f"{_PUBMED_BASE}/esummary.fcgi"
+        summary_resp = await self._session.get(summary_url, params=summary_params)
+        summary_resp.raise_for_status()
+        summaries = summary_resp.json().get("result", {})
+
+        results: List[SearchResult] = []
+        for pmid in id_list[:limit]:
+            raw = summaries.get(pmid)
+            if not isinstance(raw, dict):
+                continue
+            title = raw.get("title", "")
+            abstract = raw.get("elocationid", "") or raw.get("source", "")
+            authors = [author.get("name", "") for author in raw.get("authors", []) if isinstance(author, dict)]
             results.append(
                 SearchResult(
-                    paper_id=paper_id,
-                    score=final_score,
-                    content=scores["result"].content,
-                    metadata={
-                        **scores["result"].metadata,
-                        "semantic_score": scores["semantic_score"],
-                        "keyword_score": scores["keyword_score"],
-                        "context_boost": context_boost
-                    }
+                    id=f"PMID:{pmid}",
+                    title=title,
+                    abstract=abstract,
+                    source="pubmed",
+                    authors=[a for a in authors if a],
+                    year=self._safe_int(raw.get("pubdate", "")[:4]),
+                    doi=raw.get("elocationid", ""),
+                    url=f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                    relevance=0.6,
+                    citations=raw.get("pmc", 0) or 0,
+                    keywords=[],
+                    metadata={"pmid": pmid},
                 )
             )
-        
-        return sorted(results, key=lambda x: x.score, reverse=True)
+        return results
 
-    async def _rerank_results(self, query: str, results: List[SearchResult]) -> List[SearchResult]:
-        docs = [
-            {
-                "content": r.content or "",
-                "metadata": r.metadata,
-                "paper_id": r.paper_id,
-                "score": r.score
-            }
-            for r in results
+    def _deduplicate_results(self, results: List[SearchResult]) -> List[SearchResult]:
+        seen: Dict[str, SearchResult] = {}
+        for result in results:
+            key = result.doi.lower() if result.doi else result.title.lower()
+            if key in seen:
+                existing = seen[key]
+                if result.relevance > existing.relevance:
+                    seen[key] = result
+            else:
+                seen[key] = result
+        return list(seen.values())
+
+    def _format_openalex_work(self, work: Dict[str, Any]) -> SearchResult:
+        title = work.get("title", "")
+        abstract = self._extract_openalex_abstract(work)
+        authors = [
+            auth.get("author", {}).get("display_name", "")
+            for auth in work.get("authorships", [])
+            if isinstance(auth, dict)
         ]
-        ranked_docs = await self.reranker.rerank(query, docs, top_k=len(docs))
-        # Map back to SearchResult
-        mapped = []
-        for d in ranked_docs:
-            mapped.append(
-                SearchResult(
-                    paper_id=d.get("paper_id"),
-                    score=float(d.get("rerank_score", d.get("score", 0))),
-                    content=d.get("content", ""),
-                    metadata=d.get("metadata", {})
-                )
-            )
-        return mapped
+        doi = work.get("doi", "") or ""
+        url = work.get("id", "")
+        concepts = [concept.get("display_name", "") for concept in work.get("concepts", []) if isinstance(concept, dict)]
+        citations = work.get("cited_by_count", 0) or 0
+        relevance = work.get("relevance_score", 0.0) or 0.5 + min(0.4, citations / 1000)
 
-    def _calculate_context_boost(self, result: SearchResult, context: Dict) -> float:
-        """Calculate context-based boost for a result."""
-        boost = 1.0
-        
-        if not context:
-            return boost
-            
-        # Boost based on publication date if time range is important
-        if context.get("time_range"):
-            try:
-                pub_year = int(result.metadata.get("publication_year", 0))
-                if pub_year >= context["time_range"]["start"]:
-                    boost *= 1.2
-            except:
-                pass
-        
-        # Boost based on methodology if specified
-        if context.get("methodology"):
-            if result.metadata.get("methodology") == context["methodology"]:
-                boost *= 1.3
+        keywords = concepts[:5] or self._quick_keywords(abstract, limit=5)
 
-        # Boost based on topic relevance
-        if context.get("topics"):
-            result_topics = result.metadata.get("topics", [])
-            matching_topics = set(context["topics"]) & set(result_topics)
-            if matching_topics:
-                boost *= (1 + (len(matching_topics) * 0.1))
+        metadata = {
+            "openalex_id": url,
+            "open_access": work.get("open_access", {}).get("is_oa", False),
+            "primary_location": work.get("primary_location"),
+        }
 
-        # Boost based on citation count if academic impact is important
-        if context.get("prioritize_citations"):
-            citations = result.metadata.get("citation_count", 0)
-            if citations > 100:
-                boost *= 1.4
-            elif citations > 50:
-                boost *= 1.2
-            elif citations > 10:
-                boost *= 1.1
-
-        return boost
-
-    async def _update_search_status(self, search_id: str, status: str, error: str = None):
-        """Update search status in Redis."""
-        self.active_searches[search_id]["status"] = status
-        if error:
-            self.active_searches[search_id]["error"] = error
-
-        await self.redis_client.hset(
-            f"search_status:{search_id}",
-            mapping={
-                "status": status,
-                "error": error or "",
-                "updated_at": datetime.utcnow().isoformat()
-            }
+        return SearchResult(
+            id=url.split("/")[-1] if url else doi or title,
+            title=title,
+            abstract=abstract,
+            source="openalex",
+            authors=[a for a in authors if a],
+            year=work.get("publication_year"),
+            doi=doi.replace("https://doi.org/", ""),
+            url=url or f"https://openalex.org/{title[:50].replace(' ', '_')}",
+            relevance=float(relevance),
+            citations=citations,
+            keywords=keywords,
+            metadata=metadata,
         )
 
-    @log_operation("get_search_status")
-    async def get_search_status(self, search_id: str) -> Dict:
-        """Get current status of a search operation."""
-        if search_id not in self.active_searches:
-            return {"error": "Search not found"}
-
-        search = self.active_searches[search_id]
-        return {
-            "status": search["status"],
-            "query": search["query"],
-            "result_count": len(search.get("results", [])),
-            "started_at": search["started_at"],
-            "error": search.get("error")
+    def _result_to_payload(
+        self,
+        result: SearchResult,
+        include_metadata: bool,
+        include_abstracts: bool,
+        include_citations: bool,
+    ) -> Dict[str, Any]:
+        payload = {
+            "id": result.id,
+            "title": result.title,
+            "source": result.source,
+            "authors": result.authors,
+            "year": result.year,
+            "doi": result.doi,
+            "url": result.url,
+            "keywords": result.keywords,
+            "relevance": result.relevance,
         }
+        if include_abstracts:
+            payload["abstract"] = result.abstract
+        if include_citations:
+            payload["citations_count"] = result.citations
+        if include_metadata:
+            payload["metadata"] = result.metadata
+        return payload
 
-    async def cleanup(self):
-        """Cleanup search engine resources."""
-        try:
-            # Close Redis connection
-            await self.redis_client.close()
-            
-            # Clear search cache
-            self.active_searches.clear()
-            
-            # Clear vector store
-            self.vector_store = None
-            
-        except Exception as e:
-            logger.error(f"Error during cleanup: {str(e)}")
-    
-    # Add to src/services/search_service/search_engine.py
+    def _extract_openalex_abstract(self, work: Dict[str, Any]) -> str:
+        inverted = work.get("abstract_inverted_index")
+        if isinstance(inverted, dict) and inverted:
+            # Convert inverted index back to human-readable abstract
+            index_map: Dict[int, str] = {}
+            for token, positions in inverted.items():
+                for position in positions:
+                    index_map[position] = token
+            abstract_tokens = [token for _, token in sorted(index_map.items())]
+            return " ".join(abstract_tokens)
+        return work.get("abstract", "") or ""
 
-    async def web_search(self, query: str, num_results: int = 5) -> List[Dict]:
-        """Perform web search to complement academic searches"""
-        #logger.info(f"Performing web search for: {query}")
-        
-        api_key = os.environ.get("GOOGLE_SEARCH_API_KEY")
-        engine_id = os.environ.get("GOOGLE_SEARCH_ENGINE_ID")
-        
-        if not api_key or not engine_id:
-            logger.warning("Google Search API key or engine ID not configured")
-            return []
-        
-        base_url = "https://www.googleapis.com/customsearch/v1"
-        params = {
-            "key": api_key,
-            "cx": engine_id,
-            "q": query,
-            "num": min(num_results, 10)  # Google CSE limits to 10 per call
-        }
-        
+    def _safe_int(self, value: Any) -> Optional[int]:
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(base_url, params=params) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Web search error: {response.status} - {error_text}")
-                        return []
-                    
-                    data = await response.json()
-                    
-                    results = []
-                    if "items" in data:
-                        for item in data["items"]:
-                            results.append({
-                                "title": item.get("title", ""),
-                                "url": item.get("link", ""),
-                                "snippet": item.get("snippet", ""),
-                                "date": item.get("pagemap", {}).get("metatags", [{}])[0].get("article:published_time", ""),
-                                "source": "web_search"
-                            })
-                    
-                    #logger.info(f"Web search found {len(results)} results for: {query}")
-                    return results
-                    
-        except Exception as e:
-            logger.error(f"Error in web search: {str(e)}")
-            return []
-
-    async def fetch_content(self, url: str) -> Optional[str]:
-        """Fetch and extract content from a web page"""
-        #logger.info(f"Fetching content from: {url}")
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=10) as response:
-                    if response.status != 200:
-                        logger.warning(f"Failed to fetch URL {url}: {response.status}")
-                        return None
-                    
-                    html = await response.text()
-                    
-                    # Basic extraction - in a real implementation, use a proper
-                    # HTML parser like BeautifulSoup, Trafilatura, etc.
-                    # This is just a simple placeholder
-                    import re
-                    no_script = re.sub(r'<script\b[^<]*(?:(?!</script>)<[^<]*)*</script>', '', html)
-                    no_style = re.sub(r'<style\b[^<]*(?:(?!</style>)<[^<]*)*</style>', '', no_script)
-                    no_tags = re.sub(r'<[^>]+>', ' ', no_style)
-                    cleaned = re.sub(r'\s+', ' ', no_tags).strip()
-                    
-                    return cleaned[:5000]  # Limit to 5000 chars
-                    
-        except Exception as e:
-            logger.error(f"Error fetching content from {url}: {str(e)}")
+            return int(value)
+        except Exception:
             return None
-    
+
+    def _quick_keywords(self, text: str, limit: int = 5) -> List[str]:
+        import re
+        from collections import Counter
+
+        if not text:
+            return []
+
+        words = re.findall(r"[a-zA-Z]{3,}", text.lower())
+        stop_words = {
+            "the",
+            "and",
+            "for",
+            "with",
+            "from",
+            "that",
+            "have",
+            "this",
+            "were",
+            "also",
+            "into",
+            "which",
+            "their",
+            "between",
+            "within",
+        }
+        filtered = [word for word in words if word not in stop_words]
+        most_common = Counter(filtered).most_common(limit)
+        return [word for word, _ in most_common]
+
+
+__all__ = ["SearchEngine"]

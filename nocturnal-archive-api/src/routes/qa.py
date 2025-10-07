@@ -78,7 +78,7 @@ def filings_qa(request: QARequest, req: Request, _=Depends(rate_limit), __=Depen
 
 class BatchQAIn(BaseModel):
     """Batch Q&A request"""
-    items: List[QARequest] = Field(min_items=1, max_items=10, description="List of Q&A requests")
+    items: List[QARequest] = Field(min_length=1, max_length=10, description="List of Q&A requests")
 
 
 class BatchQAOut(BaseModel):

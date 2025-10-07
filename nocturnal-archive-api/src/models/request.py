@@ -3,7 +3,7 @@ Request models
 """
 
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class SearchFilters(BaseModel):
@@ -23,8 +23,9 @@ class SearchRequest(BaseModel):
     sources: List[str] = Field(["openalex"], description="Data sources to search")
     filters: Optional[SearchFilters] = Field(None, description="Search filters")
     
-    @validator('sources')
-    def validate_sources(cls, v):
+    @field_validator('sources')
+    @classmethod
+    def validate_sources(cls, v: List[str]) -> List[str]:
         valid_sources = ['openalex', 'pubmed', 'arxiv']
         for source in v:
             if source not in valid_sources:
@@ -41,12 +42,13 @@ class FormatOptions(BaseModel):
 
 class FormatRequest(BaseModel):
     """Format request model"""
-    paper_ids: List[str] = Field(..., min_items=1, max_items=50, description="List of paper IDs to format")
+    paper_ids: List[str] = Field(..., min_length=1, max_length=50, description="List of paper IDs to format")
     style: str = Field(..., description="Citation style")
     options: Optional[FormatOptions] = Field(None, description="Formatting options")
     
-    @validator('style')
-    def validate_style(cls, v):
+    @field_validator('style')
+    @classmethod
+    def validate_style(cls, v: str) -> str:
         valid_styles = ['bibtex', 'apa', 'mla', 'chicago', 'harvard']
         if v not in valid_styles:
             raise ValueError(f"Invalid style: {v}. Must be one of {valid_styles}")
@@ -55,7 +57,7 @@ class FormatRequest(BaseModel):
 
 class SynthesizeRequest(BaseModel):
     """Synthesize request model"""
-    paper_ids: List[str] = Field(..., min_items=1, max_items=20, description="List of paper IDs to synthesize")
+    paper_ids: List[str] = Field(..., min_length=1, max_length=20, description="List of paper IDs to synthesize")
     max_words: int = Field(300, ge=100, le=2000, description="Maximum word count for synthesis")
     focus: str = Field("key_findings", description="Focus area for synthesis")
     style: str = Field("academic", description="Writing style")
@@ -63,22 +65,25 @@ class SynthesizeRequest(BaseModel):
     papers: Optional[List[Dict[str, Any]]] = Field(None, description="Optional: full paper objects including abstracts")
     original_query: Optional[str] = Field(None, description="Optional: original user query to assess relevance of synthesis")
     
-    @validator('focus')
-    def validate_focus(cls, v):
+    @field_validator('focus')
+    @classmethod
+    def validate_focus(cls, v: str) -> str:
         valid_focuses = ['key_findings', 'comprehensive', 'methodology', 'results', 'discussion']
         if v not in valid_focuses:
             raise ValueError(f"Invalid focus: {v}. Must be one of {valid_focuses}")
         return v
     
-    @validator('style')
-    def validate_style(cls, v):
+    @field_validator('style')
+    @classmethod
+    def validate_style(cls, v: str) -> str:
         valid_styles = ['academic', 'technical', 'accessible', 'concise']
         if v not in valid_styles:
             raise ValueError(f"Invalid style: {v}. Must be one of {valid_styles}")
         return v
 
-    @validator('papers')
-    def validate_papers(cls, v):
+    @field_validator('papers')
+    @classmethod
+    def validate_papers(cls, v: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
         if v is None:
             return v
         for p in v:

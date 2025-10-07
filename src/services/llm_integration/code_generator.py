@@ -6,9 +6,13 @@ import asyncio
 import logging
 import re
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 class CodeGenerator:
     """Real AI-powered code generation."""
@@ -40,7 +44,7 @@ class CodeGenerator:
                     "code_type": code_type,
                     "description": description,
                     "generation_method": "real_llm",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _utc_timestamp()
                 }
             
             # Fallback to template-based generation
@@ -57,7 +61,7 @@ class CodeGenerator:
                 "code": code,
                 "code_type": code_type,
                 "description": description,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
             
         except Exception as e:
@@ -65,7 +69,7 @@ class CodeGenerator:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
     
     def _analyze_code_requirements(self, description: str) -> str:

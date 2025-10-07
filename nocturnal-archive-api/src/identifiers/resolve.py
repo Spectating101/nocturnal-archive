@@ -1,329 +1,171 @@
-"""
-Identifier resolution service
-Maps between different financial identifiers (ticker, ISIN, CIK, FIGI)
-"""
+"""Robust ticker/CIK resolution backed by local SEC symbol datasets."""
+from __future__ import annotations
 
 import asyncio
-import aiohttp
-import structlog
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
 import json
+import threading
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, Optional
+
+import pandas as pd
+import structlog
+
+from src.core.paths import DATA_DIR
+from src.jobs import symbol_map
 
 logger = structlog.get_logger(__name__)
 
-@dataclass
-class IdentifierMapping:
-    """Represents a mapping between different identifiers"""
-    ticker: Optional[str] = None
-    cik: Optional[str] = None
-    isin: Optional[str] = None
-    cusip: Optional[str] = None
-    figi: Optional[str] = None
-    company_name: Optional[str] = None
+_SYMBOL_CACHE_LOCK = threading.RLock()
+_SYMBOL_CACHE: Dict[str, "TickerMapping"] = {}
+_CIK_CACHE: Dict[str, "TickerMapping"] = {}
+_CACHE_PRIMED = False
+
+
+@dataclass(slots=True)
+class TickerMapping:
+    """Normalized mapping entry for a listed security."""
+
+    ticker: str
+    cik: str
+    company_name: str
     exchange: Optional[str] = None
-    country: Optional[str] = None
+    sic: Optional[str] = None
+    metadata: Dict[str, str] = field(default_factory=dict)
 
-class IdentifierResolver:
-    """Service for resolving financial identifiers"""
-    
-    def __init__(self):
-        self.session: Optional[aiohttp.ClientSession] = None
-        self.cik_cache: Dict[str, IdentifierMapping] = {}
-        self.ticker_cache: Dict[str, IdentifierMapping] = {}
-        
-    async def __aenter__(self):
-        """Async context manager entry"""
-        self.session = aiohttp.ClientSession(
-            headers={
-                "Accept": "application/json",
-                "User-Agent": "Nocturnal Archive Research Tool (contact@nocturnal.dev)"
-            },
-            timeout=aiohttp.ClientTimeout(total=10)
-        )
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit"""
-        if self.session:
-            await self.session.close()
-    
-    async def resolve_ticker(self, ticker: str) -> Optional[IdentifierMapping]:
-        """
-        Resolve ticker symbol to other identifiers
-        
-        Args:
-            ticker: Ticker symbol (e.g., "AAPL")
-            
-        Returns:
-            IdentifierMapping with all available identifiers
-        """
-        if not self.session:
-            raise RuntimeError("IdentifierResolver must be used as async context manager")
-        
-        ticker = ticker.upper()
-        
-        # Check cache first
-        if ticker in self.ticker_cache:
-            return self.ticker_cache[ticker]
-        
-        try:
-            logger.info("Resolving ticker", ticker=ticker)
-            
-            # Try SEC ticker mapping first
-            mapping = await self._resolve_sec_ticker(ticker)
-            if mapping:
-                self.ticker_cache[ticker] = mapping
-                return mapping
-            
-            # Try OpenFIGI as fallback
-            mapping = await self._resolve_openfigi_ticker(ticker)
-            if mapping:
-                self.ticker_cache[ticker] = mapping
-                return mapping
-            
-            logger.warning("Could not resolve ticker", ticker=ticker)
-            return None
-            
-        except Exception as e:
-            logger.error("Ticker resolution failed", ticker=ticker, error=str(e))
-            return None
-    
-    async def resolve_cik(self, cik: str) -> Optional[IdentifierMapping]:
-        """
-        Resolve CIK to other identifiers
-        
-        Args:
-            cik: Company CIK number
-            
-        Returns:
-            IdentifierMapping with all available identifiers
-        """
-        if not self.session:
-            raise RuntimeError("IdentifierResolver must be used as async context manager")
-        
-        cik = str(cik).zfill(10)  # Pad to 10 digits
-        
-        # Check cache first
-        if cik in self.cik_cache:
-            return self.cik_cache[cik]
-        
-        try:
-            logger.info("Resolving CIK", cik=cik)
-            
-            # Try SEC ticker mapping first
-            mapping = await self._resolve_sec_cik(cik)
-            if mapping:
-                self.cik_cache[cik] = mapping
-                return mapping
-            
-            logger.warning("Could not resolve CIK", cik=cik)
-            return None
-            
-        except Exception as e:
-            logger.error("CIK resolution failed", cik=cik, error=str(e))
-            return None
-    
-    async def resolve_isin(self, isin: str) -> Optional[IdentifierMapping]:
-        """
-        Resolve ISIN to other identifiers
-        
-        Args:
-            isin: ISIN identifier
-            
-        Returns:
-            IdentifierMapping with all available identifiers
-        """
-        if not self.session:
-            raise RuntimeError("IdentifierResolver must be used as async context manager")
-        
-        try:
-            logger.info("Resolving ISIN", isin=isin)
-            
-            # Use OpenFIGI for ISIN resolution
-            mapping = await self._resolve_openfigi_isin(isin)
-            if mapping:
-                return mapping
-            
-            logger.warning("Could not resolve ISIN", isin=isin)
-            return None
-            
-        except Exception as e:
-            logger.error("ISIN resolution failed", isin=isin, error=str(e))
-            return None
-    
-    async def _resolve_sec_ticker(self, ticker: str) -> Optional[IdentifierMapping]:
-        """Resolve ticker using SEC ticker mapping"""
-        try:
-            url = "https://www.sec.gov/files/company_tickers.json"
-            
-            async with self.session.get(url) as response:
-                if response.status != 200:
-                    return None
-                
-                data = await response.json()
-            
-            # Search for ticker in SEC data
-            for entry in data.values():
-                if entry.get("ticker", "").upper() == ticker.upper():
-                    cik = str(entry.get("cik_str", "")).zfill(10)
-                    company_name = entry.get("title", "")
-                    
-                    mapping = IdentifierMapping(
-                        ticker=ticker.upper(),
-                        cik=cik,
-                        company_name=company_name
-                    )
-                    
-                    logger.info("Resolved via SEC", ticker=ticker, cik=cik, company=company_name)
-                    return mapping
-            
-            return None
-            
-        except Exception as e:
-            logger.error("SEC ticker resolution failed", ticker=ticker, error=str(e))
-            return None
-    
-    async def _resolve_sec_cik(self, cik: str) -> Optional[IdentifierMapping]:
-        """Resolve CIK using SEC ticker mapping"""
-        try:
-            url = "https://www.sec.gov/files/company_tickers.json"
-            
-            async with self.session.get(url) as response:
-                if response.status != 200:
-                    return None
-                
-                data = await response.json()
-            
-            # Search for CIK in SEC data
-            for entry in data.values():
-                entry_cik = str(entry.get("cik_str", "")).zfill(10)
-                if entry_cik == cik:
-                    ticker = entry.get("ticker", "")
-                    company_name = entry.get("title", "")
-                    
-                    mapping = IdentifierMapping(
-                        ticker=ticker.upper() if ticker else None,
-                        cik=cik,
-                        company_name=company_name
-                    )
-                    
-                    logger.info("Resolved via SEC", cik=cik, ticker=ticker, company=company_name)
-                    return mapping
-            
-            return None
-            
-        except Exception as e:
-            logger.error("SEC CIK resolution failed", cik=cik, error=str(e))
-            return None
-    
-    async def _resolve_openfigi_ticker(self, ticker: str) -> Optional[IdentifierMapping]:
-        """Resolve ticker using OpenFIGI API"""
-        try:
-            url = "https://api.openfigi.com/v3/mapping"
-            
-            payload = [{
-                "idType": "TICKER",
-                "idValue": ticker
-            }]
-            
-            async with self.session.post(url, json=payload) as response:
-                if response.status != 200:
-                    return None
-                
-                data = await response.json()
-            
-            if not data or not data[0].get("data"):
-                return None
-            
-            # Get first result
-            result = data[0]["data"][0]
-            
-            mapping = IdentifierMapping(
-                ticker=ticker.upper(),
-                figi=result.get("figi"),
-                isin=result.get("isin"),
-                cusip=result.get("cusip"),
-                company_name=result.get("name"),
-                exchange=result.get("exchCode"),
-                country=result.get("countryCode")
-            )
-            
-            logger.info("Resolved via OpenFIGI", ticker=ticker, figi=result.get("figi"))
+
+async def resolve_ticker(ticker: str, *, force_refresh: bool = False) -> Optional[TickerMapping]:
+    """Resolve a ticker symbol to its CIK and metadata.
+
+    The resolver prefers the cached parquet/JSON symbol map written by
+    :mod:`src.jobs.symbol_map`. If the cache is missing or stale it will refresh
+    in the background using the existing job helpers. This keeps the runtime
+    dependency graph small—no direct HTTP calls here—and lets us serve lookups
+    even when offline (using the bundled `data/company_tickers.json`).
+    """
+
+    ticker = (ticker or "").strip().upper()
+    if not ticker:
+        return None
+
+    await _ensure_cache(force_refresh=force_refresh)
+
+    with _SYMBOL_CACHE_LOCK:
+        mapping = _SYMBOL_CACHE.get(ticker)
+        if mapping:
             return mapping
-            
-        except Exception as e:
-            logger.error("OpenFIGI ticker resolution failed", ticker=ticker, error=str(e))
-            return None
-    
-    async def _resolve_openfigi_isin(self, isin: str) -> Optional[IdentifierMapping]:
-        """Resolve ISIN using OpenFIGI API"""
-        try:
-            url = "https://api.openfigi.com/v3/mapping"
-            
-            payload = [{
-                "idType": "ID_ISIN",
-                "idValue": isin
-            }]
-            
-            async with self.session.post(url, json=payload) as response:
-                if response.status != 200:
-                    return None
-                
-                data = await response.json()
-            
-            if not data or not data[0].get("data"):
-                return None
-            
-            # Get first result
-            result = data[0]["data"][0]
-            
-            mapping = IdentifierMapping(
-                isin=isin,
-                figi=result.get("figi"),
-                ticker=result.get("ticker"),
-                cusip=result.get("cusip"),
-                company_name=result.get("name"),
-                exchange=result.get("exchCode"),
-                country=result.get("countryCode")
-            )
-            
-            logger.info("Resolved via OpenFIGI", isin=isin, figi=result.get("figi"))
+
+    # Cache miss: try a targeted refresh just for this ticker to keep latency low
+    logger.info("Ticker cache miss", ticker=ticker)
+    await _refresh_cache()
+
+    with _SYMBOL_CACHE_LOCK:
+        return _SYMBOL_CACHE.get(ticker)
+
+
+async def resolve_cik(cik: str, *, force_refresh: bool = False) -> Optional[TickerMapping]:
+    """Resolve a CIK to its ticker mapping."""
+
+    cik = (cik or "").strip().lstrip("0")
+    if not cik:
+        return None
+
+    await _ensure_cache(force_refresh=force_refresh)
+
+    with _SYMBOL_CACHE_LOCK:
+        mapping = _CIK_CACHE.get(cik)
+        if mapping:
             return mapping
-            
-        except Exception as e:
-            logger.error("OpenFIGI ISIN resolution failed", isin=isin, error=str(e))
-            return None
-    
-    def get_cached_mapping(self, identifier: str, id_type: str = "ticker") -> Optional[IdentifierMapping]:
-        """Get cached mapping without API call"""
-        if id_type == "ticker":
-            return self.ticker_cache.get(identifier.upper())
-        elif id_type == "cik":
-            cik = str(identifier).zfill(10)
-            return self.cik_cache.get(cik)
+
+    logger.info("CIK cache miss", cik=cik)
+    await _refresh_cache()
+
+    with _SYMBOL_CACHE_LOCK:
+        return _CIK_CACHE.get(cik)
+
+
+def clear_identifier_cache() -> None:
+    """Reset in-process caches (useful for tests)."""
+
+    global _CACHE_PRIMED
+    with _SYMBOL_CACHE_LOCK:
+        _SYMBOL_CACHE.clear()
+        _CIK_CACHE.clear()
+        _CACHE_PRIMED = False
+
+
+async def _ensure_cache(*, force_refresh: bool = False) -> None:
+    global _CACHE_PRIMED
+    if force_refresh or not _CACHE_PRIMED:
+        await _refresh_cache(force_refresh=force_refresh)
+
+
+async def _refresh_cache(*, force_refresh: bool = False) -> None:
+    """Refresh caches using symbol_map job helpers."""
+
+    def _load_dataframe() -> pd.DataFrame:
+        # Try fast path via job helper (handles parquet/JSON refresh logic)
+        return symbol_map.load_symbol_map(force_refresh=force_refresh)
+
+    df = await asyncio.to_thread(_load_dataframe)
+
+    if df.empty:
+        # Offline fallback: load bundled company_tickers JSON if pandas DF empty
+        fallback_path = DATA_DIR / "company_tickers.json"
+        if fallback_path.exists():
+            with fallback_path.open("r") as handle:
+                raw = json.load(handle)
+            rows = [
+                {
+                    "cik": str(entry.get("cik_str", "")).strip(),
+                    "ticker": str(entry.get("ticker", "")).strip().upper(),
+                    "title": entry.get("title", ""),
+                }
+                for entry in raw.values() if isinstance(entry, dict)
+            ]
+            df = pd.DataFrame(rows)
         else:
-            return None
-    
-    def clear_cache(self):
-        """Clear all cached mappings"""
-        self.ticker_cache.clear()
-        self.cik_cache.clear()
-        logger.info("Identifier cache cleared")
+            logger.warning("No symbol datasets available; identifier cache remains empty")
+            return
 
-# Convenience functions
-async def resolve_ticker(ticker: str) -> Optional[IdentifierMapping]:
-    """Resolve ticker symbol to other identifiers"""
-    async with IdentifierResolver() as resolver:
-        return await resolver.resolve_ticker(ticker)
+    # Normalize and repopulate caches
+    df = df.dropna(subset=["ticker", "cik"]).drop_duplicates(subset=["ticker"])
+    df["ticker"] = df["ticker"].str.upper()
+    df["cik"] = df["cik"].astype(str).str.zfill(10)
 
-async def resolve_cik(cik: str) -> Optional[IdentifierMapping]:
-    """Resolve CIK to other identifiers"""
-    async with IdentifierResolver() as resolver:
-        return await resolver.resolve_cik(cik)
+    local_symbol_cache: Dict[str, TickerMapping] = {}
+    local_cik_cache: Dict[str, TickerMapping] = {}
 
-async def resolve_isin(isin: str) -> Optional[IdentifierMapping]:
-    """Resolve ISIN to other identifiers"""
-    async with IdentifierResolver() as resolver:
-        return await resolver.resolve_isin(isin)
+    for _, row in df.iterrows():
+        mapping = TickerMapping(
+            ticker=row["ticker"],
+            cik=row["cik"],
+            company_name=row.get("title", ""),
+            exchange=row.get("exchange"),
+            sic=row.get("sic"),
+            metadata={
+                key: str(value)
+                for key in ("sic_description", "fye", "entity_type")
+                if (value := row.get(key)) is not None and not pd.isna(value)
+            },
+        )
+        local_symbol_cache[mapping.ticker] = mapping
+        local_cik_cache[mapping.cik] = mapping
+        local_cik_cache[mapping.cik.lstrip("0")] = mapping
 
+    with _SYMBOL_CACHE_LOCK:
+        _SYMBOL_CACHE.clear()
+        _SYMBOL_CACHE.update(local_symbol_cache)
+
+        _CIK_CACHE.clear()
+        _CIK_CACHE.update(local_cik_cache)
+
+        global _CACHE_PRIMED
+        _CACHE_PRIMED = True
+
+    logger.info(
+        "Identifier cache primed",
+        tickers=len(_SYMBOL_CACHE),
+        ciks=len(_CIK_CACHE),
+        force_refresh=force_refresh,
+    )

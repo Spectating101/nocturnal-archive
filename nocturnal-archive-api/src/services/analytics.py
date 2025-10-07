@@ -6,7 +6,7 @@ import structlog
 import asyncio
 import time
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict, Counter
 import json
 
@@ -25,7 +25,7 @@ class AnalyticsService:
             'api_usage': defaultdict(int),
             'performance': defaultdict(list)
         }
-        self.start_time = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
     
     def record_request(self, endpoint: str, method: str, user_id: Optional[str] = None):
         """Record API request"""
@@ -101,7 +101,7 @@ class AnalyticsService:
             }
         
         # Calculate uptime
-        uptime_seconds = (datetime.utcnow() - self.start_time).total_seconds()
+        uptime_seconds = (datetime.now(timezone.utc) - self.start_time).total_seconds()
         uptime_hours = uptime_seconds / 3600
         
         return {
@@ -110,7 +110,7 @@ class AnalyticsService:
                 'total_requests': total_requests,
                 'total_errors': sum(self.metrics['errors'].values()),
                 'active_users': len(self.metrics['user_activity']),
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             },
             'response_times': avg_response_times,
             'error_rates': error_rates,
@@ -144,7 +144,7 @@ class AnalyticsService:
         """Get real-time metrics for monitoring"""
         
         # Get current minute metrics
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         minute_ago = current_time - timedelta(minutes=1)
         
         # This would typically query a time-series database

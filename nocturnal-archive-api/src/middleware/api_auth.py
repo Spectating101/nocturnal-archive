@@ -28,7 +28,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 "burst_limit": 20,
                 "created_at": time.time(),
                 "active": True,
-                "permissions": {"research", "finance:read"}
+                "permissions": {"research", "finance:read", "finance:write"}
             },
             "pro-key-456": {
                 "owner": "pro-user",

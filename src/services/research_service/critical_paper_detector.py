@@ -5,11 +5,15 @@ import re
 import math
 from typing import List, Dict, Any, Set, Optional
 from collections import Counter
-import networkx as nx
-from datetime import datetime
+import networkx as nx  # type: ignore[import]
+from datetime import datetime, timezone
 
 # Configure structured logging
 logger = logging.getLogger(__name__)
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 class CriticalPaperDetector:
     """
@@ -201,7 +205,7 @@ class CriticalPaperDetector:
                             "title": self._sanitize_text(paper_data.get("title", "Unknown"), max_length=200),
                             "score": round(score, 2),
                             "factors": self._get_factor_breakdown(paper_data, score),
-                            "analyzed_at": datetime.utcnow().isoformat()
+                            "analyzed_at": _utc_timestamp()
                         })
                 except Exception as e:
                     logger.warning(f"Error formatting result for paper {paper_id}: {str(e)}")
@@ -490,7 +494,7 @@ class CriticalPaperDetector:
             
             # Add metadata
             factors["total_score"] = round(total_score, 2)
-            factors["calculated_at"] = datetime.utcnow().isoformat()
+            factors["calculated_at"] = _utc_timestamp()
             
             return factors
             
@@ -511,7 +515,7 @@ class CriticalPaperDetector:
         try:
             health_status = {
                 "status": "healthy",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": _utc_timestamp(),
                 "components": {}
             }
             
@@ -548,7 +552,7 @@ class CriticalPaperDetector:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
     
     def get_stats(self) -> Dict[str, Any]:

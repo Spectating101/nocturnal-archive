@@ -24,21 +24,23 @@ def read_requirements():
             "aiohttp>=3.9.0",
             "groq>=0.4.0", 
             "python-dotenv>=1.0.0",
-            "pydantic>=2.5.0"
+            "pydantic>=2.5.0",
+            "rich>=13.7.0",
+            "keyring>=24.3.0",
         ]
 
 setup(
     name="nocturnal-archive",
-    version="1.0.0",
+    version="0.9.0b1",
     author="Nocturnal Archive Team",
     author_email="contact@nocturnal.dev",
-    description="Production-ready AI Research Assistant with real data integration",
+    description="Beta release of the Nocturnal Archive CLI agent with finance and research workflows",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
     url="https://github.com/Spectating101/nocturnal-archive",
     packages=find_packages(),
     classifiers=[
-        "Development Status :: 5 - Production/Stable",
+        "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
         "Intended Audience :: Science/Research",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -82,6 +84,7 @@ setup(
             "*.py",
             "*.txt",
             "*.md",
+            "*.json",
         ],
     },
     keywords=[

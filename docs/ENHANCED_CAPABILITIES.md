@@ -29,6 +29,7 @@ Nocturnal Archive has been significantly enhanced with advanced AI reasoning cap
 - **Content analysis**: Automatic file type detection and analysis
 - **Security validation**: Prevents access to sensitive system files
 - **Pattern matching**: Advanced file search capabilities
+- **Workspace API**: REST endpoints documented in [`FILES_API.md`](./FILES_API.md) for listing, upload, preview, and delete workflows
 
 ## 🔧 Technical Architecture
 

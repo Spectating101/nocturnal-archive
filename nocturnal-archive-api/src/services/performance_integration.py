@@ -5,7 +5,7 @@ Performance integration service - bridges FastAPI with Rust performance layer
 import asyncio
 import structlog
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Import the performance service from the main research engine
 import sys
@@ -19,7 +19,7 @@ except ImportError:
     RUST_AVAILABLE = False
     # Define fallback classes
     from dataclasses import dataclass
-    from datetime import datetime
+    from datetime import datetime, timezone
     from typing import Dict, List
     
     @dataclass
@@ -150,7 +150,7 @@ class PerformanceIntegration:
                         'total_papers': len(papers),
                         'processed_abstracts': len(processed_texts),
                         'common_keywords': top_keywords,
-                        'processing_timestamp': datetime.utcnow().isoformat()
+                        'processing_timestamp': datetime.now(timezone.utc).isoformat()
                     }
                 }
             
@@ -169,7 +169,7 @@ class PerformanceIntegration:
                 'total_papers': len(papers),
                 'processed_abstracts': 0,
                 'common_keywords': [],
-                'processing_timestamp': datetime.utcnow().isoformat()
+                'processing_timestamp': datetime.now(timezone.utc).isoformat()
             }
         }
     
@@ -238,7 +238,7 @@ class PerformanceIntegration:
             if not all_texts:
                 return {'insights': {}, 'processing_time': 0}
             
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
             
             # Process all texts in batch
             processed_texts = await self.performance_service.process_text_batch(all_texts)
@@ -257,7 +257,7 @@ class PerformanceIntegration:
             top_keywords = [{'word': word, 'frequency': count} for word, count in keyword_freq.most_common(30)]
             
             # Calculate processing time
-            processing_time = (datetime.utcnow() - start_time).total_seconds()
+            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             
             return {
                 'insights': {
@@ -266,7 +266,7 @@ class PerformanceIntegration:
                     'unique_keywords': len(set(all_keywords)),
                     'top_keywords': top_keywords,
                     'average_chunk_size': sum(len(chunk) for chunk in all_chunks) / len(all_chunks) if all_chunks else 0,
-                    'processing_timestamp': datetime.utcnow().isoformat()
+                    'processing_timestamp': datetime.now(timezone.utc).isoformat()
                 },
                 'processing_time': processing_time
             }

@@ -7,7 +7,7 @@ import structlog
 import aiohttp
 import yfinance as yf
 from typing import Dict, Any, Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 
 logger = structlog.get_logger(__name__)
@@ -118,7 +118,7 @@ class YahooFinanceAdapter:
                 "exchange": info.get('exchange'),
                 "market_state": info.get('marketState', 'CLOSED'),
                 "source": "Yahoo Finance",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
             # Build citation
@@ -181,7 +181,7 @@ class YahooFinanceAdapter:
                 "cash": financial_data.get("Cash"),
                 "debt": financial_data.get("Total Debt"),
                 "source": "Yahoo Finance",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
             # Build citation
@@ -232,7 +232,7 @@ class YahooFinanceAdapter:
                 "data_points": len(hist_data),
                 "data": hist_data,
                 "source": "Yahoo Finance",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
             # Build citation

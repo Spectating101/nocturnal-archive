@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import uuid
@@ -75,7 +75,7 @@ class CodeExecutionTool:
                 return {
                     "status": "error",
                     "error": f"Security violation: {security_check['reason']}",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
             
             # Execute the code
@@ -86,7 +86,7 @@ class CodeExecutionTool:
                 "result": result,
                 "language": language,
                 "code_executed": code,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
         except Exception as e:
@@ -94,7 +94,7 @@ class CodeExecutionTool:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
     
     async def _generate_code_from_task(self, task_description: str, language: str) -> str:

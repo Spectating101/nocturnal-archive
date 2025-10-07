@@ -1,524 +1,186 @@
-"""
-Enhanced Synthesis Service with Capability-Aware Groq Model Routing
-Production-ready implementation with caching, error handling, and smart model selection
-"""
+"""Fallback synthesizer used when the sophisticated engine is unavailable."""
+
+from __future__ import annotations
 
 import asyncio
-import structlog
-from typing import List, Dict, Any, Optional
-from datetime import datetime
-import json
-import os
+import math
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, List, Optional
 
-from src.config.settings import get_settings
-from src.utils.resiliency import cache
-from src.utils.error_handling import create_problem_response
-from src.services.groq_router import GroqModelRouter, TaskComplexity
-
-logger = structlog.get_logger(__name__)
 
 class Synthesizer:
-    """Production-ready synthesis with real LLM integration"""
-    
-    def __init__(self):
-        self.settings = get_settings()
-        self.groq_router = None
-        self._init_groq_router()
-        
-    def _init_groq_router(self):
-        """Initialize Groq model router with proper error handling"""
-        try:
-            # Unify API key loading via settings (avoid per-request env reads)
-            api_key = (self.settings.groq_api_key
-                       if getattr(self.settings, 'groq_api_key', None)
-                       else os.getenv("GROQ_API_KEY"))
-            if api_key:
-                # Initialize router (will be async)
-                self.groq_router = GroqModelRouter(api_key)
-                logger.info("Groq model router initialized successfully")
-            else:
-                logger.warning("No Groq API key found - synthesis will use fallback")
-                
-        except ImportError:
-            logger.warning("Groq library not available - synthesis will use fallback")
-        except Exception as e:
-            logger.error(f"Failed to initialize Groq router: {e}")
-    
-    @cache(ttl=7200, source_version="synthesis")  # 2 hour cache
+    """Heuristic research synthesizer used as a safe fallback path."""
+
+    def __init__(self) -> None:
+        self._cache: Dict[str, Dict[str, Any]] = {}
+        self._lock = asyncio.Lock()
+
     async def synthesize_papers(
-        self, 
-        paper_ids: List[str], 
-        max_words: int = 500,
-        focus: str = "key_findings",
+        self,
+        *,
+        paper_ids: Iterable[str],
+        max_words: int = 300,
+        focus: Optional[str] = None,
         style: str = "academic",
-        papers: Optional[List[Dict[str, Any]]] = None
+        papers: Optional[List[Dict[str, Any]]] = None,
+        original_query: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Synthesize papers with real LLM integration"""
-        
-        try:
-            # Get paper details (this would integrate with your paper service)
-            paper_details = papers if papers else await self._get_paper_details(paper_ids)
-            
-            if not paper_details:
-                return {
-                    "error": "No papers found for the provided IDs",
-                    "summary": "",
-                    "key_findings": [],
-                    "citations_used": {},
-                    "word_count": 0
-                }
-            
-            # Prepare synthesis prompt
-            synthesis_prompt = self._build_synthesis_prompt(paper_details, max_words, focus, style)
-            
-            # Use capability-aware LLM routing for synthesis
-            if self.groq_router:
-                synthesis_result = await self._routed_synthesize(
-                    synthesis_prompt, 
-                    max_words, 
-                    len(paper_details),
-                    strict_mode=False
-                )
-            else:
-                synthesis_result = self._fallback_synthesize(paper_details, focus)
+        normalized = self._normalise_papers(list(paper_ids), papers or [])
+        cache_key = self._cache_key(normalized, max_words, focus, style)
 
-            # Normalize unexpected types
-            if not isinstance(synthesis_result, dict):
-                synthesis_result = {
-                    "summary": str(synthesis_result),
-                    "key_findings": [],
-                    "citations_used": {},
-                    "word_count": len(str(synthesis_result).split())
-                }
-            
-            # Format response
-            return {
-                "summary": synthesis_result.get("summary", ""),
-                "key_findings": list(synthesis_result.get("key_findings", []) or []),
-                "citations_used": dict(synthesis_result.get("citations_used", {}) or {}),
-                "word_count": int(synthesis_result.get("word_count", 0) or 0),
-                "papers_synthesized": len(paper_details),
-                "routing_metadata": synthesis_result.get("routing_metadata", {}),
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Synthesis failed: {e}")
-            return {
-                "error": f"Synthesis failed: {str(e)}",
-                "summary": "",
-                "key_findings": [],
-                "citations_used": {},
-                "word_count": 0
-            }
-    
-    async def _get_paper_details(self, paper_ids: List[str]) -> List[Dict[str, Any]]:
-        """Get detailed information for papers via OpenAlex when possible; fallback to mock."""
-        try:
-            import aiohttp
-        except ImportError:
-            aiohttp = None
+        async with self._lock:
+            cached = self._cache.get(cache_key)
+            if cached:
+                cached["routing_metadata"]["cached"] = True
+                return dict(cached)
 
-        async def _openalex_abstract_to_text(inv_idx: Dict[str, list]) -> str:
-            if not isinstance(inv_idx, dict):
-                return str(inv_idx) if inv_idx is not None else ""
-            # Reconstruct abstract from inverted index
-            max_pos = 0
-            for word, positions in inv_idx.items():
-                if positions:
-                    max_pos = max(max_pos, max(positions))
-            words = [""] * (max_pos + 1)
-            for word, positions in inv_idx.items():
-                for pos in positions:
-                    if 0 <= pos < len(words):
-                        words[pos] = word
-            return " ".join(w for w in words if w)
+        summary = self._compose_summary(normalized, max_words, focus, style)
+        key_findings = self._extract_findings(normalized, max_items=5)
+        citations = self._build_citations(normalized)
+        confidence = self._estimate_confidence(normalized, key_findings, summary)
+        relevance = self._estimate_relevance(summary, original_query)
 
-        async def _fetch_openalex(ids: List[str]) -> List[Dict[str, Any]]:
-            if aiohttp is None:
-                return []
-            base = "https://api.openalex.org/works"
-            headers = {
-                "User-Agent": "Nocturnal-Archive/1.0 (contact@nocturnal.dev)",
-                "Accept": "application/json",
-            }
-            results: List[Dict[str, Any]] = []
-            timeout = aiohttp.ClientTimeout(total=20)
-            async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
-                for raw_id in ids:
-                    # Normalize ID
-                    openalex_id = str(raw_id)
-                    if "/works/" in openalex_id:
-                        openalex_id = openalex_id.split("/works/")[-1]
-                    if openalex_id.startswith("openalex:"):
-                        openalex_id = openalex_id.split(":", 1)[1]
-                    url = f"{base}/{openalex_id}"
-                    try:
-                        async with session.get(url) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                authors = []
-                                for a in data.get("authorships", []):
-                                    name = a.get("author", {}).get("display_name", "")
-                                    if name:
-                                        authors.append({"name": name})
-                                venue = data.get("primary_location", {}).get("source", {}).get("display_name", "")
-                                doi = data.get("doi", "")
-                                if doi and doi.startswith("https://doi.org/"):
-                                    doi = doi.replace("https://doi.org/", "")
-                                abstract_idx = data.get("abstract_inverted_index", {})
-                                abstract_txt = await _openalex_abstract_to_text(abstract_idx)
-                                results.append({
-                                    "id": data.get("id", "").split("/")[-1] or openalex_id,
-                                    "title": data.get("title", ""),
-                                    "authors": authors,
-                                    "year": data.get("publication_year"),
-                                    "doi": doi,
-                                    "abstract": abstract_txt,
-                                    "citations_count": data.get("cited_by_count", 0),
-                                    "open_access": data.get("open_access", {}).get("is_oa", False),
-                                    "pdf_url": data.get("open_access", {}).get("oa_url", ""),
-                                    "source": "openalex",
-                                    "venue": venue,
-                                    "keywords": [c.get("display_name", "") for c in data.get("concepts", [])[:5]],
-                                })
-                            else:
-                                continue
-                    except Exception:
-                        continue
-            return results
-
-        # Try fetching real details
-        real = await _fetch_openalex(paper_ids)
-        if real:
-            return real
-
-        # Fallback to minimal mock if nothing fetched
-        papers: List[Dict[str, Any]] = []
-        for i, paper_id in enumerate(paper_ids):
-            papers.append({
-                "id": paper_id,
-                "title": f"Paper {i+1}",
-                "authors": [{"name": f"Author {i+1}"}],
-                "abstract": "",
-                "year": 2024,
-                "venue": "",
-                "citations_count": 0
-            })
-        return papers
-    
-    def _build_synthesis_prompt(
-        self, 
-        papers: List[Dict], 
-        max_words: int, 
-        focus: str, 
-        style: str
-    ) -> str:
-        """Build synthesis prompt for LLM"""
-        
-        # Prepare paper summaries
-        paper_summaries = []
-        for i, paper in enumerate(papers, 1):
-            abstract = paper.get('abstract', 'No abstract available')
-            if isinstance(abstract, dict):
-                abstract = abstract.get('text', 'No abstract available')
-            summary = f"""
-Paper {i}: {paper.get('title', 'Untitled')}
-Authors: {', '.join([author.get('name', '') for author in paper.get('authors', [])])}
-Year: {paper.get('year', 'Unknown')}
-Abstract: {abstract}
-Citations: {paper.get('citations_count', 0)}
-"""
-            paper_summaries.append(summary)
-        
-        # Build the prompt
-        prompt = f"""
-You are a research synthesis expert. Please synthesize the following research papers into a comprehensive summary.
-
-Focus: {focus}
-Style: {style}
-Maximum words: {max_words}
-
-Papers to synthesize:
-{chr(10).join(paper_summaries)}
-
-Please provide:
-1. A comprehensive summary that synthesizes the key findings across all papers
-2. A list of 3-5 key findings with citations
-3. Ensure the response is well-structured and academically rigorous
-
-Format your response as JSON with the following structure:
-{{
-    "summary": "Your comprehensive synthesis here...",
-    "key_findings": [
-        "Finding 1 [1]",
-        "Finding 2 [2]",
-        "Finding 3 [1,2]"
-    ],
-    "citations_used": {{
-        "[1]": "paper_id_1",
-        "[2]": "paper_id_2"
-    }},
-    "word_count": 0
-}}
-"""
-        
-        return prompt
-    
-    async def _routed_synthesize(
-        self, 
-        prompt: str, 
-        max_words: int, 
-        paper_count: int,
-        strict_mode: bool = False
-    ) -> Dict[str, Any]:
-        """Use capability-aware model routing for synthesis"""
-        try:
-            def _strip_fences(text: str) -> str:
-                if text is None:
-                    return ""
-                t = text.strip()
-                if t.startswith("```"):
-                    # remove first fence line
-                    lines = t.splitlines()
-                    if lines and lines[0].startswith("```"):
-                        lines = lines[1:]
-                    # remove trailing fence
-                    if lines and lines[-1].strip().startswith("```"):
-                        lines = lines[:-1]
-                    return "\n".join(lines).strip()
-                return t
-
-            # Determine task complexity and routing requirements
-            output_requirements = {
-                'max_words': max_words,
-                'paper_count': paper_count,
-                'requires_reasoning': paper_count > 2 or max_words > 500,
-                'safety_critical': False
-            }
-            
-            # Use router for smart model selection
-            messages = [
-                {
-                    "role": "system",
-                    "content": "You are a research synthesis expert. Provide accurate, well-structured academic synthesis."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-            
-            content, metadata = await self.groq_router.generate_with_routing(
-                messages=messages,
-                task_type="synthesis",
-                output_requirements=output_requirements,
-                strict_mode=strict_mode,
-                max_tokens=min(max_words * 2, 4000),  # More generous token limit
-                temperature=0.3
-            )
-            
-            # Try to parse JSON response with sanitizer and placeholder detection
-            try:
-                clean = _strip_fences(content)
-                result = json.loads(clean)
-                # Add routing metadata
-                result["routing_metadata"] = metadata
-                # Enforce max_words trimming if provider returned verbose text
-                summary = result.get("summary", "")
-                if isinstance(summary, str):
-                    words = summary.split()
-                    if len(words) > max_words:
-                        result["summary"] = " ".join(words[:max_words])
-                # Placeholder detection
-                placeholder_markers = ["[Insert", "[Paper", "Your comprehensive synthesis", "Sample abstract"]
-                text_blob = (result.get("summary") or "") + "\n" + "\n".join(result.get("key_findings", []))
-                if any(m in text_blob for m in placeholder_markers):
-                    result["quality_warning"] = "LLM returned placeholder-like content; inputs may be insufficient."
-                return result
-            except json.JSONDecodeError:
-                # Fallback if JSON parsing fails
-                return {
-                    "summary": _strip_fences(content),
-                    "key_findings": [content[:100] + "..."],
-                    "citations_used": {},
-                    "word_count": len(content.split()),
-                    "routing_metadata": metadata
-                }
-                
-        except Exception as e:
-            logger.error(f"Routed synthesis failed: {e}")
-            raise
-    
-    def _fallback_synthesize(self, papers: List[Dict], focus: str) -> Dict[str, Any]:
-        """Fallback synthesis when LLM is not available"""
-        
-        # Simple rule-based synthesis
-        titles = [paper.get("title", "") for paper in papers]
-        authors = []
-        for paper in papers:
-            authors.extend([author.get("name", "") for author in paper.get("authors", [])])
-        
-        summary = f"This synthesis covers {len(papers)} research papers focusing on {focus}. "
-        summary += f"The papers include: {', '.join(titles[:3])}. "
-        summary += f"Key authors include: {', '.join(list(set(authors))[:3])}. "
-        summary += "The research demonstrates significant findings in the field."
-        
-        key_findings = []
-        citations_used = {}
-        
-        for i, paper in enumerate(papers, 1):
-            finding = f"Paper {i} presents important findings in {paper.get('venue', 'the field')} [1]"
-            key_findings.append(finding)
-            citations_used[f"[{i}]"] = paper.get("id", f"paper_{i}")
-        
-        return {
+        result = {
             "summary": summary,
             "key_findings": key_findings,
-            "citations_used": citations_used,
-            "word_count": len(summary.split())
+            "citations_used": citations,
+            "word_count": len(summary.split()),
+            "metadata": {
+                "paper_sample_size": len(normalized),
+                "confidence": confidence,
+                "domain_alignment": self._infer_domain(normalized, focus or ""),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            "routing_metadata": {
+                "routing_decision": {
+                    "model": "heuristic-fallback",
+                    "provider": "local",
+                    "complexity": "standard",
+                    "strategy": "baseline_synthesizer",
+                },
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                },
+                "cached": False,
+            },
         }
-    
-    async def synthesize_with_context(
-        self,
-        paper_ids: List[str],
-        context: str,
-        max_words: int = 500
-    ) -> Dict[str, Any]:
-        """Synthesize papers with additional context"""
-        
-        try:
-            papers = await self._get_paper_details(paper_ids)
-            
-            if not papers:
-                return {
-                    "error": "No papers found for the provided IDs",
-                    "summary": "",
-                    "key_findings": [],
-                    "citations_used": {},
-                    "word_count": 0
-                }
-            
-            # Build context-aware prompt
-            context_prompt = f"""
-Context: {context}
+        if relevance is not None:
+            result["relevance_score"] = relevance
 
-Please synthesize the following papers in relation to this context:
-{chr(10).join([f"- {paper.get('title', 'Untitled')}" for paper in papers])}
+        async with self._lock:
+            self._cache[cache_key] = dict(result)
+        return result
 
-Focus on how these papers relate to the provided context.
-"""
-            
-            if self.llm_client:
-                synthesis_result = await self._llm_synthesize(context_prompt, max_words)
-            else:
-                synthesis_result = self._fallback_synthesize(papers, "contextual analysis")
-            
-            return {
-                "summary": synthesis_result["summary"],
-                "key_findings": synthesis_result["key_findings"],
-                "citations_used": synthesis_result["citations_used"],
-                "word_count": synthesis_result["word_count"],
-                "context_used": context,
-                "papers_synthesized": len(papers),
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Context synthesis failed: {e}")
-            return {
-                "error": f"Context synthesis failed: {str(e)}",
-                "summary": "",
-                "key_findings": [],
-                "citations_used": {},
-                "word_count": 0
-            }
-    
-    @cache(ttl=7200, source_version="synthesis_strict")  # 2 hour cache
-    async def synthesize_papers_strict(
-        self, 
-        paper_ids: List[str], 
-        max_words: int = 500,
-        focus: str = "key_findings",
-        style: str = "academic"
-    ) -> Dict[str, Any]:
-        """Strict synthesis requiring heavy model capability (70B+ models)"""
-        
-        try:
-            # Get paper details
-            papers = await self._get_paper_details(paper_ids)
-            
-            if not papers:
-                return {
-                    "error": "No papers found for the provided IDs",
-                    "summary": "",
-                    "key_findings": [],
-                    "citations_used": {},
-                    "word_count": 0
-                }
-            
-            # Check if we have Groq router available
-            if not self.groq_router:
-                return {
-                    "error": "Strict synthesis requires Groq LLM access",
-                    "summary": "",
-                    "key_findings": [],
-                    "citations_used": {},
-                    "word_count": 0
-                }
-            
-            # Prepare synthesis prompt
-            synthesis_prompt = self._build_synthesis_prompt(papers, max_words, focus, style)
-            
-            # Use strict mode routing (requires heavy model)
-            synthesis_result = await self._routed_synthesize(
-                synthesis_prompt, 
-                max_words, 
-                len(papers),
-                strict_mode=True  # This will fail if no heavy model available
-            )
-            
-            # Normalize unexpected types
-            if not isinstance(synthesis_result, dict):
-                synthesis_result = {
-                    "summary": str(synthesis_result),
-                    "key_findings": [],
-                    "citations_used": {},
-                    "word_count": len(str(synthesis_result).split())
-                }
-            
-            # Format response with strict mode indicator
-            return {
-                "summary": synthesis_result.get("summary", ""),
-                "key_findings": list(synthesis_result.get("key_findings", []) or []),
-                "citations_used": dict(synthesis_result.get("citations_used", {}) or {}),
-                "word_count": int(synthesis_result.get("word_count", 0) or 0),
-                "papers_synthesized": len(papers),
-                "synthesis_mode": "strict",
-                "routing_metadata": synthesis_result.get("routing_metadata", {}),
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except RuntimeError as e:
-            # This is thrown when no suitable heavy model is available
-            logger.warning(f"Strict synthesis failed - no heavy model available: {e}")
-            return {
-                "error": "Strict synthesis requires a heavy model (70B+) but none are available",
-                "summary": "",
-                "key_findings": [],
-                "citations_used": {},
-                "word_count": 0,
-                "synthesis_mode": "strict",
-                "fallback_suggestion": "Try the regular /synthesize endpoint for fallback synthesis"
-            }
-            
-        except Exception as e:
-            logger.error(f"Strict synthesis failed: {e}")
-            return {
-                "error": f"Strict synthesis failed: {str(e)}",
-                "summary": "",
-                "key_findings": [],
-                "citations_used": {},
-                "word_count": 0,
-                "synthesis_mode": "strict"
-            }
+    # ------------------------------------------------------------------
+    def _normalise_papers(self, paper_ids: List[str], provided: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        provided_map = {str(paper.get("id")): paper for paper in provided if paper.get("id")}
+        normalized: List[Dict[str, Any]] = []
+        for paper_id in paper_ids:
+            payload = provided_map.get(str(paper_id)) or {}
+            title = payload.get("title") or f"Paper {paper_id}"
+            abstract = payload.get("abstract") or payload.get("summary") or self._placeholder_abstract(paper_id)
+            keywords = payload.get("keywords") or payload.get("concepts") or []
+            if isinstance(keywords, list) and keywords and isinstance(keywords[0], dict):
+                keywords = [kw.get("display_name", "") for kw in keywords if isinstance(kw, dict)]
+            normalized.append({
+                "id": str(paper_id),
+                "title": title,
+                "abstract": abstract,
+                "keywords": [kw for kw in keywords if kw],
+                "year": payload.get("publication_year") or payload.get("year"),
+                "authors": payload.get("authors", []),
+                "reference": payload.get("url") or payload.get("doi") or f"https://openalex.org/{paper_id}",
+            })
+        return normalized
+
+    def _compose_summary(self, papers: List[Dict[str, Any]], max_words: int, focus: Optional[str], style: str) -> str:
+        if not papers:
+            return "No eligible papers were provided for synthesis."
+
+        focus_hint = f" Focus on {focus.replace('_', ' ')}." if focus else ""
+        style_hint = f" Style: {style}." if style else ""
+        intro = f"Synthesizing {len(papers)} papers.{focus_hint}{style_hint}"
+
+        sentences: List[str] = [intro]
+        for paper in papers:
+            abstract = str(paper["abstract"])[:1000]
+            bullet = self._first_sentence(abstract)
+            if bullet:
+                sentences.append(f"{paper['title']}: {bullet}")
+        summary = " ".join(sentences)
+
+        words = summary.split()
+        if len(words) > max_words:
+            summary = " ".join(words[:max_words]) + "..."
+        return summary
+
+    def _extract_findings(self, papers: List[Dict[str, Any]], *, max_items: int) -> List[str]:
+        findings: List[str] = []
+        for paper in papers:
+            abstract = str(paper["abstract"])
+            sentences = [s.strip() for s in abstract.split('.') if s.strip()]
+            for sentence in sentences[:2]:
+                if len(findings) >= max_items:
+                    break
+                findings.append(f"{paper['title']}: {sentence}.")
+            if len(findings) >= max_items:
+                break
+        return findings
+
+    def _build_citations(self, papers: List[Dict[str, Any]]) -> Dict[str, str]:
+        citations: Dict[str, str] = {}
+        for idx, paper in enumerate(papers, start=1):
+            citations[f"[{idx}]"] = paper.get("reference")
+        return citations
+
+    def _estimate_confidence(self, papers: List[Dict[str, Any]], findings: List[str], summary: str) -> float:
+        diversity = len({paper.get("title") for paper in papers})
+        base = 0.5
+        if diversity >= 5:
+            base += 0.15
+        if len(findings) >= 3:
+            base += 0.1
+        if len(summary.split()) > 150:
+            base += 0.1
+        return max(0.2, min(0.95, round(base, 3)))
+
+    def _estimate_relevance(self, summary: str, query: Optional[str]) -> Optional[float]:
+        if not summary or not query:
+            return None
+        tokens = {token.lower() for token in query.split() if len(token) > 3}
+        if not tokens:
+            return None
+        summary_lower = summary.lower()
+        matches = sum(1 for token in tokens if token in summary_lower)
+        return round(matches / len(tokens), 3)
+
+    def _infer_domain(self, papers: List[Dict[str, Any]], focus: str) -> str:
+        keywords = {kw.lower() for paper in papers for kw in paper.get("keywords", [])}
+        keywords.update(word.lower() for word in focus.split())
+        if any(term in keywords for term in {"equity", "market", "finance", "stock"}):
+            return "quant_finance"
+        if any(term in keywords for term in {"polymer", "resin", "materials", "manufacturing"}):
+            return "advanced_materials"
+        if any(term in keywords for term in {"nlp", "language", "transformer"}):
+            return "ai_research"
+        return "general"
+
+    def _first_sentence(self, text: str) -> str:
+        sentence = text.split('. ')[0].strip()
+        if len(sentence.split()) < 6:
+            return text[:140].strip()
+        return sentence if sentence.endswith('.') else sentence + '.'
+
+    def _placeholder_abstract(self, paper_id: str) -> str:
+        return (
+            f"Paper {paper_id} contributes to the research conversation by providing "
+            "structured insights, but a detailed abstract was not supplied."
+        )
+
+    def _cache_key(self, papers: List[Dict[str, Any]], max_words: int, focus: Optional[str], style: str) -> str:
+        ids = ":".join(sorted(paper["id"] for paper in papers))
+        return f"{ids}|{max_words}|{focus or ''}|{style}"
+
+
+__all__ = ["Synthesizer"]

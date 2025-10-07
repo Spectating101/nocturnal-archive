@@ -378,6 +378,22 @@ async def explain_expression(req: CalcRequest, request: Request):
             for fact in result.inputs.values()
         ]
 
+        inputs_detail = {
+            input_name: {
+                "value": fact.value,
+                "unit": fact.unit,
+                "period": fact.period,
+                "citation": {
+                    "source_url": fact.url,
+                    "accession": fact.accession,
+                    "fragment_id": fact.fragment_id,
+                    "concept": fact.concept,
+                    "dimensions": fact.dimensions,
+                }
+            }
+            for input_name, fact in result.inputs.items()
+        }
+
         response_data = {
             "ticker": result.ticker,
             "expr": result.formula,
@@ -386,6 +402,7 @@ async def explain_expression(req: CalcRequest, request: Request):
             "value": result.value,
             "data_source": "sec_edgar",
             "formula": result.formula,
+            "inputs": inputs_detail,
             "left": {
                 "concept": "result",
                 "value": result.value,

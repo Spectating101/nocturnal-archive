@@ -1,13 +1,14 @@
 import asyncio
 import logging
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from src.services.llm_service.api_clients.llm_chat_client import LLMChatClient
 from src.services.llm_service.api_clients.llm_doc_client import LLMDcClient
 from src.services.llm_service.llm_manager import LLMManager
 from src.services.research_service.context_manager import ResearchContextManager
 from src.services.research_service.synthesizer import ResearchSynthesizer
+from src.services.graph.knowledge_graph import KnowledgeGraph
 from src.storage.db.operations import DatabaseOperations
 from dotenv import load_dotenv
 load_dotenv(".env.local")
@@ -145,7 +146,7 @@ class ChatbotResearchSession:
         self.history: List[Dict] = []
         self.context: Dict = {}
         self.user_profile = user_profile or {"name": "User"}
-        self.created_at = datetime.utcnow()
+        self.created_at = datetime.now(timezone.utc)
         self.active = True
         self.session_id = None
         self.research_plan = None
@@ -161,8 +162,11 @@ class ChatbotResearchSession:
             self.doc_client = LLMDcClient()
             logger.info("LLM clients initialized successfully")
         except Exception as e:
-            logger.warning(f"LLM client initialization failed: {e}")
-            self.fallback_mode = True
+            logger.error("LLM client initialization failed; real mode is required for launch", exc_info=True)
+            raise RuntimeError(
+                "LLM stack failed to initialize. Configure the required provider credentials "
+                "(e.g., CEREBRAS_API_KEY) and network access before launching the chatbot."
+            ) from e
         
         # New attributes for parallel web search and projection
         self.parallel_web_context = []
@@ -1955,13 +1959,19 @@ async def run_cli_chatbot():
         context_manager = None
         
         try:
-            db_ops = DatabaseOperations(
-                os.environ.get('MONGODB_URL', os.environ.get('MONGO_URL', 'mongodb://localhost:27017/nocturnal_archive')), 
-                os.environ.get('REDIS_URL', 'redis://localhost:6379')
+            redis_url = os.environ.get('REDIS_URL', 'redis://localhost:6379')
+            mongo_url = os.environ.get('MONGODB_URL', os.environ.get('MONGO_URL', 'mongodb://localhost:27017/nocturnal_archive'))
+
+            db_ops = DatabaseOperations(mongo_url, redis_url)
+            llm_manager = LLMManager(redis_url)
+            knowledge_graph = KnowledgeGraph()
+            synthesizer = ResearchSynthesizer(
+                db_ops=db_ops,
+                llm_manager=llm_manager,
+                redis_url=redis_url,
+                kg_client=knowledge_graph
             )
-            llm_manager = LLMManager(os.environ.get('REDIS_URL', 'redis://localhost:6379'))
-            synthesizer = ResearchSynthesizer(db_ops, llm_manager, os.environ.get('REDIS_URL', 'redis://localhost:6379'))
-            context_manager = ResearchContextManager(db_ops, synthesizer, os.environ.get('REDIS_URL', 'redis://localhost:6379'))
+            context_manager = ResearchContextManager(db_ops, synthesizer, redis_url)
         except Exception as e:
             logger.warning(f"Full system initialization failed: {e}")
             print("⚠️  Some system components failed to initialize.")

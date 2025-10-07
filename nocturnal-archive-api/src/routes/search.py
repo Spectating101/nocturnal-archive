@@ -7,7 +7,7 @@ import uuid
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.config.settings import Settings, get_settings
 from src.models.request import SearchRequest
@@ -19,6 +19,212 @@ from src.engine.research_engine import sophisticated_engine
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
+
+
+def _normalize_authors(raw_authors: Any) -> List[Dict[str, Optional[str]]]:
+    """Normalize various author payload shapes into Author-compatible dicts."""
+    authors: List[Dict[str, Optional[str]]] = []
+
+    if not raw_authors:
+        return [{"name": "Unknown Author", "orcid": None, "affiliation": None}]
+
+    for entry in raw_authors:
+        if isinstance(entry, Author):
+            authors.append(entry.model_dump())
+            continue
+
+        name: Optional[str] = None
+        orcid: Optional[str] = None
+        affiliation: Optional[str] = None
+
+        if isinstance(entry, dict):
+            name = entry.get("name") or entry.get("display_name") or entry.get("full_name")
+
+            nested_author = entry.get("author")
+            if not name and isinstance(nested_author, dict):
+                name = nested_author.get("display_name") or nested_author.get("name")
+                orcid = nested_author.get("orcid")
+            else:
+                orcid = entry.get("orcid")
+
+            affiliation = entry.get("affiliation")
+            if not affiliation:
+                institution = entry.get("institution") or entry.get("primary_institution")
+                if isinstance(institution, dict):
+                    affiliation = institution.get("display_name") or institution.get("name")
+
+        elif isinstance(entry, str):
+            name = entry
+
+        if not name:
+            continue
+
+        authors.append({
+            "name": name.strip(),
+            "orcid": orcid,
+            "affiliation": affiliation
+        })
+
+    if not authors:
+        authors.append({"name": "Unknown Author", "orcid": None, "affiliation": None})
+
+    return authors
+
+
+def _extract_year(payload: Dict[str, Any]) -> Optional[int]:
+    """Best-effort extraction of publication year from assorted fields."""
+    for key in ("year", "publication_year", "published_year", "pub_year"):
+        year_value = payload.get(key)
+        if year_value in (None, ""):
+            continue
+        try:
+            return int(year_value)
+        except (TypeError, ValueError):
+            continue
+
+    for key in ("publication_date", "published_date", "release_date", "date"):
+        date_val = payload.get(key)
+        if not date_val:
+            continue
+        try:
+            return int(str(date_val)[:4])
+        except (TypeError, ValueError):
+            continue
+
+    return None
+
+
+def _normalize_abstract(raw_abstract: Any) -> Optional[str]:
+    """Convert OpenAlex inverted index structures into readable text."""
+    if isinstance(raw_abstract, dict):
+        max_pos = 0
+        for positions in raw_abstract.values():
+            if positions:
+                max_pos = max(max_pos, max(positions))
+
+        words = [""] * (max_pos + 1)
+        for word, positions in raw_abstract.items():
+            for pos in positions:
+                if 0 <= pos < len(words):
+                    words[pos] = word
+
+        return " ".join(w for w in words if w)
+
+    if isinstance(raw_abstract, str):
+        return raw_abstract
+
+    return None
+
+
+def _normalize_keywords(raw_keywords: Any) -> Optional[List[str]]:
+    """Ensure keywords are returned as a clean list of strings."""
+    if not raw_keywords:
+        return None
+
+    if isinstance(raw_keywords, list):
+        keywords: List[str] = []
+        for item in raw_keywords:
+            if isinstance(item, str):
+                value = item.strip()
+            elif isinstance(item, dict):
+                value = (item.get("display_name") or item.get("name") or "").strip()
+            else:
+                continue
+            if value:
+                keywords.append(value)
+        return keywords or None
+
+    if isinstance(raw_keywords, dict):
+        values = [str(v).strip() for v in raw_keywords.values() if isinstance(v, str) and v.strip()]
+        return values or None
+
+    if isinstance(raw_keywords, str):
+        stripped = raw_keywords.strip()
+        return [stripped] if stripped else None
+
+    return None
+
+
+def _prepare_paper_payload(raw_paper: Any, trace_id: str) -> Optional[Dict[str, Any]]:
+    """Sanitize raw paper data into a Paper-compatible payload."""
+    if raw_paper is None:
+        return None
+
+    if isinstance(raw_paper, Paper):
+        raw_paper = raw_paper.model_dump()
+
+    if not isinstance(raw_paper, dict):
+        logger.warning(
+            "Skipping paper with unexpected payload type",
+            payload_type=type(raw_paper).__name__,
+            trace_id=trace_id
+        )
+        return None
+
+    paper_id = raw_paper.get("id") or raw_paper.get("paper_id") or raw_paper.get("doi")
+    if not paper_id:
+        paper_id = f"paper_{uuid.uuid4().hex[:8]}"
+
+    title = (
+        raw_paper.get("title")
+        or raw_paper.get("display_name")
+        or raw_paper.get("paper_title")
+        or "Untitled paper"
+    )
+    title = title.strip() if isinstance(title, str) else "Untitled paper"
+    if not title:
+        title = "Untitled paper"
+
+    authors = _normalize_authors(raw_paper.get("authors"))
+
+    year = _extract_year(raw_paper)
+    if year is None:
+        logger.warning(
+            "Skipping paper due to missing publication year",
+            paper_id=paper_id,
+            trace_id=trace_id
+        )
+        return None
+
+    abstract = _normalize_abstract(raw_paper.get("abstract"))
+
+    keywords = _normalize_keywords(
+        raw_paper.get("keywords") or raw_paper.get("concepts")
+    )
+
+    citations = raw_paper.get("citations_count")
+    if citations is not None:
+        try:
+            citations = int(citations)
+        except (TypeError, ValueError):
+            citations = None
+
+    open_access = raw_paper.get("open_access")
+    if isinstance(open_access, dict):
+        open_access = open_access.get("is_oa")
+
+    pdf_url = raw_paper.get("pdf_url")
+    if not pdf_url and isinstance(raw_paper.get("open_access"), dict):
+        pdf_url = raw_paper["open_access"].get("oa_url")
+
+    payload: Dict[str, Any] = {
+        "id": str(paper_id),
+        "title": title,
+        "authors": authors,
+        "year": year,
+        "doi": raw_paper.get("doi"),
+        "abstract": abstract,
+        "citations_count": citations,
+        "open_access": open_access,
+        "pdf_url": pdf_url,
+        "source": raw_paper.get("source") or raw_paper.get("source_type") or "openalex",
+        "venue": raw_paper.get("venue"),
+        "keywords": keywords,
+        "created_at": raw_paper.get("created_at"),
+        "updated_at": raw_paper.get("updated_at"),
+    }
+
+    return payload
 
 
 @router.post("/search", response_model=SearchResult)
@@ -57,21 +263,9 @@ async def search_papers(
                 # Convert advanced results to our format
                 papers = []
                 for paper_data in advanced_results.get("papers", []):
-                    paper = Paper(
-                        id=paper_data.get("id", ""),
-                        title=paper_data.get("title", ""),
-                        authors=[Author(name=author) for author in paper_data.get("authors", [])],
-                        year=paper_data.get("year"),
-                        doi=paper_data.get("doi"),
-                        abstract=paper_data.get("abstract"),
-                        citations_count=paper_data.get("citations_count"),
-                        open_access=paper_data.get("open_access"),
-                        pdf_url=paper_data.get("pdf_url"),
-                        source=paper_data.get("source", "openalex"),
-                        venue=paper_data.get("venue"),
-                        keywords=paper_data.get("keywords", [])
-                    )
-                    papers.append(paper)
+                    normalized = _prepare_paper_payload(paper_data, trace_id)
+                    if normalized:
+                        papers.append(normalized)
             else:
                 logger.warning("Advanced search failed, falling back to basic search", 
                              error=advanced_results.get("error"), trace_id=trace_id)
@@ -117,53 +311,32 @@ async def search_papers(
         # Convert back to Paper objects
         enhanced_papers = []
         for paper_dict in papers_dict:
-            # Create Paper object from dict, handling enhanced fields
-            paper_data = {
-                'id': paper_dict['id'],
-                'title': paper_dict['title'],
-                'authors': paper_dict['authors'],
-                'year': paper_dict['year'],
-                'doi': paper_dict.get('doi'),
-                'abstract': paper_dict.get('abstract'),
-                'citations_count': paper_dict.get('citations_count'),
-                'open_access': paper_dict.get('open_access'),
-                'pdf_url': paper_dict.get('pdf_url'),
-                'source': paper_dict['source'],
-                'venue': paper_dict.get('venue'),
-                'keywords': paper_dict.get('keywords'),
-                'created_at': paper_dict.get('created_at'),
-                'updated_at': paper_dict.get('updated_at')
-            }
-            # Normalize OpenAlex inverted index to plain text if present
-            try:
-                if isinstance(paper_data['abstract'], dict):
-                    inv_idx = paper_data['abstract']
-                    max_pos = 0
-                    for word, positions in inv_idx.items():
-                        if positions:
-                            max_pos = max(max_pos, max(positions))
-                    words = [""] * (max_pos + 1)
-                    for word, positions in inv_idx.items():
-                        for pos in positions:
-                            if 0 <= pos < len(words):
-                                words[pos] = word
-                    paper_data['abstract'] = " ".join(w for w in words if w)
-            except Exception:
-                pass
-            
-            # Add enhanced fields as metadata
+            normalized_payload = _prepare_paper_payload(paper_dict, trace_id)
+            if not normalized_payload:
+                continue
+
+            # Attach enhanced metadata when available (silently ignored by Pydantic if unsupported)
             enhanced_metadata = {}
-            if 'enhanced_abstract' in paper_dict:
-                enhanced_metadata['enhanced_abstract'] = paper_dict['enhanced_abstract']
-            if 'enhanced_title' in paper_dict:
-                enhanced_metadata['enhanced_title'] = paper_dict['enhanced_title']
-            if 'scraped_content' in paper_dict:
-                enhanced_metadata['scraped_content'] = paper_dict['scraped_content']
-            
+            if isinstance(paper_dict, dict):
+                if 'enhanced_abstract' in paper_dict:
+                    enhanced_metadata['enhanced_abstract'] = paper_dict['enhanced_abstract']
+                if 'enhanced_title' in paper_dict:
+                    enhanced_metadata['enhanced_title'] = paper_dict['enhanced_title']
+                if 'scraped_content' in paper_dict:
+                    enhanced_metadata['scraped_content'] = paper_dict['scraped_content']
+
             if enhanced_metadata:
-                paper_data['metadata'] = enhanced_metadata
-            
-            enhanced_papers.append(Paper(**paper_data))
+                normalized_payload['metadata'] = enhanced_metadata
+
+            try:
+                enhanced_papers.append(Paper(**normalized_payload))
+            except Exception as err:
+                logger.warning(
+                    "Skipping paper due to validation failure",
+                    error=str(err),
+                    paper_id=normalized_payload.get('id'),
+                    trace_id=trace_id
+                )
         
         # Generate query ID
         query_id = f"q_{uuid.uuid4().hex[:8]}"

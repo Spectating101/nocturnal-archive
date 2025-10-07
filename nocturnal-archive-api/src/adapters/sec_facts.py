@@ -3,6 +3,7 @@ SEC Facts Adapter - Simplified
 Fetches XBRL financial facts from SEC EDGAR with proper citations
 """
 
+import asyncio
 import structlog
 import aiohttp
 import yaml
@@ -22,6 +23,7 @@ class SECFactsAdapter:
     def __init__(self):
         self.base_url = "https://data.sec.gov"
         self.session = None
+        self._session_loop = None
         
         # Dynamic ticker lookup - supports ALL SEC-filing companies (10,123+)
         # No hardcoded mapping needed - uses src.jobs.symbol_map.cik_for_ticker()
@@ -113,11 +115,24 @@ class SECFactsAdapter:
         
     async def _get_session(self):
         """Get aiohttp session"""
-        if self.session is None:
+        current_loop = asyncio.get_running_loop()
+
+        # Recreate the session when used from a new event loop or if the existing
+        # session was closed (pytest-asyncio creates a fresh loop per test).
+        if (
+            self.session is None
+            or self.session.closed
+            or self._session_loop is not current_loop
+        ):
+            if self.session is not None and not self.session.closed:
+                await self.session.close()
+
             self.session = aiohttp.ClientSession(
                 headers={"User-Agent": "FinSight Financial Data (contact@nocturnal.dev)"},
                 timeout=aiohttp.ClientTimeout(total=30)
             )
+            self._session_loop = current_loop
+
         return self.session
     
     async def get_facts_from_same_filing(
@@ -603,39 +618,75 @@ class SECFactsAdapter:
         """Check if fact matches requested period"""
         if not period:
             return True
-            
-        # Parse period like "2024-Q4" or "2024-12-31"
+
+        fact_fp = str(fact.get("fp", "")).upper()
+        fact_fy = str(fact.get("fy", ""))
         fact_end = fact.get("end", "")
-        fact_fp = fact.get("fp", "")
-        
-        if freq == "Q" and period.endswith("-Q4"):
-            year = period.split("-Q")[0]
-            # Q4 typically ends in December - ONLY match quarterly data, NOT annual (FY)
-            return fact_end.startswith(f"{year}-12") and fact_fp in ["Q4", "QTR"]
-        elif freq == "Q" and period.endswith("-Q3"):
-            year = period.split("-Q")[0]
-            # Q3 can end in September (calendar) or June (fiscal) - ONLY match quarterly data
-            return (fact_end.startswith(f"{year}-09") or fact_end.startswith(f"{year}-06")) and fact_fp in ["Q3", "QTR"]
-        elif freq == "Q" and period.endswith("-Q2"):
-            year = period.split("-Q")[0]
-            # Q2 typically ends in June - ONLY match quarterly data
-            return fact_end.startswith(f"{year}-06") and fact_fp in ["Q2", "QTR"]
-        elif freq == "Q" and period.endswith("-Q1"):
-            year = period.split("-Q")[0]
-            # Q1 typically ends in March - ONLY match quarterly data
-            return fact_end.startswith(f"{year}-03") and fact_fp in ["Q1", "QTR"]
-        elif freq == "A":
+
+        if freq == "Q" and "-Q" in period:
+            year_part, quarter_part = period.split("-Q", 1)
+            target_fp = f"Q{quarter_part}"
+
+            # Prefer exact fiscal metadata matches
+            if fact_fy == year_part and fact_fp == target_fp:
+                return True
+
+            # Allow generic quarterly flag ("QTR") when fiscal year matches
+            if fact_fy == year_part and fact_fp == "QTR":
+                return True
+
+            # Fallback: if fiscal year metadata is missing, compare by calendar quarter
+            if not fact_fy and fact_end:
+                try:
+                    end_month = datetime.strptime(fact_end, "%Y-%m-%d").month
+                    calendar_quarter = (end_month - 1) // 3 + 1
+                    return str(calendar_quarter) == quarter_part
+                except ValueError:
+                    return False
+
+            return False
+
+        if freq == "A":
             year = period.split("-")[0] if "-" in period else period
-            return fact_fp == "FY" or fact_end.startswith(f"{year}-12")
-        
+
+            if fact_fy == year and fact_fp == "FY":
+                return True
+
+            if not fact_fy and fact_end.startswith(f"{year}-") and fact_fp == "FY":
+                return True
+
+            return False
+
         return False
     
     def _find_closest_period(self, periods: List[Dict[str, Any]], period: str, freq: str) -> Optional[Dict[str, Any]]:
         """Find the closest available period to the requested one"""
         if not period:
             return None
-            
-        # Parse requested period
+        target_year: Optional[str] = None
+        target_fp: Optional[str] = None
+
+        if freq == "Q" and "-Q" in period:
+            target_year, quarter_part = period.split("-Q", 1)
+            target_fp = f"Q{quarter_part}"
+        elif freq == "A":
+            target_year = period.split("-")[0] if "-" in period else period
+            target_fp = "FY"
+
+        if target_year and target_fp:
+            same_year = [
+                fact for fact in periods
+                if str(fact.get("fy", "")) == target_year
+                and str(fact.get("fp", "")).upper() in {target_fp, "QTR"}
+            ]
+
+            if same_year:
+                exact_matches = [fact for fact in same_year if str(fact.get("fp", "")).upper() == target_fp]
+                candidates = exact_matches or same_year
+                return max(candidates, key=lambda x: x.get("end", ""))
+
+        # Fallback to calendar date comparison when fiscal metadata unavailable
+        target_date = None
         if freq == "Q" and period.endswith("-Q4"):
             year = period.split("-Q")[0]
             target_date = f"{year}-12-31"
@@ -651,38 +702,35 @@ class SECFactsAdapter:
         elif freq == "A":
             year = period.split("-")[0] if "-" in period else period
             target_date = f"{year}-12-31"
-        else:
+
+        if not target_date:
             return None
-            
-        # Find closest period by date
+
         closest = None
-        min_diff = float('inf')
-        
+        min_diff = float("inf")
+
         for fact in periods:
             fact_end = fact.get("end", "")
-            fact_fp = fact.get("fp", "")
+            fact_fp = str(fact.get("fp", "")).upper()
             if not fact_end:
                 continue
-                
-            # Only consider facts that match the requested frequency
-            if freq == "Q" and fact_fp not in ["Q1", "Q2", "Q3", "Q4", "QTR"]:
-                continue  # Skip annual data when quarterly is requested
-            elif freq == "A" and fact_fp not in ["FY"]:
-                continue  # Skip quarterly data when annual is requested
-                
-            # Calculate date difference
+
+            if freq == "Q" and fact_fp not in {"Q1", "Q2", "Q3", "Q4", "QTR"}:
+                continue
+            if freq == "A" and fact_fp != "FY":
+                continue
+
             try:
-                from datetime import datetime
                 fact_date = datetime.strptime(fact_end, "%Y-%m-%d")
                 target_datetime = datetime.strptime(target_date, "%Y-%m-%d")
                 diff = abs((fact_date - target_datetime).days)
-                
+
                 if diff < min_diff:
                     min_diff = diff
                     closest = fact
             except ValueError:
                 continue
-                
+
         return closest
     
     def _validate_financial_data(self, ticker: str, concept: str, value: float, period: str, freq: str) -> bool:

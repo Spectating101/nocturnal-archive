@@ -4,6 +4,7 @@ Database models for citation storage and management
 """
 
 from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, Field
 from enum import Enum
@@ -14,6 +15,10 @@ class CitationFormat(str, Enum):
     CHICAGO = "chicago"
     HARVARD = "harvard"
     BIBTEX = "bibtex"
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
 
 class Citation(BaseModel):
     """Citation database model"""
@@ -33,8 +38,8 @@ class Citation(BaseModel):
     citation_count: int = Field(default=0, description="Number of citations received")
     source_paper_id: Optional[str] = Field(None, description="ID of paper that cites this")
     confidence_score: float = Field(default=1.0, description="Confidence in citation data")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
 
 class CitedFinding(BaseModel):
     """Cited finding database model"""
@@ -44,7 +49,7 @@ class CitedFinding(BaseModel):
     confidence_score: float = Field(default=1.0, description="Confidence in finding")
     context: Optional[str] = Field(None, description="Context of finding")
     methodology: Optional[str] = Field(None, description="Methodology used")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utc_now)
 
 class CitationNetwork(BaseModel):
     """Citation network database model"""
@@ -56,8 +61,8 @@ class CitationNetwork(BaseModel):
     network_depth: int = Field(default=2, description="Depth of network exploration")
     total_connections: int = Field(default=0, description="Total number of connections")
     influence_score: float = Field(default=0.0, description="Influence score")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
 
 class CitationAnalytics(BaseModel):
     """Citation analytics database model"""
@@ -69,7 +74,7 @@ class CitationAnalytics(BaseModel):
     journal_distribution: Dict[str, int] = Field(default_factory=dict, description="Journal distribution")
     author_analysis: Dict[str, Any] = Field(default_factory=dict, description="Author analysis")
     academic_credibility_score: float = Field(default=0.0, description="Academic credibility score")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utc_now)
 
 class CitationExport(BaseModel):
     """Citation export database model"""
@@ -78,7 +83,7 @@ class CitationExport(BaseModel):
     format_type: CitationFormat = Field(..., description="Export format")
     content: str = Field(..., description="Exported content")
     citation_count: int = Field(default=0, description="Number of citations exported")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utc_now)
 
 class CitationQuery(BaseModel):
     """Citation query model for database operations"""

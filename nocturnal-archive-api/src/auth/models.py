@@ -2,9 +2,9 @@
 Authentication models for API key management
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from typing import Literal, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import secrets
 import structlog
@@ -17,14 +17,13 @@ class ApiKey(BaseModel):
     owner: str = Field(..., description="Key owner identifier")
     tier: str = Field(default="free", description="Key tier (free, pro, enterprise)")
     status: Literal["active", "paused", "revoked"] = Field(default="active", description="Key status")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Creation timestamp")
     last_used: Optional[datetime] = Field(default=None, description="Last usage timestamp")
     rate_limit: int = Field(default=100, description="Requests per hour")
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+
+    @field_serializer("created_at", "last_used")
+    def _serialize_datetime(self, value: Optional[datetime], _info):
+        return value.isoformat() if value else None
 
 class ApiKeyCreate(BaseModel):
     owner: str

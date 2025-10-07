@@ -14,7 +14,7 @@ from src.utils.error_handling import create_problem_response, get_error_type
 from src.adapters.sec_facts import get_sec_facts_adapter
 
 logger = structlog.get_logger(__name__)
-router = APIRouter(tags=["Finance KPIs"])
+router = APIRouter(prefix="/kpis", tags=["Finance KPIs"])
 
 # Global instances (would be injected in production)
 kpi_registry = KPIRegistry()
@@ -156,20 +156,20 @@ async def get_kpi(
                 if fallback_response:
                     return fallback_response
             return create_problem_response(
-                request, 404,
-                "not-found",
-                "KPI not found",
                 f"Unknown KPI: {kpi}"
+            ,
+                404,
+                "not-found"
             )
         
         # Get facts series for the KPI (registry-backed)
         input_defs = kpi_registry.get_metric_inputs(effective_kpi)
         if not input_defs:
             return create_problem_response(
-                request, 422,
-                "validation-error",
-                "KPI has no inputs",
                 f"KPI '{kpi}' has no defined inputs"
+            ,
+                422,
+                "validation-error"
             )
         
         # Get the primary input concept
@@ -182,10 +182,10 @@ async def get_kpi(
         target_concept = prefer_concept or concepts[0] if concepts else None
         if not target_concept:
             return create_problem_response(
-                request, 422,
-                "validation-error",
-                "No concept defined",
                 f"Input '{primary_input}' has no concepts defined"
+            ,
+                422,
+                "validation-error"
             )
         
         # Get facts series
@@ -212,10 +212,9 @@ async def get_kpi(
                 if fallback_response:
                     return fallback_response
             return create_problem_response(
-                request, 404,
-                "not-found",
-                "No data found",
-                f"No {freq} data found for {ticker} {kpi} ({target_concept})"
+                f"No {freq} data found for {ticker} {kpi} ({target_concept})",
+                404,
+                "not-found"
             )
         
         # Build response from FactsStore
@@ -273,10 +272,10 @@ async def get_kpi(
             trace_id=getattr(request.state, "trace_id", "unknown")
         )
         return create_problem_response(
-            request, 500,
-            "internal-error",
-            "KPI request failed",
-            f"Internal error: {str(e)}"
+                f"Internal error: {str(e,
+                500,
+                "internal-error"
+            )}"
         )
 
 @router.get("/{ticker}/statements/{statement_type}")
@@ -319,20 +318,19 @@ async def get_financial_statement(
         
         if statement_type not in statement_items:
             return create_problem_response(
-                request, 422,
-                "validation-error",
-                "Invalid statement type",
-                f"Statement type must be one of: {', '.join(statement_items.keys())}"
+                f"Statement type must be one of: {', '.join(statement_items.keys())}",
+                422,
+                "validation-error"
             )
         
         # Get company metadata
         company_metadata = facts_store.get_company_metadata(ticker)
         if not company_metadata:
             return create_problem_response(
-                request, 404,
-                "not-found",
-                "Company not found",
                 f"No data found for company: {ticker}"
+            ,
+                404,
+                "not-found"
             )
         
         # Get statement line items
@@ -415,10 +413,10 @@ async def get_financial_statement(
             trace_id=getattr(request.state, "trace_id", "unknown")
         )
         return create_problem_response(
-            request, 500,
-            "internal-error",
-            "Statement request failed",
-            f"Internal error: {str(e)}"
+                f"Internal error: {str(e,
+                500,
+                "internal-error"
+            )}"
         )
 
 @router.get("/{ticker}/segments/{kpi}")
@@ -448,20 +446,20 @@ async def get_segment_kpi(
         kpi_def = kpi_registry.get_metric(kpi)
         if not kpi_def:
             return create_problem_response(
-                request, 404,
-                "not-found",
-                "KPI not found",
                 f"Unknown KPI: {kpi}"
+            ,
+                404,
+                "not-found"
             )
         
         # Get input concepts
         input_defs = kpi_registry.get_metric_inputs(kpi)
         if not input_defs:
             return create_problem_response(
-                request, 422,
-                "validation-error",
-                "KPI has no inputs",
                 f"KPI '{kpi}' has no defined inputs"
+            ,
+                422,
+                "validation-error"
             )
         
         # Get primary input concept
@@ -473,10 +471,10 @@ async def get_segment_kpi(
         
         if not target_concept:
             return create_problem_response(
-                request, 422,
-                "validation-error",
-                "No concept defined",
                 f"Input '{primary_input}' has no concepts defined"
+            ,
+                422,
+                "validation-error"
             )
         
         # Get facts with segment dimensions
@@ -549,10 +547,10 @@ async def get_segment_kpi(
             trace_id=getattr(request.state, "trace_id", "unknown")
         )
         return create_problem_response(
-            request, 500,
-            "internal-error",
-            "Segment KPI request failed",
-            f"Internal error: {str(e)}"
+                f"Internal error: {str(e,
+                500,
+                "internal-error"
+            )}"
         )
 
 

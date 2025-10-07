@@ -6,7 +6,7 @@ import asyncio
 import logging
 import json
 from typing import Dict, List, Any, Optional, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from .code_execution_tool import CodeExecutionTool
@@ -69,7 +69,7 @@ class ToolManager:
                 return {
                     "status": "completed",
                     "result": f"LLM processed: {task_description}",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
         return LLMTool()
     
@@ -90,7 +90,7 @@ class ToolManager:
             raise ValueError(f"Tool '{tool_name}' not available")
         
         execution_id = str(uuid.uuid4())
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         
         try:
             logger.info(f"Executing tool '{tool_name}' with task: {task_description}")
@@ -106,7 +106,7 @@ class ToolManager:
                 "task_description": task_description,
                 "context": context,
                 "start_time": start_time,
-                "end_time": datetime.utcnow(),
+                "end_time": datetime.now(timezone.utc),
                 "status": "success",
                 "result": result,
                 "error": None
@@ -127,7 +127,7 @@ class ToolManager:
                 "task_description": task_description,
                 "context": context,
                 "start_time": start_time,
-                "end_time": datetime.utcnow(),
+                "end_time": datetime.now(timezone.utc),
                 "status": "failed",
                 "result": None,
                 "error": str(e)

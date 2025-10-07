@@ -4,7 +4,7 @@ Citation formatting service
 
 import structlog
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.models.paper import Paper, Author
 from src.models.request import FormatOptions
@@ -78,8 +78,8 @@ class CitationFormatter:
                 source="openalex",
                 venue="Nature",
                 keywords=["sample", "test", "example"],
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc)
             )
             mock_papers.append(mock_paper)
         

@@ -5,9 +5,13 @@ Context Analyzer - Real AI-powered context understanding
 import asyncio
 import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 class ContextAnalyzer:
     """Real AI-powered context analysis."""
@@ -23,7 +27,7 @@ class ContextAnalyzer:
             analysis = await self._simulate_context_analysis(current_context, problem_description)
             
             self.context_history.append({
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": _utc_timestamp(),
                 "problem": problem_description,
                 "context": current_context,
                 "analysis": analysis
@@ -32,7 +36,7 @@ class ContextAnalyzer:
             return {
                 "status": "success",
                 "analysis": analysis,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
             
         except Exception as e:
@@ -40,7 +44,7 @@ class ContextAnalyzer:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
     
     async def _simulate_context_analysis(self, context: Dict[str, Any], problem: str) -> Dict[str, Any]:

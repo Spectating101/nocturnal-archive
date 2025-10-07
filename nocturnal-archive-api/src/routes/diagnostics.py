@@ -8,7 +8,7 @@ import subprocess
 import structlog
 from fastapi import APIRouter, Query
 from typing import Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.engine.research_engine import sophisticated_engine
 from src.services.performance_integration import performance_integration
@@ -101,7 +101,7 @@ async def selftest(live: bool = Query(False, description="Include live provider 
         "checks": checks,
         "git_commit": get_current_commit(),
         "build_id": os.getenv("BUILD_ID", "dev"),
-        "timestamp": datetime.utcnow().isoformat(),
+    "timestamp": datetime.now(timezone.utc).isoformat(),
         "live_checks": live
     }
 

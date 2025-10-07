@@ -6,12 +6,16 @@ import asyncio
 from typing import Dict, List, Any, Optional
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.services.llm_service.llm_manager import LLMManager
 
 # Configure structured logging
 logger = logging.getLogger(__name__)
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 class ResearchConversationManager:
     """
@@ -198,8 +202,8 @@ class ResearchConversationManager:
             conversation = {
                 "id": conversation_id,
                 "session_id": sanitized_session_id,
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat(),
+                "created_at": _utc_timestamp(),
+                "updated_at": _utc_timestamp(),
                 "messages": [
                     {"role": "system", "content": system_message}
                 ],
@@ -266,7 +270,7 @@ class ResearchConversationManager:
             conversation["messages"].append({
                 "role": role,
                 "content": sanitized_content,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             })
             
             # Format messages for LLM
@@ -280,11 +284,11 @@ class ResearchConversationManager:
                 conversation["messages"].append({
                     "role": "assistant",
                     "content": response,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _utc_timestamp()
                 })
                 
                 # Update conversation
-                conversation["updated_at"] = datetime.utcnow().isoformat()
+                conversation["updated_at"] = _utc_timestamp()
                 await self._store_conversation(conversation)
                 
                 #logger.info(f"Successfully processed message for conversation: {conversation_id[:20]}...")
@@ -543,7 +547,7 @@ Maintain a scholarly, informative tone while being conversational and accessible
         try:
             health_status = {
                 "status": "healthy",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": _utc_timestamp(),
                 "components": {}
             }
             
@@ -580,7 +584,7 @@ Maintain a scholarly, informative tone while being conversational and accessible
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
     
     async def cleanup(self):

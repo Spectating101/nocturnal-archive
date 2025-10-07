@@ -1,13 +1,13 @@
 """
-Nocturnal Archive - Production-ready AI Research Assistant
+Nocturnal Archive - Beta Agent
 
-A sophisticated research assistant with access to real financial data (SEC EDGAR)
-and academic research (OpenAlex, PubMed) through natural conversation.
+A Groq-powered research and finance co-pilot with deterministic tooling and
+prior stacks preserved only in Git history, kept out of the runtime footprint.
 """
 
 from .enhanced_ai_agent import EnhancedNocturnalAgent, ChatRequest, ChatResponse
 
-__version__ = "1.0.0"
+__version__ = "0.9.0b1"
 __author__ = "Nocturnal Archive Team"
 __email__ = "contact@nocturnal.dev"
 
@@ -20,7 +20,7 @@ __all__ = [
 # Package metadata
 PACKAGE_NAME = "nocturnal-archive"
 PACKAGE_VERSION = __version__
-PACKAGE_DESCRIPTION = "Production-ready AI Research Assistant with real data integration"
+PACKAGE_DESCRIPTION = "Beta CLI agent for finance + research workflows"
 PACKAGE_URL = "https://github.com/Spectating101/nocturnal-archive"
 
 def get_version():
@@ -33,37 +33,33 @@ def quick_start():
 🚀 Nocturnal Archive Quick Start
 ================================
 
-1. Install the package:
+1. Install the package and CLI:
    pip install nocturnal-archive
 
-2. Get your API keys:
-   - Groq API: https://console.groq.com/keys
-   - Archive API: Included (uses public academic sources)
+2. Configure your Groq key:
+   nocturnal --setup
 
-3. Create your first agent:
+3. Ask a question:
+   nocturnal "Compare Apple and Microsoft net income this quarter"
+
+4. Prefer embedding in code? Minimal example:
    ```python
    import asyncio
    from nocturnal_archive import EnhancedNocturnalAgent, ChatRequest
-   
+
    async def main():
        agent = EnhancedNocturnalAgent()
        await agent.initialize()
-       
-       request = ChatRequest(
-           question="Find papers on machine learning and get Apple revenue data",
-           user_id="user123",
-           conversation_id="conv1"
-       )
-       
-       response = await agent.process_request(request)
+
+       response = await agent.process_request(ChatRequest(question="List repo workspace files"))
        print(response.response)
-       
+
        await agent.close()
-   
+
    asyncio.run(main())
    ```
 
-4. For more examples, visit: https://github.com/Spectating101/nocturnal-archive
+Full installation instructions live in docs/INSTALL.md.
 """)
 
 if __name__ == "__main__":

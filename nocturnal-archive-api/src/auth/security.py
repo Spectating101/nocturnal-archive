@@ -5,7 +5,7 @@ Production-ready authentication and authorization system
 import hashlib
 import secrets
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 import structlog
 from fastapi import HTTPException, status, Depends
@@ -50,9 +50,9 @@ class AuthManager:
         """Create JWT access token"""
         to_encode = data.copy()
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = datetime.now(timezone.utc) + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+            expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         
         to_encode.update({"exp": expire})
         encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -79,7 +79,7 @@ class AuthManager:
             "user_id": user_id,
             "name": name,
             "permissions": permissions,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "last_used": None,
             "usage_count": 0
         }
@@ -108,7 +108,7 @@ class AuthManager:
             data = ast.literal_eval(key_data.decode())
             
             # Update usage statistics
-            data["last_used"] = datetime.utcnow().isoformat()
+            data["last_used"] = datetime.now(timezone.utc).isoformat()
             data["usage_count"] = data.get("usage_count", 0) + 1
             
             await self.redis.setex(

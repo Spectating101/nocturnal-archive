@@ -6,7 +6,7 @@ Normalizes and indexes XBRL facts for efficient retrieval
 import asyncio
 import structlog
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from dataclasses import dataclass
 from enum import Enum
 import json
@@ -67,7 +67,7 @@ class FactsStore:
             except RuntimeError:
                 asyncio.run(_load_fixtures())
         
-    async def store_company_facts(self, company_data: Dict[str, Any]):
+    async def store_company_facts(self, company_data: Dict[str, Any], *, replace_existing: bool = False):
         """
         Store facts from SEC company facts API
         
@@ -89,6 +89,9 @@ class FactsStore:
                 concepts_count=company_data.get("total_concepts", 0)
             )
             
+            if replace_existing:
+                self._clear_company_facts(cik)
+
             # Store company metadata
             self.company_metadata[cik] = {
                 "company_name": company_name,
@@ -314,6 +317,44 @@ class FactsStore:
             elif freq == "A":
                 concept_facts = [f for f in concept_facts if "Q" not in f.period]
 
+            if self._concept_data_stale(concept_facts):
+                logger.warning(
+                    "Stale financial data detected, attempting refresh",
+                    ticker=ticker,
+                    concept=concept,
+                    latest_period=concept_facts[0].period if concept_facts else None
+                )
+
+                await self._lazy_load_company_facts(ticker, cik, force_refresh=True)
+
+                company_facts = self.facts_by_company.get(cik, {})
+                concept_facts = company_facts.get(concept, [])
+
+                if segment:
+                    concept_facts = [f for f in concept_facts if f.dimensions.get("BusinessSegment") == segment]
+
+                if freq == "Q":
+                    concept_facts = [f for f in concept_facts if "Q" in f.period]
+                elif freq == "A":
+                    concept_facts = [f for f in concept_facts if "Q" not in f.period]
+
+                if not concept_facts:
+                    logger.warning(
+                        "No facts available after refresh",
+                        ticker=ticker,
+                        concept=concept,
+                        freq=freq
+                    )
+                    return None
+
+                if self._concept_data_stale(concept_facts):
+                    logger.warning(
+                        "Financial data remains stale after refresh",
+                        ticker=ticker,
+                        concept=concept,
+                        latest_period=concept_facts[0].period if concept_facts else None
+                    )
+
             if not concept_facts:
                 logger.warning("No facts found for frequency", ticker=ticker, concept=concept, freq=freq)
                 return None
@@ -417,6 +458,7 @@ class FactsStore:
 
             mapping = await resolve_ticker(ticker)
             if mapping and mapping.cik:
+                self._ticker_to_cik[ticker_upper] = mapping.cik
                 logger.info("Resolved ticker to CIK", ticker=ticker, cik=mapping.cik, company=mapping.company_name)
                 return mapping.cik
 
@@ -427,7 +469,7 @@ class FactsStore:
             logger.error("Ticker to CIK resolution failed", ticker=ticker, error=str(e))
             return None
 
-    async def _lazy_load_company_facts(self, ticker: str, cik: str) -> None:
+    async def _lazy_load_company_facts(self, ticker: str, cik: str, *, force_refresh: bool = False) -> None:
         """
         Lazy-load company facts from SEC Facts API when not in cache.
         This enables "just works" UX - any ticker can be queried without pre-loading!
@@ -440,7 +482,7 @@ class FactsStore:
             if self.settings.environment == "test":
                 fixture = TEST_COMPANY_DATA.get(ticker.upper()) or TEST_COMPANY_BY_CIK.get(cik)
                 if fixture:
-                    await self.store_company_facts(fixture)
+                    await self.store_company_facts(fixture, replace_existing=force_refresh)
                     return
 
             # Get the SEC Facts adapter
@@ -451,7 +493,7 @@ class FactsStore:
 
             if company_data:
                 # Store the facts for future use
-                await self.store_company_facts(company_data)
+                await self.store_company_facts(company_data, replace_existing=force_refresh)
                 logger.info("Successfully lazy-loaded company facts", ticker=ticker, cik=cik,
                            concepts_count=company_data.get("total_concepts", 0))
             else:
@@ -516,6 +558,90 @@ class FactsStore:
         if cik:
             return self.company_metadata.get(cik)
         return None
+
+    def _clear_company_facts(self, cik: str) -> None:
+        """Remove cached facts for a company before refreshing."""
+
+        company_facts = self.facts_by_company.pop(cik, {})
+        if not company_facts:
+            return
+
+        for concept, facts in list(self.facts_by_concept.items()):
+            filtered = [fact for fact in facts if fact.cik != cik]
+            if filtered:
+                self.facts_by_concept[concept] = filtered
+            else:
+                self.facts_by_concept.pop(concept, None)
+
+    def _concept_data_stale(self, facts: List[Fact], max_age_years: int = 3) -> bool:
+        """Return True when the newest fact in the list is older than `max_age_years`."""
+
+        if not facts:
+            return False
+
+        latest_fact = max(
+            facts,
+            key=lambda f: (f.end_date or "", f.period or "")
+        )
+
+        age_years = self._fact_age_years(latest_fact)
+        return age_years is not None and age_years > max_age_years
+
+    def _fact_age_years(self, fact: Fact) -> Optional[float]:
+        """Calculate the age of a fact in years using end date or period label."""
+
+        reference_date: Optional[datetime] = None
+
+        if fact.end_date:
+            try:
+                reference_date = datetime.strptime(fact.end_date[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                reference_date = None
+
+        if reference_date is None and fact.period:
+            reference_date = self._parse_period_to_datetime(fact.period)
+
+        if reference_date is None:
+            return None
+
+        return (datetime.now(timezone.utc) - reference_date).days / 365.25
+
+    def _parse_period_to_datetime(self, period: str) -> Optional[datetime]:
+        """Convert period labels like '2024-Q3' to an approximate period end date."""
+
+        if not period:
+            return None
+
+        try:
+            if "-Q" in period:
+                year_str, quarter_str = period.split("-Q", 1)
+                quarter = int(quarter_str)
+                month = quarter * 3
+                day = 31 if quarter in {1, 4} else 30
+                if quarter == 1:
+                    month = 3
+                    day = 31
+                elif quarter == 2:
+                    month = 6
+                    day = 30
+                elif quarter == 3:
+                    month = 9
+                    day = 30
+                elif quarter == 4:
+                    month = 12
+                    day = 31
+                return datetime(int(year_str), month, day, tzinfo=timezone.utc)
+
+            if period.endswith("-FY"):
+                year = int(period.split("-FY", 1)[0])
+                return datetime(year, 12, 31, tzinfo=timezone.utc)
+
+            if len(period) == 10 and period[4] == "-" and period[7] == "-":
+                return datetime.strptime(period, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            return None
+
+        return None
     
     def _resolve_ticker_to_cik_sync(self, ticker: str) -> Optional[str]:
         """Synchronous ticker to CIK resolution (uses async under the hood)"""
@@ -537,6 +663,7 @@ class FactsStore:
                 # Event loop not running, safe to use asyncio.run()
                 mapping = asyncio.run(resolve_ticker(ticker))
                 if mapping and mapping.cik:
+                    self._ticker_to_cik[ticker.upper()] = mapping.cik
                     return mapping.cik
                 return None
 

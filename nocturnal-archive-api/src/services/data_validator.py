@@ -10,7 +10,7 @@ import asyncio
 import os
 import statistics
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -150,7 +150,7 @@ class DataValidator:
             consensus_value=consensus,
             discrepancies=discrepancies,
             sources=sources,
-            validation_time=datetime.utcnow().isoformat(),
+            validation_time=datetime.now(timezone.utc).isoformat(),
         )
 
         logger.info(

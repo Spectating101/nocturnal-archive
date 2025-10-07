@@ -7,13 +7,17 @@ import asyncio
 import logging
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 logger = logging.getLogger(__name__)
 
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
 try:
-    import nocturnal_performance as rust_perf
+    import nocturnal_performance as rust_perf  # type: ignore[import]
     RUST_AVAILABLE = True
     logger.info("Rust performance module loaded successfully")
 except ImportError:
@@ -212,7 +216,7 @@ class HighPerformanceService:
                         title=title_text,
                         content=content,
                         metadata=metadata,
-                        timestamp=datetime.utcnow()
+                        timestamp=_utc_now()
                     )
                     
             except Exception as e:

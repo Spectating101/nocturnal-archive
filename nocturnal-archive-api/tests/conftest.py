@@ -1,53 +1,101 @@
-"""Pytest fixtures for integration-style tests."""
+"""Pytest fixtures for lightweight, in-process API tests."""
 from __future__ import annotations
 
 import os
-import socket
-import threading
-import time
 from typing import Iterator
+from urllib.parse import urlparse, urlunparse
 
+import anyio
+import httpx
 import pytest
-import uvicorn
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("PYTEST_ENV", "1")
+os.environ.setdefault("BASE", "http://testserver")
+os.environ.setdefault("API_KEY", "demo-key-123")
 
 from src.main import app
 
 
-def _wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:
-    """Wait until a TCP port starts accepting connections."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.settimeout(0.25)
-            try:
-                sock.connect((host, port))
-            except OSError:
-                time.sleep(0.1)
-                continue
-            else:
-                return
-    raise RuntimeError(f"Server on {host}:{port} did not start within {timeout} seconds")
+@pytest.fixture(scope="session")
+def test_app() -> FastAPI:
+    """Expose the FastAPI application object for tests."""
+    return app
 
 
-@pytest.fixture(scope="session", autouse=True)
-def start_test_server() -> Iterator[None]:
-    """Start the FastAPI app in a background thread for httpx-based tests."""
-    host = os.getenv("NA_TEST_HOST", "127.0.0.1")
-    port = int(os.getenv("NA_TEST_PORT", "8000"))
+@pytest.fixture(scope="session")
+def client(test_app: FastAPI) -> Iterator[TestClient]:
+    """Synchronous TestClient bound to the FastAPI app."""
+    with TestClient(test_app) as test_client:
+        yield test_client
 
-    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
-    server = uvicorn.Server(config)
 
-    thread = threading.Thread(target=server.run, name="uvicorn-test-server", daemon=True)
-    thread.start()
+class _SyncHttpxClient:
+    """Sync facade over httpx.AsyncClient using ASGITransport."""
 
-    _wait_for_port(host, port)
+    def __init__(self, app: FastAPI, base_url: str) -> None:
+        self._client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url=base_url,
+            follow_redirects=True,
+        )
 
+    def request(self, method: str, url: str, **kwargs):
+        normalized = _normalize_url(url)
+        async def _run_request():
+            return await self._client.request(method, normalized, **kwargs)
+
+        return anyio.run(_run_request)
+
+    def close(self) -> None:
+        anyio.run(self._client.aclose)
+
+    def __getattr__(self, item: str):
+        if item.lower() in {"get", "post", "put", "patch", "delete", "head", "options"}:
+            def _call(url: str, **kwargs):
+                return self.request(item.upper(), url, **kwargs)
+
+            return _call
+        raise AttributeError(item)
+
+
+@pytest.fixture(scope="session")
+def httpx_client(test_app: FastAPI) -> Iterator[_SyncHttpxClient]:
+    """HTTPX client wired to the FastAPI app via ASGI transport."""
+    client = _SyncHttpxClient(test_app, os.environ["BASE"])
     try:
-        yield
+        yield client
     finally:
-        server.should_exit = True
-        thread.join(timeout=5)
+        client.close()
+
+
+def _normalize_url(url: str) -> str:
+    """Strip scheme/host so httpx client uses its base URL."""
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.netloc:
+        return urlunparse(("", "", parsed.path or "/", "", parsed.query, parsed.fragment))
+    return url
+
+
+@pytest.fixture(autouse=True)
+def _patch_httpx(monkeypatch, httpx_client: httpx.Client) -> Iterator[None]:
+    """Route module-level httpx calls through the in-process client."""
+
+    def _make_request(method: str):
+        def _request(url: str, **kwargs):
+            normalized = _normalize_url(url)
+            return httpx_client.request(method, normalized, **kwargs)
+
+        return _request
+
+    for method in ("get", "post", "put", "patch", "delete", "head", "options"):
+        monkeypatch.setattr(httpx, method, _make_request(method.upper()))
+
+    def _request(method: str, url: str, **kwargs):
+        normalized = _normalize_url(url)
+        return httpx_client.request(method, normalized, **kwargs)
+
+    monkeypatch.setattr(httpx, "request", _request)
+    yield

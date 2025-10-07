@@ -5,10 +5,12 @@ Nocturnal Archive API - Main FastAPI application
 import logging
 import time
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from importlib import import_module
+from typing import AsyncGenerator, Optional
 
 import structlog
-from fastapi import FastAPI, Request, Response, HTTPException
+from structlog.stdlib import LoggerFactory
+from fastapi import APIRouter, FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
@@ -22,50 +24,50 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from src.config.settings import get_settings
 from src.middleware.rate_limit import RateLimitMiddleware
-from src.middleware.tracing import TracingMiddleware
-from src.middleware.admin_auth import AdminAuthMiddleware
 from src.middleware.api_auth import APIKeyAuthMiddleware
-from src.middleware.security import SecurityMiddleware
-from src.middleware.pilot_guards import PilotGuardsMiddleware
-from src.middleware.request_id import RequestIdMiddleware
-from src.routes import (
-    health,
-    search,
-    format,
-    synthesize,
-    analytics,
-    diagnostics,
-    finance,
-    jobs,
-    admin,
-    papers_demo,
-    finance_filings,
-    finance_calc,
-    finance_kpis,
-    finance_segments,
-    finance_status,
-    finance_reports,
-    nlp,
-    quota,
-    ops,
-)
-from src import errors
-from src.utils.logger import setup_logging
+from src.utils.resiliency import init_redis
 
-# Configure structured logging
-setup_logging()
+
+def _configure_logging(log_level: str) -> None:
+    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+    logging.basicConfig(
+        level=numeric_level,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+    structlog.configure(
+        processors=[
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.add_log_level,
+            structlog.processors.format_exc_info,
+            structlog.processors.JSONRenderer(),
+        ],
+        wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
+        logger_factory=LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+
+
+# Get settings and configure logging
+settings = get_settings()
+_configure_logging(settings.log_level)
 logger = structlog.get_logger(__name__)
 
-# Initialize enterprise components
-from src.utils.resiliency import init_redis
-from src.jobs.queue import init_job_queue
-
-# Initialize Redis and job queue
+# Initialize optional dependencies
 init_redis()
-init_job_queue()
 
-# Get settings
-settings = get_settings()
+
+def _load_router(name: str) -> Optional[APIRouter]:
+    """Best-effort import of a route module, logging and skipping on failure."""
+
+    try:
+        module = import_module(f"src.routes.{name}")
+        router = getattr(module, "router", None)
+        if router is None:
+            logger.warning("Route module missing router attribute", module=name)
+        return router
+    except Exception as exc:  # pragma: no cover - diagnostic logging
+        logger.warning("Route module unavailable", module=name, error=str(exc))
+        return None
 
 # Initialize Sentry
 if SENTRY_AVAILABLE and settings.sentry_dsn and settings.sentry_dsn != "your-sentry-dsn-here":
@@ -117,10 +119,6 @@ app.add_middleware(
     allowed_hosts=["*"] if settings.environment in {"development", "test"} else ["api.nocturnal-archive.com"]
 )
 
-app.add_middleware(SecurityMiddleware)
-app.add_middleware(TracingMiddleware)
-app.add_middleware(RequestIdMiddleware)  # Add request ID middleware
-app.add_middleware(PilotGuardsMiddleware)  # Add pilot guards middleware
 app.add_middleware(APIKeyAuthMiddleware)
 app.add_middleware(
     RateLimitMiddleware,
@@ -128,7 +126,6 @@ app.add_middleware(
     burst_limit=20,           # Allow burst of 20 requests
     per_ip_limit=50           # Global per-IP fuse: 50 req/s
 )
-app.add_middleware(AdminAuthMiddleware)
 
 # Add Prometheus metrics
 Instrumentator().instrument(app).expose(app, include_in_schema=False)
@@ -156,14 +153,25 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         trace_id=getattr(request.state, "trace_id", "unknown")
     )
 
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
+    detail_payload = exc.detail
+    if not isinstance(detail_payload, dict):
+        detail_payload = {
             "error": "authentication_error" if exc.status_code in (401, 403) else "http_error",
-            "message": exc.detail,
-            "request_id": getattr(request.state, "trace_id", "unknown")
+            "message": detail_payload,
         }
-    )
+
+    body = {
+        "detail": detail_payload,
+        "request_id": getattr(request.state, "trace_id", "unknown"),
+    }
+
+    # Preserve legacy top-level keys for backward compatibility
+    if "error" not in body and "error" in detail_payload:
+        body["error"] = detail_payload["error"]
+    if "message" not in body and "message" in detail_payload:
+        body["message"] = detail_payload["message"]
+
+    return JSONResponse(status_code=exc.status_code, content=body)
 
 
 @app.exception_handler(Exception)
@@ -187,62 +195,70 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Include routers
-app.include_router(health.router, prefix="/api", tags=["System"])
-app.include_router(search.router, prefix="/api", tags=["Search"])
-app.include_router(format.router, prefix="/api", tags=["Format"])
-app.include_router(synthesize.router, prefix="/api", tags=["Synthesis"])
-app.include_router(analytics.router, prefix="/api", tags=["Analytics"])
-app.include_router(diagnostics.router, prefix="/v1/diag", tags=["Diagnostics"])
+# Include routers (optional modules are skipped gracefully)
+_routers = {
+    name: _load_router(name)
+    for name in (
+        "health",
+        "search",
+        "format",
+        "synthesize",
+        "analytics",
+        "diagnostics",
+        "finance_calc",
+        "finance_kpis",
+        "finance_reports",
+        "finance_filings",
+        "finance_segments",
+        "finance_status",
+        "admin",
+        "jobs",
+        "ops",
+        "quota",
+        "nlp",
+        "telemetry",
+    )
+}
+
+
+def _include(name: str, **kwargs) -> None:
+    router = _routers.get(name)
+    if router is not None:
+        app.include_router(router, **kwargs)
+
+
+_include("health", prefix="/api", tags=["System"])
+_include("search", prefix="/api", tags=["Search"])
+_include("format", prefix="/api", tags=["Format"])
+_include("synthesize", prefix="/api", tags=["Synthesis"])
+_include("analytics", prefix="/api", tags=["Analytics"])
+_include("diagnostics", prefix="/v1/diag", tags=["Diagnostics"])
 
 # Versioned API routes
-app.include_router(health.router, prefix="/v1/api", tags=["System v1"])
-app.include_router(search.router, prefix="/v1/api", tags=["Search v1"])
-app.include_router(format.router, prefix="/v1/api", tags=["Format v1"])
-app.include_router(synthesize.router, prefix="/v1/api", tags=["Synthesis v1"])
+_include("health", prefix="/v1/api", tags=["System v1"])
+_include("search", prefix="/v1/api", tags=["Search v1"])
+_include("format", prefix="/v1/api", tags=["Format v1"])
+_include("synthesize", prefix="/v1/api", tags=["Synthesis v1"])
 
-# New enterprise features
-app.include_router(finance.router, tags=["Finance v1"])
-app.include_router(jobs.router, tags=["Jobs v1"])
-app.include_router(admin.router, tags=["Admin v1"])
-
-# Papers Demo API (frozen)
-app.include_router(papers_demo.router, tags=["Papers Demo"])
-
-# FinSight API (commercial) - routers already have prefixes
-app.include_router(finance_filings.router, tags=["FinSight"])
-app.include_router(finance_calc.router, tags=["FinSight"])
-app.include_router(finance_kpis.router, tags=["FinSight"])
-app.include_router(finance_segments.router, tags=["FinSight"])
-app.include_router(finance_status.router, tags=["FinSight"])
-app.include_router(finance_reports.router, tags=["FinSight"])
-app.include_router(nlp.router, tags=["FinSight"])
+_include("finance_calc", tags=["FinSight"])
+_include("finance_kpis", prefix="/v1/finance", tags=["FinSight"])
+_include("finance_reports", prefix="/v1/finance", tags=["FinSight"])
+_include("finance_filings", prefix="/v1/finance", tags=["FinSight"])
+_include("finance_segments", prefix="/v1/finance", tags=["FinSight"])
+_include("finance_status", prefix="/v1/finance", tags=["FinSight"])
+_include("admin", prefix="/v1/admin", tags=["Admin"])
+_include("jobs", prefix="/v1/jobs", tags=["Jobs"])
+_include("ops", prefix="/v1/ops", tags=["Operations"])
+_include("quota", prefix="/v1/quota", tags=["Quota"])
+_include("nlp", tags=["FinSight"])
+_include("telemetry", prefix="/api", tags=["Telemetry"])
 
 # RAG Q&A API (feature flag controlled)
 if settings.enable_rag:
-    try:
-        from src.routes import qa
+    qa_router = _load_router("qa")
+    if qa_router is not None:
+        app.include_router(qa_router, tags=["FinSight"])
 
-        app.include_router(qa.router, tags=["FinSight"])
-    except ImportError as exc:
-        logger.warning("RAG QA routes not available", error=str(exc))
-
-# Quota management API (pilot mode)
-app.include_router(quota.router, tags=["FinSight"])
-
-# Operational endpoints (pilot mode)
-app.include_router(ops.router, tags=["FinSight"])
-
-# Integrated Analysis API (cross-system research + finance)
-try:
-    from src.routes.integrated_analysis import router as integrated_analysis_router
-    app.include_router(integrated_analysis_router, tags=["Integrated Analysis"])
-    logger.info("Integrated Analysis routes loaded successfully")
-except ImportError as e:
-    logger.warning(f"Integrated Analysis routes not available: {e}")
-
-# Wire up structured error handling
-errors.wire_errors(app)
 
 
 @app.get("/")
@@ -264,14 +280,21 @@ async def livez():
 async def readyz():
     """Kubernetes readiness probe - dependencies are OK"""
     try:
-        # Quick check if core services are responsive
-        from src.engine.research_engine import sophisticated_engine
-        
-        # Check if engine is loaded
-        if sophisticated_engine.enhanced_research is None:
-            raise HTTPException(status_code=503, detail="Engine not ready")
-        
-        return {"status": "ready"}
+        from src.engine.research_engine import sophisticated_engine, ADVANCED_ENGINE_AVAILABLE  # Lazy import to avoid circulars
+        from src.utils.resiliency import redis_client
+
+        issues = []
+
+        if not ADVANCED_ENGINE_AVAILABLE or sophisticated_engine.enhanced_research is None:
+            issues.append("advanced_engine_unavailable")
+
+        if redis_client is None:
+            issues.append("redis_unavailable")
+
+        status = "ready" if not issues else "degraded"
+
+        return {"status": status, "issues": issues or None}
+
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Not ready: {str(e)}")
 

@@ -1,6 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict
 from pydantic import BaseModel, Field
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
 
 class Paper(BaseModel):
     """Paper metadata model."""
@@ -26,7 +30,7 @@ class ProcessedPaper(BaseModel):
     chunks: List[TextChunk] = Field(default_factory=list)
     summary: Optional[str] = None
     vector_id: Optional[str] = None
-    processed_at: datetime = Field(default_factory=datetime.utcnow)
+    processed_at: datetime = Field(default_factory=_utc_now)
     metadata: Dict = Field(default_factory=dict)
 
 class SearchResult(BaseModel):
@@ -43,8 +47,8 @@ class ResearchSession(BaseModel):
     topic: str
     papers: List[str] = Field(default_factory=list)
     notes: List[Dict] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
     status: str = "active"
     progress: Dict = Field(default_factory=dict)
     context: Dict = Field(default_factory=dict)

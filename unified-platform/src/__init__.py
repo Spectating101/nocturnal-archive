@@ -1,1 +1,0 @@
-# Nocturnal Platform - Enhanced Interactive Agent

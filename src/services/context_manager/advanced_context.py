@@ -6,7 +6,7 @@ import asyncio
 import logging
 import json
 from typing import Dict, List, Any, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 
 from .knowledge_graph import KnowledgeGraph
@@ -14,6 +14,14 @@ from .memory_manager import MemoryManager
 from .entity_tracker import EntityTracker
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _utc_timestamp() -> str:
+    return _utc_now().isoformat()
 
 class AdvancedContextManager:
     """
@@ -57,7 +65,7 @@ class AdvancedContextManager:
         """
         try:
             interaction_id = str(uuid.uuid4())
-            timestamp = datetime.utcnow()
+            timestamp = _utc_now()
             
             # Extract entities and relationships
             entities = await self.entity_tracker.extract_entities(user_input)
@@ -103,7 +111,7 @@ class AdvancedContextManager:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
     
     async def retrieve_relevant_context(self, query: str, session_id: str = None, 
@@ -146,7 +154,7 @@ class AdvancedContextManager:
                     "memory": len(memory_results),
                     "session": 1 if session_context else 0
                 },
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
             
         except Exception as e:
@@ -154,7 +162,7 @@ class AdvancedContextManager:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
     
     async def get_session_context(self, session_id: str) -> Dict[str, Any]:
@@ -163,7 +171,7 @@ class AdvancedContextManager:
             return {
                 "status": "not_found",
                 "message": "Session not found",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
         
         context = self.active_contexts[session_id]
@@ -171,7 +179,7 @@ class AdvancedContextManager:
             "status": "success",
             "session_id": session_id,
             "context": context,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_timestamp()
         }
     
     async def create_session_context(self, session_id: str, user_id: str = None, 
@@ -180,8 +188,8 @@ class AdvancedContextManager:
         context = {
             "session_id": session_id,
             "user_id": user_id,
-            "created_at": datetime.utcnow(),
-            "last_updated": datetime.utcnow(),
+            "created_at": _utc_now(),
+            "last_updated": _utc_now(),
             "interactions": [],
             "entities": set(),
             "topics": set(),
@@ -196,7 +204,7 @@ class AdvancedContextManager:
             "status": "success",
             "session_id": session_id,
             "context": context,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_timestamp()
         }
     
     async def update_session_context(self, session_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
@@ -205,18 +213,18 @@ class AdvancedContextManager:
             return {
                 "status": "not_found",
                 "message": "Session not found",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
         
         context = self.active_contexts[session_id]
         context.update(updates)
-        context["last_updated"] = datetime.utcnow()
+        context["last_updated"] = _utc_now()
         
         return {
             "status": "success",
             "session_id": session_id,
             "context": context,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_timestamp()
         }
     
     async def _update_session_context(self, session_id: str, interaction: Dict[str, Any]):
@@ -227,7 +235,7 @@ class AdvancedContextManager:
         context = self.active_contexts[session_id]
         context["interactions"].append(interaction)
         context["entities"].update(interaction.get("entities", []))
-        context["last_updated"] = datetime.utcnow()
+        context["last_updated"] = _utc_now()
     
     async def _extract_context_metadata(self, user_input: str, response: str) -> Dict[str, Any]:
         """Extract metadata from interaction."""
@@ -298,7 +306,7 @@ class AdvancedContextManager:
     
     async def cleanup_old_contexts(self, max_age_hours: int = 24):
         """Clean up old context data."""
-        cutoff_time = datetime.utcnow() - timedelta(hours=max_age_hours)
+        cutoff_time = _utc_now() - timedelta(hours=max_age_hours)
         
         # Clean up active contexts
         sessions_to_remove = []
@@ -319,5 +327,5 @@ class AdvancedContextManager:
             "knowledge_graph_nodes": await self.knowledge_graph.get_node_count(),
             "knowledge_graph_edges": await self.knowledge_graph.get_edge_count(),
             "memory_entries": await self.memory_manager.get_entry_count(),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_timestamp()
         }

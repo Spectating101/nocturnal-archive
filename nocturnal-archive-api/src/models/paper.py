@@ -59,3 +59,7 @@ class SynthesisResult(BaseModel):
     complexity: Optional[str] = Field(None, description="Task complexity used by router")
     token_usage: Optional[Dict[str, Any]] = Field(None, description="Token usage reported by provider (may include floats)")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata including routing decisions")
+    relevance_score: Optional[float] = Field(
+        None,
+        description="Query-word overlap ratio between 0 and 1 for transparency"
+    )

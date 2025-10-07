@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -30,6 +30,10 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 # Add CORS middleware
 app.add_middleware(
@@ -91,7 +95,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy", 
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": _utc_timestamp(),
         "services": {
             "reasoning_engine": "operational",
             "tool_framework": "operational",
@@ -260,7 +264,7 @@ async def enhanced_chat_endpoint(request: ChatRequest):
         return {
             "response": response,
             "session_id": session_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": _utc_timestamp(),
             "mode": "enhanced_reasoning" if request.use_advanced_reasoning else "standard"
         }
         

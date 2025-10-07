@@ -4,9 +4,15 @@ Automatic setup and configuration for Nocturnal Archive
 """
 
 import os
-import sys
+from getpass import getpass
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+
+from .account_client import AccountClient, AccountCredentials, AccountProvisioningError
+
+KEY_PLACEHOLDER = "__KEYRING__"
+KEYRING_SERVICE = "Nocturnal Archive"
+DEFAULT_QUERY_LIMIT = 25
 
 class NocturnalConfig:
     """Handles automatic configuration and setup"""
@@ -15,52 +21,87 @@ class NocturnalConfig:
         self.config_dir = Path.home() / ".nocturnal_archive"
         self.config_file = self.config_dir / "config.env"
         self.ensure_config_dir()
+        self._keyring = None
+        try:
+            import keyring  # type: ignore
+
+            self._keyring = keyring
+        except Exception:
+            self._keyring = None
     
     def ensure_config_dir(self):
         """Create config directory if it doesn't exist"""
         self.config_dir.mkdir(exist_ok=True)
     
     def interactive_setup(self) -> bool:
-        """Interactive setup for API keys and configuration"""
-        print("🚀 Nocturnal Archive Setup")
+        """Interactive setup for account authentication and configuration."""
+        print("🚀 Nocturnal Archive Beta Setup")
         print("=" * 40)
         print()
-        
-        # Check if already configured
+
         if self.config_file.exists():
             print("✅ Configuration already exists!")
             response = input("Do you want to reconfigure? (y/N): ").strip().lower()
-            if response not in ['y', 'yes']:
+            if response not in ["y", "yes"]:
                 return True
-        
-        print("Let's set up your API keys for the best experience:")
+
+        print("You'll use your institution-issued account to sign in. No invite codes or manual API keys required.")
         print()
-        
-        # Get Groq API key
-        groq_key = self._get_groq_api_key()
-        if not groq_key:
-            print("❌ Groq API key is required for the AI agent functionality")
+
+        email = self._prompt_academic_email()
+        if not email:
             return False
-        
-        # Optional API keys
-        print("\n📚 Optional: Academic Research APIs (for enhanced paper search)")
-        openalex_key = input("OpenAlex API key (optional, press Enter to skip): ").strip()
-        pubmed_key = input("PubMed API key (optional, press Enter to skip): ").strip()
-        
-        print("\n💰 Optional: Additional Financial Data APIs")
-        alpha_vantage_key = input("Alpha Vantage API key (optional, press Enter to skip): ").strip()
-        
-        # Save configuration
+
+        password = self._prompt_password()
+        if not password:
+            return False
+
+        if not self._confirm_beta_terms():
+            print("❌ Terms must be accepted to continue")
+            return False
+
+        try:
+            credentials = self._provision_account(email, password)
+        except AccountProvisioningError as exc:
+            print(f"❌ Could not verify your account: {exc}")
+            return False
+
+        stored_in_keyring = self._store_secret("GROQ_API_KEY", credentials.api_key)
+        if stored_in_keyring:
+            self._notify_keyring_success()
+            config_groq_value = KEY_PLACEHOLDER
+            secret_backend = "keyring"
+        else:
+            self._warn_keyring_fallback()
+            config_groq_value = credentials.api_key
+            secret_backend = "file"
+
+        print("\n🛡️  Recap of beta limitations:")
+        for item in self._beta_limitations():
+            print(f" • {item}")
+        print()
+
+        if not self._confirm("I understand the beta limitations above (Y/n): "):
+            print("❌ Please acknowledge the beta limitations to continue")
+            return False
+
         config = {
-            "GROQ_API_KEY": groq_key,
-            "OPENALEX_API_KEY": openalex_key,
-            "PUBMED_API_KEY": pubmed_key,
-            "ALPHA_VANTAGE_API_KEY": alpha_vantage_key,
-            "NOCTURNAL_CONFIG_VERSION": "1.0.0"
+            "NOCTURNAL_ACCOUNT_EMAIL": credentials.email,
+            "NOCTURNAL_ACCOUNT_ID": credentials.account_id,
+            "NOCTURNAL_AUTH_TOKEN": credentials.auth_token,
+            "NOCTURNAL_REFRESH_TOKEN": credentials.refresh_token,
+            "NOCTURNAL_TELEMETRY_TOKEN": credentials.telemetry_token,
+            "NOCTURNAL_ACCOUNT_ISSUED_AT": credentials.issued_at or "",
+            "GROQ_API_KEY": config_groq_value,
+            "NOCTURNAL_TELEMETRY": "1",
+            "NOCTURNAL_TERMS_ACCEPTED": "1",
+            "NOCTURNAL_LIMITATIONS_ACK": "1",
+            "NOCTURNAL_CONFIG_VERSION": "2.0.0",
+            "NOCTURNAL_SECRET_BACKEND": secret_backend,
         }
-        
+
         self.save_config(config)
-        
+
         print("\n✅ Configuration saved successfully!")
         print(f"📁 Config location: {self.config_file}")
         print("\n🎉 You're ready to use Nocturnal Archive!")
@@ -77,39 +118,114 @@ class NocturnalConfig:
         print()
         print("asyncio.run(main())")
         print("```")
-        
+
         return True
-    
-    def _get_groq_api_key(self) -> Optional[str]:
-        """Get Groq API key from user"""
-        print("🔑 Groq API Key Setup")
-        print("You need a Groq API key for the AI agent functionality.")
-        print("Get yours at: https://console.groq.com/keys")
-        print()
-        
-        # Check if already set in environment
-        existing_key = os.getenv('GROQ_API_KEY')
-        if existing_key:
-            print(f"✅ Found existing GROQ_API_KEY in environment")
-            use_existing = input("Use existing key? (Y/n): ").strip().lower()
-            if use_existing in ['', 'y', 'yes']:
-                return existing_key
-        
-        # Get new key
-        while True:
-            api_key = input("Enter your Groq API key: ").strip()
-            if not api_key:
-                print("❌ API key cannot be empty")
+
+    def _confirm(self, prompt: str) -> bool:
+        response = input(prompt).strip().lower()
+        return response in ["", "y", "yes"]
+
+    def _prompt_academic_email(self) -> Optional[str]:
+        for attempt in range(5):
+            email = input("Academic email address: ").strip()
+            if not email:
+                print("❌ Email cannot be empty")
                 continue
-            
-            if not api_key.startswith('gsk_'):
-                print("⚠️  Groq API keys typically start with 'gsk_'")
-                confirm = input("Continue anyway? (y/N): ").strip().lower()
-                if confirm not in ['y', 'yes']:
+            if not self._is_academic_email(email):
+                print("❌ Email address must use an academic domain (e.g. .edu, .ac.uk)")
+                continue
+            return email.lower()
+        print("❌ Could not capture a valid academic email after multiple attempts")
+        return None
+
+    def _prompt_password(self) -> Optional[str]:
+        for attempt in range(5):
+            password = getpass("Account password: ")
+            if not password:
+                print("❌ Password cannot be empty")
+                continue
+            if len(password) < 8:
+                print("⚠️  Passwords should be at least 8 characters long.")
+                confirm = input("Continue with this password? (y/N): ").strip().lower()
+                if confirm not in ["y", "yes"]:
                     continue
-            
-            return api_key
-    
+            confirm_password = getpass("Confirm password: ")
+            if password != confirm_password:
+                print("❌ Passwords do not match")
+                continue
+            return password
+        print("❌ Could not confirm password after multiple attempts")
+        return None
+
+    def _provision_account(self, email: str, password: str) -> AccountCredentials:
+        client = AccountClient()
+        return client.provision(email=email, password=password)
+
+    def _is_academic_email(self, email: str) -> bool:
+        if "@" not in email:
+            return False
+        local, domain = email.split("@", 1)
+        if not local or not domain:
+            return False
+        domain = domain.lower()
+        # Accept domains containing edu/ac anywhere except the top-most TLD (to allow edu.mx, ac.uk, etc.)
+        parts = domain.split(".")
+        if len(parts) < 2:
+            return False
+        academic_markers = {"edu", "ac"}
+        return any(part in academic_markers for part in parts)
+
+    def _store_secret(self, name: str, value: str) -> bool:
+        if not value or not self._keyring:
+            return False
+        try:
+            self._keyring.set_password(KEYRING_SERVICE, name, value)
+            return True
+        except Exception:
+            return False
+
+    def _retrieve_secret(self, name: str) -> Optional[str]:
+        if not self._keyring:
+            return None
+        try:
+            return self._keyring.get_password(KEYRING_SERVICE, name)
+        except Exception:
+            return None
+
+    def _notify_keyring_success(self):
+        print("🔐 Stored Groq API key securely in your system keychain.")
+
+    def _warn_keyring_fallback(self):
+        if self._keyring is None:
+            print("⚠️  Could not access the system keychain. Storing the key in config.env instead.")
+        else:
+            print("⚠️  Keychain write failed; falling back to plain-text storage in config.env.")
+
+    def _ensure_query_limit(self, config: Dict[str, str]) -> bool:
+        if config.get("NOCTURNAL_QUERY_LIMIT") != str(DEFAULT_QUERY_LIMIT):
+            config["NOCTURNAL_QUERY_LIMIT"] = str(DEFAULT_QUERY_LIMIT)
+            config.pop("NOCTURNAL_QUERY_LIMIT_SIG", None)
+            return True
+        if "NOCTURNAL_QUERY_LIMIT_SIG" in config:
+            config.pop("NOCTURNAL_QUERY_LIMIT_SIG", None)
+            return True
+        return False
+
+    def _beta_limitations(self) -> List[str]:
+        return [
+            "Daily usage capped at 25 queries per tester",
+            "Complex shell / filesystem commands remain sandboxed",
+            "Research API may rate-limit during heavy usage",
+            "Telemetry is always on and streamed to the control plane",
+            "Beta builds auto-update on launch"
+        ]
+
+    def _confirm_beta_terms(self) -> bool:
+        print("📜 Beta Participation Terms")
+        print("You are agreeing to: confidential use, providing feedback, and abiding by the usage limits.")
+        print("For full details see the Beta Agreement included with your invite.")
+        return self._confirm("Do you accept the beta terms? (Y/n): ")
+
     def save_config(self, config: Dict[str, Any]):
         """Save configuration to file"""
         with open(self.config_file, 'w') as f:
@@ -136,14 +252,46 @@ class NocturnalConfig:
     def setup_environment(self):
         """Set up environment variables from config"""
         config = self.load_config()
+        dirty = False
+        if self._ensure_query_limit(config):
+            dirty = True
+        limit_value = int(config.get("NOCTURNAL_QUERY_LIMIT", str(DEFAULT_QUERY_LIMIT)))
+        os.environ["NOCTURNAL_QUERY_LIMIT"] = str(limit_value)
+        os.environ.pop("NOCTURNAL_QUERY_LIMIT_SIG", None)
         for key, value in config.items():
-            if not os.getenv(key):  # Don't override existing env vars
+            if key == "GROQ_API_KEY" and value == KEY_PLACEHOLDER:
+                secret = self._retrieve_secret("GROQ_API_KEY")
+                if secret and not os.getenv("GROQ_API_KEY"):
+                    os.environ["GROQ_API_KEY"] = secret
+                continue
+            if key == "GROQ_API_KEY" and value and value != KEY_PLACEHOLDER and self._store_secret("GROQ_API_KEY", value):
+                config["GROQ_API_KEY"] = KEY_PLACEHOLDER
+                config["NOCTURNAL_SECRET_BACKEND"] = "keyring"
+                if not os.getenv("GROQ_API_KEY"):
+                    os.environ["GROQ_API_KEY"] = value
+                dirty = True
+                continue
+            if not os.getenv(key) and value:
                 os.environ[key] = value
+        if dirty:
+            self.save_config(config)
         return len(config) > 0
     
     def check_setup(self) -> bool:
         """Check if setup is complete"""
-        return self.config_file.exists() and self.load_config().get('GROQ_API_KEY')
+        config = self.load_config()
+        groq_value = config.get('GROQ_API_KEY')
+        groq_present = False
+        if groq_value == KEY_PLACEHOLDER:
+            groq_present = bool(self._retrieve_secret('GROQ_API_KEY')) or bool(os.getenv('GROQ_API_KEY'))
+        else:
+            groq_present = bool(groq_value) or bool(os.getenv('GROQ_API_KEY'))
+        return (
+            self.config_file.exists()
+            and groq_present
+            and bool(config.get('NOCTURNAL_ACCOUNT_EMAIL'))
+            and bool(config.get('NOCTURNAL_AUTH_TOKEN'))
+        )
     
     def get_setup_status(self) -> Dict[str, Any]:
         """Get detailed setup status"""
@@ -151,10 +299,14 @@ class NocturnalConfig:
         return {
             "configured": self.check_setup(),
             "config_file": str(self.config_file),
-            "groq_configured": bool(config.get('GROQ_API_KEY')),
+            "groq_configured": bool(config.get('GROQ_API_KEY')) or bool(self._retrieve_secret('GROQ_API_KEY')),
             "openalex_configured": bool(config.get('OPENALEX_API_KEY')),
             "pubmed_configured": bool(config.get('PUBMED_API_KEY')),
             "alpha_vantage_configured": bool(config.get('ALPHA_VANTAGE_API_KEY')),
+            "account_email": config.get('NOCTURNAL_ACCOUNT_EMAIL'),
+            "account_id": config.get('NOCTURNAL_ACCOUNT_ID'),
+            "terms_accepted": config.get('NOCTURNAL_TERMS_ACCEPTED') == '1',
+            "secret_backend": config.get('NOCTURNAL_SECRET_BACKEND', 'file'),
             "config_keys": list(config.keys())
         }
 

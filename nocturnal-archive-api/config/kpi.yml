@@ -143,6 +143,11 @@ inputs:
 
 # Derived metrics with expressions
 metrics:
+  revenue:
+    expr: revenue
+    description: "Total revenue from the canonical revenue input"
+    output: value
+
   grossProfit:
     expr: revenue - costOfRevenue
     description: "Revenue minus cost of goods sold"
@@ -156,6 +161,11 @@ metrics:
   ebitda:
     expr: operatingIncome + depreciationAndAmortization
     description: "Earnings before interest, taxes, depreciation, and amortization"
+    output: value
+
+  netIncome:
+    expr: netIncome
+    description: "Net income after all expenses and taxes"
     output: value
     
   ebitdaMargin:
@@ -308,9 +318,10 @@ output_types:
     format: "number"
     
   percent:
-    description: "Percentage (0.1 = 10%)"
+    description: "Percentage (0.41 = 41%)"
     format: "number"
-    multiplier: 100
+    multiplier: 1
+    display_multiplier: 100
     
   ratio:
     description: "Ratio (no units)"

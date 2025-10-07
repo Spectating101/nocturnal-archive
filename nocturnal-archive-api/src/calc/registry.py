@@ -8,19 +8,32 @@ import structlog
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
+
+def _resolve_default_config(config_path: Optional[str]) -> Path:
+    """Resolve configuration path relative to project root when needed."""
+    project_root = Path(__file__).resolve().parents[2]
+
+    if config_path is None:
+        return project_root / "config" / "kpi.yml"
+
+    base = Path(config_path)
+    if not base.is_absolute():
+        base = (project_root / base).resolve()
+    return base
+
 logger = structlog.get_logger(__name__)
 
 class KPIRegistry:
     """Registry for KPI definitions and expressions"""
     
-    def __init__(self, config_path: str = "config/kpi.yml"):
+    def __init__(self, config_path: Optional[str] = "config/kpi.yml"):
         """
         Initialize KPI registry
         
         Args:
             config_path: Path to KPI configuration file
         """
-        self.config_path = Path(config_path)
+        self.config_path = _resolve_default_config(config_path)
         self.inputs = {}
         self.metrics = {}
         self.functions = {}

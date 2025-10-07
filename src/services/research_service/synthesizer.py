@@ -4,7 +4,8 @@ import logging
 import re
 import asyncio
 from typing import List, Dict, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
+from dataclasses import asdict
 import json
 import redis.asyncio as redis
 import hashlib
@@ -16,6 +17,14 @@ from .citation_manager import CitationManager, Citation, CitedFinding, CitationF
 
 # Configure structured logging
 logger = logging.getLogger(__name__)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _utc_timestamp() -> str:
+    return _utc_now().isoformat()
 
 class ResearchSynthesizer:
     """
@@ -215,7 +224,7 @@ class ResearchSynthesizer:
                 return {
                     "error": "No valid papers found",
                     "paper_count": 0,
-                    "generated_at": datetime.utcnow().isoformat()
+                    "generated_at": _utc_timestamp()
                 }
             
             #logger.info(f"Retrieved {len(papers)} papers for synthesis")
@@ -257,7 +266,7 @@ class ResearchSynthesizer:
             # Add metadata
             synthesis["meta"] = {
                 "paper_count": len(papers),
-                "generated_at": datetime.utcnow().isoformat(),
+                "generated_at": _utc_timestamp(),
                 "paper_ids": paper_ids,
                 "success": True
             }
@@ -455,7 +464,7 @@ class ResearchSynthesizer:
                         gaps.append({
                             "gap": self._sanitize_text(line.strip(), max_length=500),
                             "type": self._categorize_gap(line),
-                            "identified_at": datetime.utcnow().isoformat()
+                            "identified_at": _utc_timestamp()
                         })
                 return gaps
                 
@@ -592,7 +601,7 @@ class ResearchSynthesizer:
                     if line.strip():
                         directions.append({
                             "direction": self._sanitize_text(line.strip(), max_length=500),
-                            "suggested_at": datetime.utcnow().isoformat()
+                            "suggested_at": _utc_timestamp()
                         })
                 return directions
                 
@@ -891,7 +900,7 @@ class ResearchSynthesizer:
                     findings.append({
                         "finding": self._sanitize_text(line, max_length=500),
                         "strength": "moderate",  # Default strength
-                        "extracted_at": datetime.utcnow().isoformat()
+                        "extracted_at": _utc_timestamp()
                     })
             
             return findings[:20]  # Limit to 20 findings
@@ -923,7 +932,7 @@ class ResearchSynthesizer:
                     contradictions.append({
                         "contradiction": self._sanitize_text(line, max_length=500),
                         "type": "methodological",  # Default type
-                        "identified_at": datetime.utcnow().isoformat()
+                        "identified_at": _utc_timestamp()
                     })
             
             return contradictions[:10]  # Limit to 10 contradictions
@@ -1083,7 +1092,7 @@ class ResearchSynthesizer:
         try:
             health_status = {
                 "status": "healthy",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": _utc_timestamp(),
                 "components": {}
             }
             
@@ -1128,7 +1137,7 @@ class ResearchSynthesizer:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_timestamp()
             }
 
     async def export_academic_synthesis(self, synthesis: Dict[str, Any], 
@@ -1156,7 +1165,7 @@ class ResearchSynthesizer:
             academic_synthesis = []
             academic_synthesis.append("# Research Synthesis Report")
             academic_synthesis.append("")
-            academic_synthesis.append(f"*Generated on: {datetime.utcnow().strftime('%B %d, %Y')}*")
+            academic_synthesis.append(f"*Generated on: {_utc_now().strftime('%B %d, %Y')}*")
             academic_synthesis.append("")
             
             # Key Findings with Citations

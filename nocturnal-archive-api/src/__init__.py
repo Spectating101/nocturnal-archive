@@ -1,1 +1,1 @@
-"""Nocturnal Archive API package"""
+"""Core API package for the Nocturnal Archive service."""

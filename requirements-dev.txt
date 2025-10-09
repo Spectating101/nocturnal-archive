@@ -1,0 +1,10 @@
+# Development extras for Nocturnal Archive beta maintenance
+-r requirements.txt
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+nuitka>=1.9.0
+zstandard>=0.22.0
+ordered-set>=4.1.0

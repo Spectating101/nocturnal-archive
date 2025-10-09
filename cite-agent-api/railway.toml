@@ -1,0 +1,19 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "uvicorn src.main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+[env]
+# These will be set in Railway dashboard
+# DATABASE_URL (from Railway PostgreSQL plugin)
+# JWT_SECRET_KEY
+# GROQ_API_KEY_1, GROQ_API_KEY_2, GROQ_API_KEY_3
+# CEREBRAS_API_KEY_1, CEREBRAS_API_KEY_2, CEREBRAS_API_KEY_3
+# ENV=production
+

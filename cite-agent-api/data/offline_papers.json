@@ -1,0 +1,64 @@
+[
+  {
+    "id": "OA-EXAMPLE-001",
+    "title": "Adaptive Nocturnal Knowledge Retrieval for Financial Research Agents",
+    "authors": [
+      {"name": "Avery Cole"},
+      {"name": "Morgan Reyes"}
+    ],
+    "year": 2023,
+    "doi": "10.5555/nocturnal.example.001",
+    "abstract": "We present a hybrid retrieval pipeline that fuses capital markets datasets with language-model planning, outperforming baseline screeners on post-close filings.",
+    "citations_count": 18,
+    "open_access": true,
+    "pdf_url": "https://example.org/papers/nocturnal-agent.pdf",
+    "source": "offline-corpus",
+    "venue": "Journal of Applied Intelligent Systems",
+    "keywords": [
+      "retrieval augmented generation",
+      "financial research",
+      "language agents"
+    ]
+  },
+  {
+    "id": "OA-EXAMPLE-002",
+    "title": "Vector-Driven Corpora for SEC Filing Summarization",
+    "authors": [
+      {"name": "Casey Quinn"},
+      {"name": "Robin Singh"}
+    ],
+    "year": 2022,
+    "doi": "10.5555/nocturnal.example.002",
+    "abstract": "We benchmark embedding-based search strategies for high-frequency SEC filings and introduce a reference implementation for production ingestion pipelines.",
+    "citations_count": 11,
+    "open_access": true,
+    "pdf_url": "https://example.org/papers/sec-summarization.pdf",
+    "source": "offline-corpus",
+    "venue": "Financial Data Engineering Review",
+    "keywords": [
+      "sec filings",
+      "vector search",
+      "summarization"
+    ]
+  },
+  {
+    "id": "OA-EXAMPLE-003",
+    "title": "Caching Strategies for Real-Time Research Assistants",
+    "authors": [
+      {"name": "Jamie Patel"}
+    ],
+    "year": 2024,
+    "doi": "10.5555/nocturnal.example.003",
+    "abstract": "We evaluate cache invalidation policies that reduce end-to-end latency for research question answering systems operating on financial corpora.",
+    "citations_count": 7,
+    "open_access": true,
+    "pdf_url": "https://example.org/papers/research-caching.pdf",
+    "source": "offline-corpus",
+    "venue": "Realtime AI Systems Workshop",
+    "keywords": [
+      "caching",
+      "latency",
+      "research assistants"
+    ]
+  }
+]

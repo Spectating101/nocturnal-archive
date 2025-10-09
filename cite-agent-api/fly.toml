@@ -1,0 +1,45 @@
+# Fly.io deployment configuration for Nocturnal Archive API
+# Deploy with: fly deploy
+
+app = "nocturnal-archive-api"
+primary_region = "iad"  # Washington, D.C. - change to your preferred region
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  ENV = "production"
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/api/health"
+
+[[ http_service.concurrency]]
+  type = "requests"
+  soft_limit = 200
+  hard_limit = 250
+
+[[vm]]
+  size = "shared-cpu-1x"
+
+# Database (attach Fly Postgres)
+# Run: fly postgres create
+# Run: fly postgres attach <postgres-app-name>
+
+# Secrets (set with: fly secrets set KEY=value)
+# - JWT_SECRET_KEY
+# - GROQ_API_KEY
+# - DATABASE_URL (auto-set when attaching Postgres)
+

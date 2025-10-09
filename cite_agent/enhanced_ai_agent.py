@@ -29,11 +29,9 @@ from .setup_config import DEFAULT_QUERY_LIMIT
 logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
-try:
-    from groq import Groq
-except ImportError:
-    print("❌ Install groq: pip install groq")
-    exit(1)
+# Removed: No direct Groq import in production
+# All LLM calls go through backend API for monetization
+# Backend has the API keys, not the client
 
 @dataclass
 class ChatRequest:
@@ -2067,6 +2065,17 @@ class EnhancedNocturnalAgent:
     async def process_request(self, request: ChatRequest) -> ChatResponse:
         """Process request with full AI capabilities and API integration"""
         try:
+            # PRODUCTION MODE: Route all LLM queries through backend
+            # This ensures monetization - no local API key bypass
+            if self.client is None:
+                return await self.call_backend_query(
+                    query=request.question,
+                    conversation_history=self.conversation_history[-10:]  # Last 10 messages for context
+                )
+
+            # DEV MODE ONLY: Direct Groq calls (only works with local API keys)
+            # This code path won't execute in production since self.client = None
+
             if not self._check_query_budget(request.user_id):
                 effective_limit = self.daily_query_limit if self.daily_query_limit > 0 else self.per_user_query_limit
                 if effective_limit <= 0:
@@ -2505,9 +2514,17 @@ class EnhancedNocturnalAgent:
         """
         Process request with streaming response from Groq API
         Returns a Groq stream object that yields chunks as they arrive
-        
+
         This enables real-time character-by-character streaming in the UI
         """
+        # PRODUCTION MODE: Backend doesn't support streaming yet, use regular response
+        if self.client is None:
+            response = await self.call_backend_query(request.question, self.conversation_history[-10:])
+            async def single_yield():
+                yield response.response
+            return single_yield()
+
+        # DEV MODE ONLY
         try:
             # Quick budget checks
             if not self._check_query_budget(request.user_id):

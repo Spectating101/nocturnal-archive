@@ -30,14 +30,14 @@ def read_requirements():
         ]
 
 setup(
-    name="nocturnal-archive",
-    version="0.9.0b1",
-    author="Nocturnal Archive Team",
-    author_email="contact@nocturnal.dev",
-    description="Beta release of the Nocturnal Archive CLI agent with finance and research workflows",
+    name="cite-agent",
+    version="1.0.0b1",
+    author="Cite-Agent Team",
+    author_email="contact@citeagent.dev",
+    description="Terminal AI assistant for academic research - truth-seeking with citation verification",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
-    url="https://github.com/Spectating101/nocturnal-archive",
+    url="https://github.com/Spectating101/cite-agent",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -73,14 +73,13 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "nocturnal=nocturnal_archive.cli:main",
-            "nocturnal-agent=nocturnal_archive.cli:main",
-            "nocturnal-update=nocturnal_archive.updater:main",
+            "cite-agent=cite_agent.cli:main",
+            "citeagent=cite_agent.cli:main",
         ],
     },
     include_package_data=True,
     package_data={
-        "nocturnal_archive": [
+        "cite_agent": [
             "*.py",
             "*.txt",
             "*.md",
@@ -92,8 +91,8 @@ setup(
         "machine-learning", "data-analysis", "groq", "llm", "assistant"
     ],
     project_urls={
-        "Bug Reports": "https://github.com/Spectating101/nocturnal-archive/issues",
-        "Source": "https://github.com/Spectating101/nocturnal-archive",
-        "Documentation": "https://github.com/Spectating101/nocturnal-archive#readme",
+        "Bug Reports": "https://github.com/Spectating101/cite-agent/issues",
+        "Source": "https://github.com/Spectating101/cite-agent",
+        "Documentation": "https://github.com/Spectating101/cite-agent#readme",
     },
 )

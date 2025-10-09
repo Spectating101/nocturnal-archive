@@ -1736,100 +1736,35 @@ class EnhancedNocturnalAgent:
             return f"ERROR: {e}"
 
     def _is_safe_shell_command(self, cmd: str) -> bool:
+        """
+        Minimal safety check - only block truly catastrophic commands.
+        Philosophy: This is the user's machine. They can do anything in terminal anyway.
+        We only block commands that could cause immediate, irreversible system damage.
+        """
         cmd = cmd.strip()
         if not cmd:
             return False
 
-        # CRITICAL: Block dangerous patterns FIRST (before any parsing)
-        dangerous_patterns = [
-            'rm -rf /',
-            'rm -rf ~',
-            'rm -rf *',
-            'rm -rf .',
-            'rm -rf ..',
-            'rm -r /',
-            'rm -r ~',
-            'dd if=/dev',
-            'dd if=/dev/zero',
-            'mkfs',
-            'fdisk',
-            'format',
+        # Block ONLY truly catastrophic commands
+        nuclear_patterns = [
+            'rm -rf /',       # Wipe root filesystem
+            'rm -rf ~/*',     # Wipe home directory
+            'dd if=/dev/zero of=/dev/sda',  # Wipe disk
+            'dd if=/dev/zero of=/dev/hda',
+            'mkfs',           # Format filesystem
+            'fdisk',          # Partition disk
             ':(){ :|:& };:',  # Fork bomb
-            'chmod -R 777 /',
-            'chmod 777 /',
-            'chown -R',
-            'kill -9 -1',
-            'pkill -9',
-            '> /dev/sda',
-            '> /dev/hda',
-            'mv / ',
-            'mv ~ ',
+            'chmod -R 777 /', # Make everything executable
         ]
+
         cmd_lower = cmd.lower()
-        for pattern in dangerous_patterns:
+        for pattern in nuclear_patterns:
             if pattern.lower() in cmd_lower:
                 return False
 
-        blocked_tokens = [';', '|', '&&', '||', '<', '`', '$(', '${']
-        if any(bt in cmd for bt in blocked_tokens):
-            return False
-        if '\n' in cmd:
-            return False
-        if ' ' not in cmd and (Path(cmd).exists() or cmd.startswith(('./', '../', '/'))):
-            return False
-
-        if '>' in cmd:
-            import re as _re
-            m = _re.match(r"^\s*echo\s+(.+?)\s*(>>|>)\s*(.+?)\s*$", cmd)
-            if not m:
-                return False
-            target = m.group(3).strip().strip('\"\'')
-            try:
-                target_path = Path(target).resolve()
-                base_dir = Path.cwd().resolve()
-                if not (str(target_path).startswith(str(base_dir)) or str(target_path).startswith('/tmp/')):
-                    return False
-            except Exception:
-                return False
-            return True
-
-        allowed = {'ls', 'pwd', 'cat', 'head', 'tail', 'wc', 'stat', 'cd', 'export', 'echo', 'rm', 'whoami', 'python', 'python3'}
-        first = cmd.split()[0]
-        if first == 'rm':
-            try:
-                parts = shlex.split(cmd)
-            except ValueError:
-                return False
-            if len(parts) != 2:
-                return False
-            target = parts[1]
-            if target.startswith('-'):
-                return False
-            if any(token in target for token in ('*', '?', '[')):
-                return False
-            try:
-                target_path = Path(target).expanduser().resolve()
-            except Exception:
-                return False
-            base_dir = Path.cwd().resolve()
-            if '..' in Path(target).parts:
-                return False
-            if not str(target_path).startswith(str(base_dir)):
-                return False
-            return True
-
-        if first in {'python', 'python3'}:
-            if '-c' not in cmd:
-                return False
-            risky_tokens = ['import os', 'import sys', 'open(', 'subprocess', 'shutil', 'socket', '__import__']
-            lowered = cmd.lower()
-            if any(token in lowered for token in risky_tokens):
-                return False
-            if len(cmd) > 200:
-                return False
-            return True
-
-        return first in allowed
+        # Allow everything else - pip, npm, git, pipes, redirection, etc.
+        # User asked for it, user gets it. Just like Cursor.
+        return True
     
     def _check_token_budget(self, estimated_tokens: int) -> bool:
         """Check if we have enough token budget"""

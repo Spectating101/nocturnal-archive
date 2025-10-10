@@ -45,7 +45,7 @@ async def check_service_health(service_name: str) -> str:
         return "down"
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get("/", response_model=HealthResponse)
 async def health_check(settings: Settings = Depends(get_settings)):
     """Health check endpoint"""
     

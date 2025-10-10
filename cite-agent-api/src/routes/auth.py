@@ -37,7 +37,7 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr = Field(..., description="User email address")
-    password_hash: str = Field(..., description="SHA256 hash of password (for compatibility)")
+    password: str = Field(..., min_length=8, description="User password")
 
 class AuthResponse(BaseModel):
     user_id: str
@@ -165,10 +165,8 @@ async def login(request: LoginRequest):
                 detail="Invalid email or password"
             )
         
-        # For compatibility: client sends SHA256 hash, we need to verify against bcrypt
-        # In production, client should send plain password over HTTPS
-        # For now, we'll verify the hash directly (assuming it was hashed with bcrypt)
-        if not verify_password(request.password_hash, user['password_hash']):
+        # Verify password
+        if not verify_password(request.password, user['password_hash']):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password"

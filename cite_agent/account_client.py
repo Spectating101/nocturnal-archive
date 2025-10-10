@@ -14,10 +14,14 @@ class AccountProvisioningError(RuntimeError):
 
 @dataclass(frozen=True)
 class AccountCredentials:
+    """User account credentials for backend authentication.
+
+    Production mode: User gets JWT tokens, NOT API keys.
+    Backend has the API keys, user just authenticates with JWT.
+    """
     account_id: str
     email: str
-    api_key: str
-    auth_token: str
+    auth_token: str  # JWT for backend authentication
     refresh_token: str
     telemetry_token: str
     issued_at: Optional[str] = None
@@ -28,7 +32,6 @@ class AccountCredentials:
             return cls(
                 account_id=str(payload["accountId"]),
                 email=email,
-                api_key=str(payload["apiKey"]),
                 auth_token=str(payload["authToken"]),
                 refresh_token=str(payload.get("refreshToken", "")),
                 telemetry_token=str(payload.get("telemetryToken", "")),
@@ -103,14 +106,12 @@ class AccountClient:
     def _generate_offline_credentials(email: str, password: str) -> AccountCredentials:
         seed = f"{email.lower()}::{password}"
         digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
-        api_key = f"gsk_{digest[:48]}"
         auth_token = digest[12:44]
         refresh_token = digest[44:]
         telemetry_token = digest[24:56]
         return AccountCredentials(
             account_id=digest[:12],
             email=email,
-            api_key=api_key,
             auth_token=auth_token,
             refresh_token=refresh_token,
             telemetry_token=telemetry_token,

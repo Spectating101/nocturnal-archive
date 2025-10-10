@@ -14,25 +14,17 @@ KEY_PLACEHOLDER = "__KEYRING__"
 KEYRING_SERVICE = "Nocturnal Archive"
 DEFAULT_QUERY_LIMIT = 25
 
+# Production: Users don't need API keys - backend has them
+# Optional research API keys for advanced features (not required)
 MANAGED_SECRETS: Dict[str, Dict[str, Any]] = {
-    "GROQ_API_KEY": {
-        "label": "Groq",
-        "prompt": "Groq API key",
-        "optional": False,
-    },
     "OPENALEX_API_KEY": {
         "label": "OpenAlex",
-        "prompt": "OpenAlex API key",
+        "prompt": "OpenAlex API key (optional)",
         "optional": True,
     },
     "PUBMED_API_KEY": {
         "label": "PubMed",
-        "prompt": "PubMed API key",
-        "optional": True,
-    },
-    "ALPHA_VANTAGE_API_KEY": {
-        "label": "Alpha Vantage",
-        "prompt": "Alpha Vantage API key",
+        "prompt": "PubMed API key (optional)",
         "optional": True,
     },
 }
@@ -89,16 +81,6 @@ class NocturnalConfig:
             print(f"❌ Could not verify your account: {exc}")
             return False
 
-        stored_in_keyring = self._persist_secret("GROQ_API_KEY", credentials.api_key, persist_config=False)
-        if stored_in_keyring:
-            self._notify_keyring_success()
-            config_groq_value = KEY_PLACEHOLDER
-            secret_backend = "keyring"
-        else:
-            self._warn_keyring_fallback()
-            config_groq_value = credentials.api_key
-            secret_backend = "file"
-
         print("\n🛡️  Recap of beta limitations:")
         for item in self._beta_limitations():
             print(f" • {item}")
@@ -115,12 +97,10 @@ class NocturnalConfig:
             "NOCTURNAL_REFRESH_TOKEN": credentials.refresh_token,
             "NOCTURNAL_TELEMETRY_TOKEN": credentials.telemetry_token,
             "NOCTURNAL_ACCOUNT_ISSUED_AT": credentials.issued_at or "",
-            "GROQ_API_KEY": config_groq_value,
             "NOCTURNAL_TELEMETRY": "1",
             "NOCTURNAL_TERMS_ACCEPTED": "1",
             "NOCTURNAL_LIMITATIONS_ACK": "1",
             "NOCTURNAL_CONFIG_VERSION": "2.0.0",
-            "NOCTURNAL_SECRET_BACKEND": secret_backend,
         }
 
         optional_updates = self._configure_optional_secrets(existing_config=config)
@@ -390,15 +370,8 @@ class NocturnalConfig:
     def check_setup(self) -> bool:
         """Check if setup is complete"""
         config = self.load_config()
-        groq_value = config.get('GROQ_API_KEY')
-        groq_present = False
-        if groq_value == KEY_PLACEHOLDER:
-            groq_present = bool(self._retrieve_secret('GROQ_API_KEY')) or bool(os.getenv('GROQ_API_KEY'))
-        else:
-            groq_present = bool(groq_value) or bool(os.getenv('GROQ_API_KEY'))
         return (
             self.config_file.exists()
-            and groq_present
             and bool(config.get('NOCTURNAL_ACCOUNT_EMAIL'))
             and bool(config.get('NOCTURNAL_AUTH_TOKEN'))
         )
@@ -416,14 +389,11 @@ class NocturnalConfig:
         return {
             "configured": self.check_setup(),
             "config_file": str(self.config_file),
-            "groq_configured": secret_status.get('GROQ_API_KEY', False),
             "openalex_configured": secret_status.get('OPENALEX_API_KEY', False),
             "pubmed_configured": secret_status.get('PUBMED_API_KEY', False),
-            "alpha_vantage_configured": secret_status.get('ALPHA_VANTAGE_API_KEY', False),
             "account_email": config.get('NOCTURNAL_ACCOUNT_EMAIL'),
             "account_id": config.get('NOCTURNAL_ACCOUNT_ID'),
             "terms_accepted": config.get('NOCTURNAL_TERMS_ACCEPTED') == '1',
-            "secret_backend": config.get('NOCTURNAL_SECRET_BACKEND', 'file'),
             "config_keys": list(config.keys())
         }
 

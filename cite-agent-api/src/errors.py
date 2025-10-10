@@ -48,19 +48,21 @@ def wire_errors(app: FastAPI) -> None:
     async def handle_value_error(request: Request, exc: ValueError) -> JSONResponse:
         """Handle validation errors with 400 status"""
         rid = getattr(request.state, "request_id", getattr(request.state, "trace_id", "unknown"))
-        
+
+        error_msg = str(exc)
         logger.warning(
             "Validation error",
             request_id=rid,
             path=request.url.path,
-            error_message=str(exc)
+            error_message=error_msg
         )
-        
+
+        # Show actual error in development/production for debugging
         return JSONResponse(
             status_code=400,
             content={
                 "error": "validation_error",
                 "request_id": rid,
-                "message": "Invalid input provided"
+                "message": error_msg if len(error_msg) < 200 else "Invalid input provided"
             }
         )

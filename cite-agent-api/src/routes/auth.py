@@ -96,21 +96,43 @@ async def verify_token(token: str) -> Optional[dict]:
         return None
 
 # Routes
+def is_academic_email(email: str) -> bool:
+    """Validate that email is from an academic domain"""
+    if "@" not in email:
+        return False
+    local, domain = email.split("@", 1)
+    if not local or not domain:
+        return False
+    domain = domain.lower()
+    # Accept domains containing edu/ac anywhere (edu.mx, ac.uk, stanford.edu, etc.)
+    parts = domain.split(".")
+    if len(parts) < 2:
+        return False
+    academic_markers = {"edu", "ac"}
+    return any(part in academic_markers for part in parts)
+
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 async def register(request: RegisterRequest):
     """
     Register a new user with email and password
-    No license key required - simplified for beta
+    Requires academic email domain (.edu, .ac.uk, etc.)
     """
+    # Validate academic email
+    if not is_academic_email(request.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Registration requires an academic email address (e.g., .edu, .ac.uk)"
+        )
+
     conn = await get_db()
-    
+
     try:
         # Check if email already exists
         existing = await conn.fetchrow(
             "SELECT user_id FROM users WHERE email = $1",
             request.email
         )
-        
+
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

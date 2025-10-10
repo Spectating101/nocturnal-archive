@@ -18,12 +18,12 @@ CREATE TABLE IF NOT EXISTS response_quality (
     confidence_score FLOAT,
     
     -- Timestamps
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    INDEX idx_quality_query_id (query_id),
-    INDEX idx_quality_timestamp (created_at),
-    INDEX idx_quality_score (citation_quality_score)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_quality_query_id ON response_quality(query_id);
+CREATE INDEX IF NOT EXISTS idx_quality_timestamp ON response_quality(created_at);
+CREATE INDEX IF NOT EXISTS idx_quality_score ON response_quality(citation_quality_score);
 
 -- Citation details table (for debugging)
 CREATE TABLE IF NOT EXISTS citation_details (
@@ -34,12 +34,12 @@ CREATE TABLE IF NOT EXISTS citation_details (
     citation_text TEXT,
     verification_status VARCHAR(50),  -- 'verified', 'broken', 'timeout', 'error'
     http_status_code INTEGER,
-    
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    INDEX idx_citation_response (response_id),
-    INDEX idx_citation_status (verification_status)
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_citation_response ON citation_details(response_id);
+CREATE INDEX IF NOT EXISTS idx_citation_status ON citation_details(verification_status);
 
 -- Accuracy metrics view (for analytics dashboard)
 CREATE OR REPLACE VIEW accuracy_metrics AS

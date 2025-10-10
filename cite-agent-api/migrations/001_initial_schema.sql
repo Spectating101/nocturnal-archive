@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin BOOLEAN DEFAULT FALSE
 );
 
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_created_at ON users(created_at);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
 
 -- Sessions table
 CREATE TABLE IF NOT EXISTS sessions (
@@ -27,9 +27,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_used TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
-CREATE INDEX idx_sessions_token ON sessions(token);
-CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
 -- Queries table (for analytics)
 CREATE TABLE IF NOT EXISTS queries (
@@ -43,9 +43,9 @@ CREATE TABLE IF NOT EXISTS queries (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_queries_user_id ON queries(user_id);
-CREATE INDEX idx_queries_timestamp ON queries(timestamp);
-CREATE INDEX idx_queries_user_timestamp ON queries(user_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_queries_user_id ON queries(user_id);
+CREATE INDEX IF NOT EXISTS idx_queries_timestamp ON queries(timestamp);
+CREATE INDEX IF NOT EXISTS idx_queries_user_timestamp ON queries(user_id, timestamp);
 
 -- Downloads table (for tracking installer downloads)
 CREATE TABLE IF NOT EXISTS downloads (
@@ -57,9 +57,9 @@ CREATE TABLE IF NOT EXISTS downloads (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_downloads_platform ON downloads(platform);
-CREATE INDEX idx_downloads_timestamp ON downloads(timestamp);
-CREATE INDEX idx_downloads_platform_timestamp ON downloads(platform, timestamp);
+CREATE INDEX IF NOT EXISTS idx_downloads_platform ON downloads(platform);
+CREATE INDEX IF NOT EXISTS idx_downloads_timestamp ON downloads(timestamp);
+CREATE INDEX IF NOT EXISTS idx_downloads_platform_timestamp ON downloads(platform, timestamp);
 
 -- API keys table (optional, for future use)
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -73,8 +73,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
     is_active BOOLEAN DEFAULT TRUE
 );
 
-CREATE INDEX idx_api_keys_user_id ON api_keys(user_id);
-CREATE INDEX idx_api_keys_hash ON api_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 
 -- Create views for common analytics queries
 CREATE OR REPLACE VIEW daily_stats AS

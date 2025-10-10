@@ -9,7 +9,8 @@ from fastapi import APIRouter, HTTPException, Depends, status, Header
 from pydantic import BaseModel, EmailStr, Field
 import asyncpg
 import os
-from passlib.context import CryptContext
+import hashlib
+import base64
 from jose import JWTError, jwt
 import secrets
 
@@ -21,13 +22,23 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30  # 30-day sessions
 
-# Password hashing - use bcrypt with rounds limit for compatibility
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-    bcrypt__rounds=12,  # Explicit rounds to avoid version issues
-    bcrypt__ident="2b"  # Use 2b variant for better compatibility
-)
+# Password hashing - Use SHA256 with salt (bcrypt has issues on Heroku Python 3.13)
+def hash_password(password: str, salt: str = None) -> str:
+    """Hash password with SHA256 + salt"""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    salted = f"{salt}:{password}".encode('utf-8')
+    hashed = hashlib.sha256(salted).hexdigest()
+    return f"{salt}${hashed}"
+
+def verify_password_hash(password: str, stored_hash: str) -> bool:
+    """Verify password against stored hash"""
+    try:
+        salt, expected_hash = stored_hash.split('$', 1)
+        computed_hash = hash_password(password, salt)
+        return computed_hash == stored_hash
+    except:
+        return False
 
 # Database connection
 async def get_db():
@@ -55,14 +66,14 @@ class AuthResponse(BaseModel):
 class RefreshRequest(BaseModel):
     refresh_token: str
 
-# Helper functions
+# Helper functions (using SHA256 instead of bcrypt)
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    return verify_password_hash(plain_password, hashed_password)
 
 def get_password_hash(password: str) -> str:
     """Hash a password"""
-    return pwd_context.hash(password)
+    return hash_password(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create JWT access token"""

@@ -167,7 +167,13 @@ class PaperSearcher:
                     papers = data.get("data", [])
                     logger.info("Semantic Scholar results", count=len(papers))
                     return self._format_semantic_scholar_results(papers)[:limit]
-                logger.error("Semantic Scholar API error", source="semantic_scholar", status=response.status)
+
+                # Log error details
+                error_text = await response.text()
+                logger.error("Semantic Scholar API error",
+                           source="semantic_scholar",
+                           status=response.status,
+                           error_body=error_text[:500])
         except Exception as exc:
             logger.error("Semantic Scholar search failed", source="semantic_scholar", error=str(exc))
         return []

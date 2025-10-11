@@ -39,6 +39,13 @@ class PaperSearcher:
             getattr(self.settings, "semantic_scholar_api_key", None)
             or os.getenv("SEMANTIC_SCHOLAR_API_KEY")
         )
+
+        # Debug logging
+        logger.info(
+            "PaperSearcher initialized",
+            has_semantic_scholar_key=bool(self.semantic_scholar_api_key),
+            key_preview=self.semantic_scholar_api_key[:10] if self.semantic_scholar_api_key else "None"
+        )
         
         # Rate limiting
         self.rate_limits = {

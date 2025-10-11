@@ -151,7 +151,7 @@ class PaperSearcher:
                 "query": query,
                 "offset": 0,
                 "limit": min(max(limit, 5), 100),
-                "fields": "title,abstract,year,authors,name,url,isOpenAccess,openAccessPdf,citationCount,externalIds,venue,fieldsOfStudy",
+                "fields": "title,abstract,year,authors,url,isOpenAccess,openAccessPdf,citationCount,externalIds,venue,fieldsOfStudy",
             }
             headers = {
                 "User-Agent": "Nocturnal-Archive/1.0 (contact@nocturnal.dev)",

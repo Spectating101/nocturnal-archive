@@ -29,17 +29,21 @@ class AccountCredentials:
     @classmethod
     def from_payload(cls, email: str, payload: Dict[str, Any]) -> "AccountCredentials":
         try:
+            # Support both old format (accountId/authToken) and new format (user_id/access_token)
+            account_id = str(payload.get("accountId") or payload.get("user_id"))
+            auth_token = str(payload.get("authToken") or payload.get("access_token"))
+
             return cls(
-                account_id=str(payload["accountId"]),
+                account_id=account_id,
                 email=email,
-                auth_token=str(payload["authToken"]),
-                refresh_token=str(payload.get("refreshToken", "")),
-                telemetry_token=str(payload.get("telemetryToken", "")),
-                issued_at=str(payload.get("issuedAt", "")) or None,
+                auth_token=auth_token,
+                refresh_token=str(payload.get("refreshToken") or payload.get("refresh_token") or ""),
+                telemetry_token=str(payload.get("telemetryToken") or payload.get("telemetry_token") or ""),
+                issued_at=str(payload.get("issuedAt") or payload.get("issued_at") or "") or None,
             )
-        except KeyError as exc:  # pragma: no cover - defensive guard
+        except (KeyError, TypeError) as exc:  # pragma: no cover - defensive guard
             raise AccountProvisioningError(
-                f"Account provisioning payload missing field: {exc!s}"  # noqa: TRY200
+                f"Account provisioning payload missing required fields: {exc!s}"  # noqa: TRY200
             ) from exc
 
 
@@ -52,7 +56,11 @@ class AccountClient:
     """
 
     def __init__(self, base_url: Optional[str] = None, timeout: int = 10):
-        self.base_url = base_url or os.getenv("NOCTURNAL_CONTROL_PLANE_URL")
+        self.base_url = (
+            base_url
+            or os.getenv("NOCTURNAL_CONTROL_PLANE_URL")
+            or "https://cite-agent-api-720dfadd602c.herokuapp.com"
+        )
         self.timeout = timeout
 
     def provision(self, email: str, password: str) -> AccountCredentials:
@@ -70,13 +78,24 @@ class AccountClient:
                 "The 'requests' package is required for control-plane authentication"
             ) from exc
 
-        endpoint = self.base_url.rstrip("/") + "/api/beta/login"
-        body = {"email": email, "password": password, "client": "cli"}
+        # Try login first
+        login_endpoint = self.base_url.rstrip("/") + "/api/auth/login"
+        body = {"email": email, "password": password}
+
         try:
-            response = requests.post(endpoint, json=body, timeout=self.timeout)
+            response = requests.post(login_endpoint, json=body, timeout=self.timeout)
         except Exception as exc:  # pragma: no cover - network failure
             raise AccountProvisioningError("Failed to reach control plane") from exc
 
+        # If login fails with 401 (user doesn't exist), try registration
+        if response.status_code == 401:
+            register_endpoint = self.base_url.rstrip("/") + "/api/auth/register"
+            try:
+                response = requests.post(register_endpoint, json=body, timeout=self.timeout)
+            except Exception as exc:
+                raise AccountProvisioningError("Failed to register account") from exc
+
+        # If still failing, raise error
         if response.status_code >= 400:
             detail = self._extract_error_detail(response)
             raise AccountProvisioningError(

@@ -1243,39 +1243,67 @@ class EnhancedNocturnalAgent:
             # SECURITY FIX: No API keys on client!
             # All API calls go through our secure backend
             # This prevents key extraction and piracy
-            
-            self.api_keys = []  # Empty - keys stay on server
-            self.current_key_index = 0
-            self.current_api_key = None
-            self.client = None  # Will use HTTP client instead
-            
-            # Get backend API URL from config
-            self.backend_api_url = os.getenv(
-                "NOCTURNAL_API_URL",
-                "https://api.nocturnal.dev/api"  # Production default
-            )
-            
-            # Get auth token from session (set by auth.py after login)
-            from pathlib import Path
-            session_file = Path.home() / ".nocturnal_archive" / "session.json"
-            if session_file.exists():
-                try:
-                    import json
-                    with open(session_file, 'r') as f:
-                        session_data = json.load(f)
-                        self.auth_token = session_data.get('access_token')
-                        self.user_id = session_data.get('user_id')
-                except Exception:
+            # DISABLED for beta testing - set USE_LOCAL_KEYS=false to enable backend-only mode
+
+            use_local_keys = os.getenv("USE_LOCAL_KEYS", "true").lower() == "true"
+
+            if not use_local_keys:
+                self.api_keys = []  # Empty - keys stay on server
+                self.current_key_index = 0
+                self.current_api_key = None
+                self.client = None  # Will use HTTP client instead
+
+                # Get backend API URL from config
+                self.backend_api_url = os.getenv(
+                    "NOCTURNAL_API_URL",
+                    "https://api.nocturnal.dev/api"  # Production default
+                )
+
+                # Get auth token from session (set by auth.py after login)
+                from pathlib import Path
+                session_file = Path.home() / ".nocturnal_archive" / "session.json"
+                if session_file.exists():
+                    try:
+                        import json
+                        with open(session_file, 'r') as f:
+                            session_data = json.load(f)
+                            self.auth_token = session_data.get('access_token')
+                            self.user_id = session_data.get('user_id')
+                    except Exception:
+                        self.auth_token = None
+                        self.user_id = None
+                else:
                     self.auth_token = None
                     self.user_id = None
+
+                if self.auth_token:
+                    print(f"✅ Enhanced Nocturnal Agent Ready! (Authenticated)")
+                else:
+                    print("⚠️ Not authenticated. Please log in to use the agent.")
             else:
+                # Local keys mode - load Groq API keys
                 self.auth_token = None
                 self.user_id = None
-            
-            if self.auth_token:
-                print(f"✅ Enhanced Nocturnal Agent Ready! (Authenticated)")
-            else:
-                print("⚠️ Not authenticated. Please log in to use the agent.")
+
+                # Load Groq keys from environment
+                self.api_keys = []
+                for i in range(1, 10):  # Check GROQ_API_KEY_1 through GROQ_API_KEY_9
+                    key = os.getenv(f"GROQ_API_KEY_{i}") or os.getenv(f"GROQ_API_KEY")
+                    if key and key not in self.api_keys:
+                        self.api_keys.append(key)
+
+                if not self.api_keys:
+                    print("⚠️ No Groq API keys found. Set GROQ_API_KEY_1, GROQ_API_KEY_2, etc.")
+                else:
+                    print(f"✅ Loaded {len(self.api_keys)} Groq API key(s)")
+                    # Initialize first client
+                    try:
+                        from groq import Groq
+                        self.client = Groq(api_key=self.api_keys[0])
+                        self.current_api_key = self.api_keys[0]
+                        self.current_key_index = 0
+                    except Exception as e:
+                        print(f"⚠️ Failed to initialize Groq client: {e}")
 
             if self.shell_session and self.shell_session.poll() is not None:
                 self.shell_session = None

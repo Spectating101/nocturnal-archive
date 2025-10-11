@@ -133,7 +133,10 @@ class PaperSearcher:
     @cache(ttl=1800, source_version="semantic_scholar")
     async def search_semantic_scholar(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Search Semantic Scholar Graph API if credentials are available."""
+        logger.info("search_semantic_scholar called", query=query, has_key=bool(self.semantic_scholar_api_key))
+
         if not self._check_rate_limit("semantic_scholar"):
+            logger.info("Rate limited, waiting")
             await asyncio.sleep(1)
 
         if not self.semantic_scholar_api_key:
@@ -141,6 +144,7 @@ class PaperSearcher:
             return []
 
         try:
+            logger.info("Calling Semantic Scholar API", query=query)
             session = await self._get_session()
             url = f"{self.semantic_scholar_base}/paper/search"
             params = {
@@ -157,9 +161,12 @@ class PaperSearcher:
 
             async with session.get(url, params=params, headers=headers) as response:
                 self._increment_rate_limit("semantic_scholar")
+                logger.info("Semantic Scholar response", status=response.status)
                 if response.status == 200:
                     data = await response.json()
-                    return self._format_semantic_scholar_results(data.get("data", []))[:limit]
+                    papers = data.get("data", [])
+                    logger.info("Semantic Scholar results", count=len(papers))
+                    return self._format_semantic_scholar_results(papers)[:limit]
                 logger.error("Semantic Scholar API error", source="semantic_scholar", status=response.status)
         except Exception as exc:
             logger.error("Semantic Scholar search failed", source="semantic_scholar", error=str(exc))

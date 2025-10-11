@@ -1,0 +1,9 @@
+Package: cite-agent
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Cite-Agent Team <contact@citeagent.dev>
+Description: Terminal AI assistant for academic research
+ Cite-Agent provides AI-powered research assistance with citation verification.
+ Features include paper search, citation formatting, and research synthesis.

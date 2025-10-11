@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Cite Agent
+Comment=AI Research Assistant
+Exec=cite-agent
+Terminal=true
+Type=Application
+Categories=Education;Science;

@@ -83,10 +83,11 @@ class NocturnalCLI:
         success = await self.agent.initialize()
         
         if not success:
-            self.console.print("[error]❌ Failed to initialize agent. Please check your API keys.[/error]")
+            self.console.print("[error]❌ Failed to initialize agent. Please check your configuration.[/error]")
             self.console.print("\n💡 Setup help:")
-            self.console.print("   • Ensure your Groq API key is correct (re-run `nocturnal` to update it).")
-            self.console.print("   • You can edit ~/.nocturnal_archive/config.env or set GROQ_API_KEY manually.")
+            self.console.print("   • Run `cite-agent --setup` to configure your account")
+            self.console.print("   • Ensure you're logged in with valid credentials")
+            self.console.print("   • Check your internet connection to the backend")
             return False
         
         self._show_ready_panel()

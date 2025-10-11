@@ -1,0 +1,7 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: cite-agent
+Source: https://github.com/Spectating101/cite-agent
+
+Files: *
+Copyright: 2024 Cite-Agent Team
+License: MIT

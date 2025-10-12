@@ -1638,7 +1638,7 @@ class EnhancedNocturnalAgent:
                 provider_errors.append({"sources": sources, "error": result["error"]})
                 continue
 
-            results = result.get("results") or []
+            results = result.get("results") or result.get("papers") or []
             if results:
                 aggregated_payload = dict(result)
                 aggregated_payload["results"] = results

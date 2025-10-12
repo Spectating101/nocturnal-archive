@@ -63,15 +63,26 @@ class NocturnalCLI:
         self.telemetry = TelemetryManager.get()
 
         if not config.check_setup():
-            self.console.print("\n[warning]👋 Hey there, looks like this machine hasn't met Nocturnal yet.[/warning]")
-            self.console.print("[banner]Let's get you signed in — this only takes a minute.[/banner]")
-            try:
-                if not config.interactive_setup():
-                    self.console.print("[error]❌ Setup was cancelled. Exiting without starting the agent.[/error]")
+            # Check if we have env vars or session file (non-interactive mode)
+            import os
+            from pathlib import Path
+            session_file = Path.home() / ".nocturnal_archive" / "session.json"
+            has_env_creds = os.getenv("NOCTURNAL_ACCOUNT_EMAIL") and os.getenv("NOCTURNAL_ACCOUNT_PASSWORD")
+            
+            if session_file.exists() or has_env_creds:
+                # Skip interactive setup if session exists or env vars present
+                self.console.print("[success]⚙️  Using saved credentials.[/success]")
+            else:
+                # Need interactive setup
+                self.console.print("\n[warning]👋 Hey there, looks like this machine hasn't met Nocturnal yet.[/warning]")
+                self.console.print("[banner]Let's get you signed in — this only takes a minute.[/banner]")
+                try:
+                    if not config.interactive_setup():
+                        self.console.print("[error]❌ Setup was cancelled. Exiting without starting the agent.[/error]")
+                        return False
+                except (KeyboardInterrupt, EOFError):
+                    self.console.print("\n[error]❌ Setup interrupted. Exiting without starting the agent.[/error]")
                     return False
-            except (KeyboardInterrupt, EOFError):
-                self.console.print("\n[error]❌ Setup interrupted. Exiting without starting the agent.[/error]")
-                return False
             config.setup_environment()
             TelemetryManager.refresh()
             self.telemetry = TelemetryManager.get()
@@ -146,22 +157,9 @@ class NocturnalCLI:
     
     def _enforce_latest_build(self):
         """Ensure the CLI is running the most recent published build."""
-        try:
-            updater = NocturnalUpdater()
-            update_info = updater.check_for_updates()
-        except Exception:
-            return
-
-        if not update_info or not update_info.get("available"):
-            return
-
-        latest_version = update_info.get("latest", "latest")
-        self.console.print(f"[banner]⬆️  Updating Nocturnal Archive to {latest_version} before launch...[/banner]")
-
-        if updater.update_package():
-            self._save_update_notification(latest_version)
-            self.console.print("[warning]♻️  Restarting to finish applying the update...[/warning]")
-            self._restart_cli()
+        # Skip update check for beta - not published to PyPI yet
+        # TODO: Re-enable after PyPI publication
+        return
 
     def _restart_cli(self):
         """Re-exec the CLI using the current interpreter and arguments."""

@@ -1539,7 +1539,7 @@ class EnhancedNocturnalAgent:
                 "Content-Type": "application/json"
             }
             
-            url = f"{self.backend_api_url}/nocturnal/query/"
+            url = f"{self.backend_api_url}/query/"
             
             async with self.session.post(url, json=payload, headers=headers, timeout=60) as response:
                 if response.status == 401:

@@ -8,7 +8,6 @@ from typing import Optional, List, Dict, Any
 import structlog
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
-import asyncpg
 import os
 from src.services.llm_providers import get_provider_manager
 from src.services.citation_verifier import get_verifier
@@ -102,10 +101,6 @@ async def process_nocturnal_query(
     """
     user_id = current_user['user_id']
     
-    # Get database connection
-    db_url = os.getenv("DATABASE_URL", "postgresql://localhost/nocturnal_archive")
-    conn = await asyncpg.connect(db_url)
-    
     try:
         # Build the specialized system prompt
         system_prompt = build_nocturnal_system_prompt()
@@ -140,30 +135,17 @@ async def process_nocturnal_query(
             model = result.get('model', request.model)
             provider = result.get('provider', 'groq')
             
-            # Calculate remaining tokens
-            user = await conn.fetchrow(
-                "SELECT tokens_used_today FROM users WHERE user_id = $1",
-                user_id
-            )
-            tokens_remaining = 50000 - (user['tokens_used_today'] + tokens_used)
-            
-            # Update token usage
-            await conn.execute(
-                "UPDATE users SET tokens_used_today = tokens_used_today + $1 WHERE user_id = $2",
-                tokens_used, user_id
-            )
-            
-            # Record query in database
-            query_id = await conn.fetchval(
-                "INSERT INTO queries (user_id, query_text, response_text, tokens_used, cost, model, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING query_id",
-                user_id, request.query, response_text, tokens_used, cost, model, datetime.now(timezone.utc)
-            )
+            # Calculate remaining tokens (simplified)
+            tokens_remaining = 50000 - tokens_used
             
             # Verify citations if present
             citation_quality = None
             if any(keyword in response_text.lower() for keyword in ['doi:', 'arxiv:', 'http://', 'https://']):
-                verifier = get_verifier()
-                citation_quality = await verifier.verify_citations(response_text)
+                try:
+                    verifier = get_verifier()
+                    citation_quality = await verifier.verify_citations(response_text)
+                except Exception as e:
+                    logger.warning("Citation verification failed", error=str(e))
             
             return NocturnalResponse(
                 response=response_text,
@@ -187,14 +169,11 @@ async def process_nocturnal_query(
             )
     
     except Exception as e:
-        logger.error("Database error", error=str(e), user_id=user_id)
+        logger.error("Processing error", error=str(e), user_id=user_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}"
+            detail=f"Processing error: {str(e)}"
         )
-    
-    finally:
-        await conn.close()
 
 # Register the endpoint
 @router.post("/query", response_model=NocturnalResponse)

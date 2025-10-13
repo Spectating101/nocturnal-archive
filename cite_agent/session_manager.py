@@ -179,12 +179,17 @@ class SessionManager:
     
     def setup_environment_variables(self):
         """Set up environment variables for backend mode"""
-        # Set USE_LOCAL_KEYS=false to use backend mode
-        os.environ["USE_LOCAL_KEYS"] = "false"
+        # PRODUCTION MODE: Force backend, ensure monetization
+        # NEVER load user's .env files in production
         
-        # Set NOCTURNAL_API_URL if not already set
+        # Set backend URL if not already set
         if "NOCTURNAL_API_URL" not in os.environ:
             os.environ["NOCTURNAL_API_URL"] = "https://cite-agent-api-720dfadd602c.herokuapp.com/api"
+        
+        # SECURITY: Default to backend mode (USE_LOCAL_KEYS=false)
+        # This ensures users MUST authenticate and pay
+        if "USE_LOCAL_KEYS" not in os.environ:
+            os.environ["USE_LOCAL_KEYS"] = "false"
     
     def get_session_status(self) -> Dict[str, Any]:
         """Get current session status for debugging"""

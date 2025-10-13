@@ -70,14 +70,15 @@ class NocturnalCLI:
         
         return True
     
-    async def initialize(self):
+    async def initialize(self, non_interactive: bool = False):
         """Initialize the agent with automatic updates"""
         # Check for update notifications from previous runs
         self._check_update_notification()
         
-        # Handle user-friendly session management
-        if not self.handle_user_friendly_session():
-            return False
+        # Handle user-friendly session management (skip prompts in non-interactive mode)
+        if not non_interactive:
+            if not self.handle_user_friendly_session():
+                return False
         
         self._show_intro_panel()
 
@@ -100,6 +101,10 @@ class NocturnalCLI:
                 self.console.print("[success]⚙️  Using saved credentials.[/success]")
             else:
                 # Need interactive setup
+                if non_interactive:
+                    self.console.print("[error]❌ Not authenticated. Run 'cite-agent --setup' to configure.[/error]")
+                    return False
+                
                 self.console.print("\n[warning]👋 Hey there, looks like this machine hasn't met Nocturnal yet.[/warning]")
                 self.console.print("[banner]Let's get you signed in — this only takes a minute.[/banner]")
                 try:
@@ -127,8 +132,10 @@ class NocturnalCLI:
             self.console.print("   • Check your internet connection to the backend")
             return False
         
-        self._show_ready_panel()
-        self._show_beta_banner()
+        # Only show panels in debug mode or interactive mode
+        if not non_interactive or os.getenv("NOCTURNAL_DEBUG", "").lower() == "1":
+            self._show_ready_panel()
+            self._show_beta_banner()
         return True
 
     def _show_beta_banner(self):
@@ -157,6 +164,11 @@ class NocturnalCLI:
         self.console.print(panel)
 
     def _show_intro_panel(self):
+        # Only show in debug mode or interactive mode
+        debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+        if not debug_mode:
+            return
+        
         message = (
             "Warming up your research cockpit…\n"
             "[dim]Loading config, telemetry, and background update checks.[/dim]"
@@ -317,20 +329,22 @@ class NocturnalCLI:
     
     async def single_query(self, question: str):
         """Process a single query"""
-        if not await self.initialize():
+        if not await self.initialize(non_interactive=True):
             return
         
         try:
-            self.console.print(f"🤖 [bold]Processing[/]: {question}")
-            self.console.rule(style="magenta")
+            from rich.spinner import Spinner
+            from rich.live import Live
             
-            request = ChatRequest(
-                question=question,
-                user_id="cli_user",
-                conversation_id=self.session_id
-            )
-            
-            response = await self.agent.process_request(request)
+            # Show clean loading indicator
+            with Live(Spinner("dots", text=f"[cyan]{question}[/cyan]"), console=self.console, transient=True):
+                request = ChatRequest(
+                    question=question,
+                    user_id="cli_user",
+                    conversation_id=self.session_id
+                )
+                
+                response = await self.agent.process_request(request)
             
             self.console.print(f"\n📝 [bold]Response[/]:\n{response.response}")
             
@@ -511,7 +525,7 @@ class NocturnalCLI:
     async def single_query_with_workflow(self, question: str, save_to_library: bool = False, 
                                          copy_to_clipboard: bool = False, export_format: Optional[str] = None):
         """Process a single query with workflow integration"""
-        if not await self.initialize():
+        if not await self.initialize(non_interactive=True):
             return
         
         try:

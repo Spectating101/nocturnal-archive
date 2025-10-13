@@ -7,7 +7,7 @@ long_description = readme_path.read_text() if readme_path.exists() else "Termina
 
 setup(
     name="cite-agent",
-    version="1.0.5",
+    version="1.2.2",
     author="Cite-Agent Team",
     author_email="contact@citeagent.dev",
     description="Terminal AI assistant for academic research with citation verification",
@@ -28,6 +28,7 @@ setup(
     install_requires=[
         "aiohttp>=3.9.0",
         "groq>=0.4.0",
+        "openai>=1.0.0",  # For Cerebras API (OpenAI-compatible)
         "requests>=2.31.0",
         "python-dotenv>=1.0.0",
         "pydantic>=2.5.0",

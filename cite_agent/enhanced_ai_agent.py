@@ -220,10 +220,10 @@ class EnhancedNocturnalAgent:
             )
 
             # Archive API client
-            self.archive_base_url = _normalize_base(archive_env, "http://127.0.0.1:8000/api")
+            self.archive_base_url = _normalize_base(archive_env, "https://cite-agent-api-720dfadd602c.herokuapp.com/api")
 
             # FinSight API client
-            self.finsight_base_url = _normalize_base(finsight_env, "http://127.0.0.1:8000/v1/finance")
+            self.finsight_base_url = _normalize_base(finsight_env, "https://cite-agent-api-720dfadd602c.herokuapp.com/v1/finance")
 
             # Workspace Files API client
             files_env = os.getenv("FILES_API_URL")
@@ -239,13 +239,15 @@ class EnhancedNocturnalAgent:
             self._default_headers.clear()
             if self.api_key:
                 self._default_headers["X-API-Key"] = self.api_key
-                if self.api_key == "demo-key-123":
-                    print("⚠️ Using demo API key. Set NOCTURNAL_KEY for production usage.")
-            else:
-                print("⚠️ No API key configured for Nocturnal Archive API calls")
             
             self._update_service_roots()
-            print(f"✅ API clients initialized (Archive={self.archive_base_url}, FinSight={self.finsight_base_url})")
+            
+            # Only show init messages in debug mode
+            debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+            if debug_mode:
+                if self.api_key == "demo-key-123":
+                    print("⚠️ Using demo API key")
+                print(f"✅ API clients initialized (Archive={self.archive_base_url}, FinSight={self.finsight_base_url})")
             
         except Exception as e:
             print(f"⚠️ API client initialization warning: {e}")
@@ -848,6 +850,7 @@ class EnhancedNocturnalAgent:
 
     def _format_api_results_for_prompt(self, api_results: Dict[str, Any]) -> str:
         if not api_results:
+            logger.info("🔍 DEBUG: _format_api_results_for_prompt called with EMPTY api_results")
             return "No API results yet."
         try:
             serialized = json.dumps(api_results, indent=2)
@@ -856,6 +859,13 @@ class EnhancedNocturnalAgent:
         max_len = 20000  # Increased from 2000 to 20000 for paper search results
         if len(serialized) > max_len:
             serialized = serialized[:max_len] + "\n... (truncated)"
+
+        # DEBUG: Log formatted results length and preview
+        logger.info(f"🔍 DEBUG: _format_api_results_for_prompt returning {len(serialized)} chars")
+        if "research" in api_results:
+            papers_count = len(api_results.get("research", {}).get("results", []))
+            logger.info(f"🔍 DEBUG: api_results contains 'research' with {papers_count} papers")
+
         return serialized
 
     def _build_system_prompt(
@@ -1356,28 +1366,31 @@ class EnhancedNocturnalAgent:
             self._check_updates_background()
             self._ensure_environment_loaded()
             self._init_api_clients()
+            
+            # Suppress verbose initialization messages in production
+            import logging
+            logging.getLogger("aiohttp").setLevel(logging.ERROR)
+            logging.getLogger("asyncio").setLevel(logging.ERROR)
 
             # SECURITY FIX: No API keys on client!
             # All API calls go through our secure backend
             # This prevents key extraction and piracy
             # DISABLED for beta testing - set USE_LOCAL_KEYS=false to enable backend-only mode
 
-            # Check if user has active backend session
-            from pathlib import Path
-            session_file = Path.home() / ".nocturnal_archive" / "session.json"
-            has_backend_session = session_file.exists()
-
-            # Priority: Backend session > USE_LOCAL_KEYS env var > local keys default
+            # SECURITY: Production users MUST use backend for monetization
+            # Dev mode only available via undocumented env var (not in user docs)
             use_local_keys_env = os.getenv("USE_LOCAL_KEYS", "").lower()
-            if has_backend_session and use_local_keys_env != "true":
-                # User has backend session and didn't explicitly request local keys
-                use_local_keys = False
+
+            if use_local_keys_env == "true":
+                # Dev mode - use local keys
+                use_local_keys = True
             elif use_local_keys_env == "false":
-                # Explicitly requested backend mode
+                # Explicit backend mode
                 use_local_keys = False
             else:
-                # Default or explicitly requested local keys
-                use_local_keys = True
+                # Default: Always use backend (for monetization)
+                # Even if session doesn't exist, we'll prompt for login
+                use_local_keys = False
 
             if not use_local_keys:
                 self.api_keys = []  # Empty - keys stay on server
@@ -1388,7 +1401,7 @@ class EnhancedNocturnalAgent:
                 # Get backend API URL from config
                 self.backend_api_url = os.getenv(
                     "NOCTURNAL_API_URL",
-                    "https://api.nocturnal.dev/api"  # Production default
+                    "https://cite-agent-api-720dfadd602c.herokuapp.com/api"  # Production Heroku backend
                 )
 
                 # Get auth token from session (set by auth.py after login)
@@ -1408,10 +1421,13 @@ class EnhancedNocturnalAgent:
                     self.auth_token = None
                     self.user_id = None
 
-                if self.auth_token:
-                    print(f"✅ Enhanced Nocturnal Agent Ready! (Authenticated)")
-                else:
-                    print("⚠️ Not authenticated. Please log in to use the agent.")
+                # Suppress messages in production (only show in debug mode)
+                debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+                if debug_mode:
+                    if self.auth_token:
+                        print(f"✅ Enhanced Nocturnal Agent Ready! (Authenticated)")
+                    else:
+                        print("⚠️ Not authenticated. Please log in to use the agent.")
             else:
                 # Local keys mode - load Cerebras API keys (primary) with Groq fallback
                 self.auth_token = None
@@ -1434,10 +1450,13 @@ class EnhancedNocturnalAgent:
                 else:
                     self.llm_provider = "cerebras"
 
+                debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
                 if not self.api_keys:
-                    print("⚠️ No LLM API keys found. Set CEREBRAS_API_KEY or GROQ_API_KEY")
+                    if debug_mode:
+                        print("⚠️ No LLM API keys found. Set CEREBRAS_API_KEY or GROQ_API_KEY")
                 else:
-                    print(f"✅ Loaded {len(self.api_keys)} {self.llm_provider.upper()} API key(s)")
+                    if debug_mode:
+                        print(f"✅ Loaded {len(self.api_keys)} {self.llm_provider.upper()} API key(s)")
                     # Initialize first client - Cerebras uses OpenAI-compatible API
                     try:
                         if self.llm_provider == "cerebras":
@@ -1506,10 +1525,12 @@ class EnhancedNocturnalAgent:
         # Run in background thread
         threading.Thread(target=update_check, daemon=True).start()
     
-    async def call_backend_query(self, query: str, conversation_history: Optional[List[Dict]] = None) -> ChatResponse:
+    async def call_backend_query(self, query: str, conversation_history: Optional[List[Dict]] = None, 
+                                 api_results: Optional[Dict[str, Any]] = None, tools_used: Optional[List[str]] = None) -> ChatResponse:
         """
         Call backend /query endpoint instead of Groq directly
         This is the SECURE method - all API keys stay on server
+        Includes API results (Archive, FinSight) in context for better responses
         """
         if not self.auth_token:
             return ChatResponse(
@@ -1524,12 +1545,13 @@ class EnhancedNocturnalAgent:
             )
         
         try:
-            # Build request
+            # Build request with API context as separate field
             payload = {
-                "query": query,
+                "query": query,  # Keep query clean
                 "conversation_history": conversation_history or [],
+                "api_context": api_results,  # Send API results separately
                 "model": "llama-3.3-70b-versatile",
-                "temperature": 0.7,
+                "temperature": 0.2,  # Low temp for accuracy
                 "max_tokens": 4000
             }
             
@@ -1561,11 +1583,32 @@ class EnhancedNocturnalAgent:
                 
                 elif response.status == 200:
                     data = await response.json()
+                    response_text = data.get('response', '')
+                    tokens = data.get('tokens_used', 0)
+                    
+                    # Combine tools used
+                    all_tools = tools_used or []
+                    all_tools.append("backend_llm")
+                    
+                    # Save to workflow history
+                    self.workflow.save_query_result(
+                        query=query,
+                        response=response_text,
+                        metadata={
+                            "tools_used": all_tools,
+                            "tokens_used": tokens,
+                            "model": data.get('model'),
+                            "provider": data.get('provider')
+                        }
+                    )
+                    
                     return ChatResponse(
-                        response=data.get('response', ''),
-                        tokens_used=data.get('tokens_used', 0),
+                        response=response_text,
+                        tokens_used=tokens,
+                        tools_used=all_tools,
                         model=data.get('model', 'llama-3.3-70b-versatile'),
-                        timestamp=data.get('timestamp', datetime.now(timezone.utc).isoformat())
+                        timestamp=data.get('timestamp', datetime.now(timezone.utc).isoformat()),
+                        api_results=api_results
                     )
                 
                 else:
@@ -1649,9 +1692,15 @@ class EnhancedNocturnalAgent:
                     return {"error": "HTTP session not initialized"}
                 
                 url = f"{self.archive_base_url}/{endpoint}"
-                headers = getattr(self, "_default_headers", None)
-                if headers:
-                    headers = dict(headers)
+                headers = getattr(self, "_default_headers", None) or {}
+                headers = dict(headers)
+                
+                # Add auth for backend APIs
+                if self.auth_token and "Authorization" not in headers:
+                    headers["Authorization"] = f"Bearer {self.auth_token}"
+                elif not headers.get("X-API-Key") and not headers.get("Authorization"):
+                    # Demo key for unauthenticated requests
+                    headers["X-API-Key"] = "demo-key-123"
                 
                 async with self.session.post(url, json=data, headers=headers, timeout=30) as response:
                     if response.status == 200:
@@ -1721,9 +1770,15 @@ class EnhancedNocturnalAgent:
                     return {"error": "HTTP session not initialized"}
                 
                 url = f"{self.finsight_base_url}/{endpoint}"
-                headers = getattr(self, "_default_headers", None)
-                if headers:
-                    headers = dict(headers)
+                headers = getattr(self, "_default_headers", None) or {}
+                headers = dict(headers)
+                
+                # Add auth for backend APIs
+                if self.auth_token and "Authorization" not in headers:
+                    headers["Authorization"] = f"Bearer {self.auth_token}"
+                elif not headers.get("X-API-Key") and not headers.get("Authorization"):
+                    # Demo key for unauthenticated requests
+                    headers["X-API-Key"] = "demo-key-123"
                 
                 async with self.session.get(url, params=params, headers=headers, timeout=30) as response:
                     if response.status == 200:
@@ -2361,12 +2416,53 @@ class EnhancedNocturnalAgent:
     async def process_request(self, request: ChatRequest) -> ChatResponse:
         """Process request with full AI capabilities and API integration"""
         try:
-            # PRODUCTION MODE: Route all LLM queries through backend
-            # This ensures monetization - no local API key bypass
+            # Check workflow commands first (both modes)
+            workflow_response = await self._handle_workflow_commands(request)
+            if workflow_response:
+                return workflow_response
+            
+            # Analyze request to determine what APIs to call
+            request_analysis = await self._analyze_request_type(request.question)
+            
+            # Call appropriate APIs (Archive, FinSight) - BOTH production and dev mode
+            api_results = {}
+            tools_used = []
+            
+            # Archive API for research
+            if "archive" in request_analysis.get("apis", []):
+                result = await self.search_academic_papers(request.question, 5)
+                if "error" not in result:
+                    api_results["research"] = result
+                    tools_used.append("archive_api")
+            
+            # FinSight API for financial data
+            if "finsight" in request_analysis.get("apis", []):
+                tickers = self._extract_tickers_from_text(request.question)
+                if not tickers:
+                    # Try common company name mappings
+                    question_lower = request.question.lower()
+                    if "apple" in question_lower:
+                        tickers = ["AAPL"]
+                    elif "tesla" in question_lower:
+                        tickers = ["TSLA"]
+                    elif "microsoft" in question_lower:
+                        tickers = ["MSFT"]
+                    elif "google" in question_lower or "alphabet" in question_lower:
+                        tickers = ["GOOGL"]
+                
+                if tickers:
+                    financial_data = await self._call_finsight_api(tickers[0], "revenue")
+                    if financial_data and "error" not in financial_data:
+                        api_results["financial"] = financial_data
+                        tools_used.append("finsight_api")
+            
+            # PRODUCTION MODE: Send to backend LLM with API results
             if self.client is None:
                 return await self.call_backend_query(
                     query=request.question,
-                    conversation_history=self.conversation_history[-10:]  # Last 10 messages for context
+                    conversation_history=self.conversation_history[-10:],
+                    api_results=api_results,  # Include the data!
+                    tools_used=tools_used  # Pass tools list for history
                 )
 
             # DEV MODE ONLY: Direct Groq calls (only works with local API keys)
@@ -2564,8 +2660,14 @@ class EnhancedNocturnalAgent:
                 result = await self.search_academic_papers(request.question, 5)
                 if "error" not in result:
                     api_results["research"] = result
+                    # DEBUG: Log what we got from the API
+                    papers_count = len(result.get("results", []))
+                    logger.info(f"🔍 DEBUG: Got {papers_count} papers from Archive API")
+                    if papers_count > 0:
+                        logger.info(f"🔍 DEBUG: First paper: {result['results'][0].get('title', 'NO TITLE')[:80]}")
                 else:
                     api_results["research"] = {"error": result["error"]}
+                    logger.warning(f"🔍 DEBUG: Archive API returned error: {result['error']}")
                 tools_used.append("archive_api")
             
             # Build enhanced system prompt with trimmed sections based on detected needs

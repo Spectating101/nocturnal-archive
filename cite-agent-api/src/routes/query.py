@@ -35,6 +35,7 @@ async def get_db():
 class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=10000, description="User query")
     conversation_history: Optional[List[Dict[str, str]]] = Field(default=None, description="Optional conversation context")
+    api_context: Optional[Dict[str, Any]] = Field(default=None, description="API results (Archive, FinSight) for context")
     model: str = Field(default="llama-3.3-70b-versatile", description="Groq model to use")
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)  # Low temp for factual accuracy
     max_tokens: Optional[int] = Field(default=4000, ge=1, le=8000)
@@ -269,93 +270,74 @@ async def process_query(
         
         try:
             # Build specialized Cite-Agent system prompt
-            system_prompt = """You are Nocturnal, a truth-seeking research and finance AI. 
-PRIMARY DIRECTIVE: Accuracy > Agreeableness. 
-You are a fact-checker and analyst, NOT a people-pleaser. 
-You have direct access to production-grade data sources and can write/execute code (Python, R, SQL).
+            system_prompt = """You are Nocturnal, a professional research assistant.
 
-Capabilities in play:
-• Archive Research API for academic search and synthesis
-• FinSight Finance API for SEC-quality metrics and citations
-• Persistent shell session for system inspection and code execution
-• Core reasoning, code generation (Python/R/SQL), memory recall
+RESPONSE STYLE:
+• Be concise, clear, and direct - no unnecessary code or explanations
+• NEVER show Python code or API calls unless explicitly asked
+• Present information naturally, not as code output
+• When you have data, just state the facts with sources
+• Be conversational and helpful, not robotic
 
-📚 WORKFLOW INTEGRATION (Always available):
-• You can SAVE papers to user's local library
-• You can LIST papers from library
-• You can EXPORT citations to BibTeX or APA
-• You can SEARCH user's paper collection
-• You can COPY text to user's clipboard
+CAPABILITIES:
+You have access to:
+• Archive Research API - academic papers, DOIs, citations
+• FinSight Finance API - SEC filings, financial metrics
+• Your responses should feel natural, not like API documentation
+
+WORKFLOW FEATURES (mention when relevant):
+• You can save papers to the user's library
+• You can export citations to BibTeX or APA
 • User's query history is automatically tracked
+• Just mention these naturally when appropriate
 
-🚨 ANTI-APPEASEMENT: If user states something incorrect, CORRECT THEM immediately. Do not agree to be polite.
-🚨 UNCERTAINTY: If you're uncertain, SAY SO explicitly. 'I don't know' is better than a wrong answer.
-🚨 CONTRADICTIONS: If data contradicts user's assumption, SHOW THE CONTRADICTION clearly.
-🚨 FUTURE PREDICTIONS: You CANNOT predict the future. For 'will X happen?' questions, emphasize uncertainty and multiple possible outcomes.
+CRITICAL RULES:
+🚨 NO CODE SNIPPETS: Don't show Python/R/SQL code unless user asks "show me the code"
+🚨 NO FAKE DATA: If API returns empty, say "No papers found" - never fabricate
+🚨 CITE SOURCES: Always cite papers with DOI, SEC filings with URL
+🚨 BE ACCURATE: Correct > agreeable. Say "I don't know" if uncertain
 
-📊 SOURCE GROUNDING: EVERY factual claim MUST cite a source (paper, SEC filing, or data file).
-📊 NO FABRICATION: If API results are empty/ambiguous, explicitly state this limitation.
-📊 NO EXTRAPOLATION: Never go beyond what sources directly state.
-📊 PREDICTION CAUTION: When discussing trends, always state 'based on available data' and note uncertainty.
+RESPONSE FORMAT:
+• For papers: Title, Authors, Year, DOI (no code)
+• For finance: Numbers with SEC filing source (no code)  
+• For facts: Answer + citation (no code)
 
-🚨 CRITICAL: NEVER generate fake papers, fake authors, fake DOIs, or fake citations.
-🚨 CRITICAL: If research API returns empty results, say 'No papers found' - DO NOT make up papers.
-🚨 CRITICAL: If you see 'results': [] in API data, that means NO PAPERS FOUND - do not fabricate.
-🚨 CRITICAL: When API returns empty results, DO NOT use your training data to provide paper details.
-🚨 CRITICAL: If you know a paper exists from training data but API returns empty, say 'API found no results'.
+Example GOOD response:
+"I found 3 papers on BERT from 2019:
+1. BERT: Pre-training of Deep Bidirectional Transformers (Devlin et al., 2019)
+   DOI: 10.18653/v1/N19-1423
+Would you like me to save these to your library?"
 
-✓ VERIFICATION: Cross-check against multiple sources when available.
-✓ CONFLICTS: If sources conflict, present BOTH and explain the discrepancy.
-✓ SHOW REASONING: 'According to [source], X is Y because...'
+Example BAD response:
+"```python
+import requests
+response = requests.get('api.com/papers')
+```"
 
-💻 CODE: For data analysis, write and execute Python/R/SQL code. Show your work.
-💻 SHELL: Use !command for safe system inspection (ls, pwd, cat, etc.).
-💻 FILES: Read/analyze files when user mentions them.
-
-📚 RESEARCH: Search academic papers, verify citations, synthesize findings.
-📊 FINANCE: Get real-time financial data, analyze SEC filings, calculate metrics.
-🔍 FACT-CHECK: Verify claims against authoritative sources.
-
-Remember: You are a specialized research assistant with access to real data sources. Use them!"""
+Remember: Professional, concise, no unnecessary code. Users want answers, not implementation details."""
 
             # Build messages with specialized system prompt
             messages = [{"role": "system", "content": system_prompt}]
+            
+            # Add API context if provided
+            if request.api_context:
+                import json
+                api_context_str = json.dumps(request.api_context, indent=2)
+                messages.append({"role": "system", "content": f"API Data Available:\n{api_context_str}"})
+            
             if request.conversation_history:
                 messages.extend(request.conversation_history)
             messages.append({"role": "user", "content": request.query})
             
-            # Simple direct Groq call for testing
-            import httpx
-            groq_key = os.getenv("GROQ_API_KEY_1")
-            if not groq_key:
-                raise Exception("No Groq API key found")
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {groq_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": request.model,
-                        "messages": messages,
-                        "temperature": request.temperature,
-                        "max_tokens": request.max_tokens
-                    },
-                    timeout=30.0
-                )
-                
-                if response.status_code != 200:
-                    raise Exception(f"Groq API error: {response.status_code} - {response.text}")
-                
-                data = response.json()
-                result = {
-                    'content': data['choices'][0]['message']['content'],
-                    'tokens': data['usage']['total_tokens'],
-                    'model': data['model'],
-                    'provider': 'groq'
-                }
+            # Use multi-provider manager with automatic failover
+            # Priority: Cerebras (14.4K RPD) → Groq → Cloudflare → others
+            result = await provider_manager.query_with_fallback(
+                query=request.query,
+                conversation_history=request.conversation_history,
+                model=request.model,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens
+            )
             
             response_text = result['content']
             tokens_used = result['tokens']

@@ -12,7 +12,11 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 try:
-    import pkg_resources
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        warnings.filterwarnings("ignore", category=UserWarning)
+        import pkg_resources
 except ImportError:
     pkg_resources = None
 

@@ -2425,6 +2425,11 @@ class EnhancedNocturnalAgent:
             # Analyze request to determine what APIs to call
             request_analysis = await self._analyze_request_type(request.question)
             
+            # Debug: Check what was detected
+            debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+            if debug_mode:
+                print(f"🔍 Request analysis: {request_analysis}")
+            
             # Call appropriate APIs (Archive, FinSight) - BOTH production and dev mode
             api_results = {}
             tools_used = []
@@ -2451,11 +2456,22 @@ class EnhancedNocturnalAgent:
                     elif "google" in question_lower or "alphabet" in question_lower:
                         tickers = ["GOOGL"]
                 
+                if debug_mode:
+                    print(f"🔍 Extracted tickers: {tickers}")
+                
                 if tickers:
-                    financial_data = await self._call_finsight_api(tickers[0], "revenue")
+                    # Call FinSight with proper endpoint format
+                    if debug_mode:
+                        print(f"🔍 Calling FinSight API: calc/{tickers[0]}/revenue")
+                    financial_data = await self._call_finsight_api(f"calc/{tickers[0]}/revenue")
+                    if debug_mode:
+                        print(f"🔍 FinSight returned: {list(financial_data.keys()) if financial_data else None}")
                     if financial_data and "error" not in financial_data:
                         api_results["financial"] = financial_data
                         tools_used.append("finsight_api")
+                    else:
+                        if debug_mode and financial_data:
+                            print(f"🔍 FinSight error: {financial_data.get('error')}")
             
             # PRODUCTION MODE: Send to backend LLM with API results
             if self.client is None:

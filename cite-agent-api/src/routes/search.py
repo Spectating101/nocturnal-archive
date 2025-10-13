@@ -16,6 +16,7 @@ from src.services.paper_search import PaperSearcher
 from src.services.performance_integration import performance_integration
 from src.utils.async_utils import resolve_awaitable
 from src.engine.research_engine import sophisticated_engine
+from src.utils.api_fallback import api_fallback
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -362,6 +363,21 @@ async def search_papers(
                     paper_id=normalized_payload.get('id'),
                     trace_id=trace_id
                 )
+        
+        # If no papers found, try fallback
+        if not enhanced_papers:
+            logger.warning("No papers found, trying fallback", query=request.query, trace_id=trace_id)
+            fallback_response = api_fallback.get_fallback_response(request.query, "No results from APIs")
+            fallback_papers = fallback_response.get("papers", [])
+            
+            # Convert fallback papers to Paper objects
+            for paper_data in fallback_papers:
+                try:
+                    normalized = _prepare_paper_payload(paper_data, trace_id)
+                    if normalized:
+                        enhanced_papers.append(Paper(**normalized))
+                except Exception as err:
+                    logger.warning("Skipping fallback paper", error=str(err), trace_id=trace_id)
         
         # Generate query ID
         query_id = f"q_{uuid.uuid4().hex[:8]}"

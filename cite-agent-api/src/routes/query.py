@@ -331,9 +331,11 @@ Remember: Professional, concise, no unnecessary code. Users want answers, not im
             
             # Use multi-provider manager with automatic failover
             # Priority: Cerebras (14.4K RPD) → Groq → Cloudflare → others
+            # Pass the prepared messages (which include api_context)
             result = await provider_manager.query_with_fallback(
                 query=request.query,
                 conversation_history=request.conversation_history,
+                messages=messages,  # ← CRITICAL: Pass the prepared messages with api_context!
                 model=request.model,
                 temperature=request.temperature,
                 max_tokens=request.max_tokens

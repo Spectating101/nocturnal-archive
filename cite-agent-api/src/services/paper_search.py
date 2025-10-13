@@ -139,12 +139,10 @@ class PaperSearcher:
             logger.info("Rate limited, waiting")
             await asyncio.sleep(1)
 
-        if not self.semantic_scholar_api_key:
-            logger.info("Semantic Scholar API key not configured; skipping provider")
-            return []
-
+        # NOTE: Semantic Scholar API works without key (lower rate limits)
+        # API key is optional and just increases rate limits
         try:
-            logger.info("Calling Semantic Scholar API", query=query)
+            logger.info("Calling Semantic Scholar API", query=query, has_key=bool(self.semantic_scholar_api_key))
             session = await self._get_session()
             url = f"{self.semantic_scholar_base}/paper/search"
             params = {
@@ -156,8 +154,10 @@ class PaperSearcher:
             headers = {
                 "User-Agent": "Nocturnal-Archive/1.0 (contact@nocturnal.dev)",
                 "Accept": "application/json",
-                "x-api-key": self.semantic_scholar_api_key,
             }
+            # Only add API key header if configured (increases rate limits)
+            if self.semantic_scholar_api_key:
+                headers["x-api-key"] = self.semantic_scholar_api_key
 
             async with session.get(url, params=params, headers=headers) as response:
                 self._increment_rate_limit("semantic_scholar")

@@ -1693,15 +1693,15 @@ class EnhancedNocturnalAgent:
                     return {"error": "HTTP session not initialized"}
                 
                 url = f"{self.archive_base_url}/{endpoint}"
-                headers = getattr(self, "_default_headers", None) or {}
-                headers = dict(headers)
+                # Start fresh with headers
+                headers = {}
                 
-                # Add auth for backend APIs
-                if self.auth_token and "Authorization" not in headers:
+                # Always use demo key for Archive (public research data)
+                headers["X-API-Key"] = "demo-key-123"
+                
+                # Also add JWT if we have it
+                if self.auth_token:
                     headers["Authorization"] = f"Bearer {self.auth_token}"
-                elif not headers.get("X-API-Key") and not headers.get("Authorization"):
-                    # Demo key for unauthenticated requests
-                    headers["X-API-Key"] = "demo-key-123"
                 
                 async with self.session.post(url, json=data, headers=headers, timeout=30) as response:
                     if response.status == 200:
@@ -1771,15 +1771,20 @@ class EnhancedNocturnalAgent:
                     return {"error": "HTTP session not initialized"}
                 
                 url = f"{self.finsight_base_url}/{endpoint}"
-                headers = getattr(self, "_default_headers", None) or {}
-                headers = dict(headers)
+                # Start fresh with headers - don't use _default_headers which might be wrong
+                headers = {}
                 
-                # FinSight needs BOTH JWT and API key for now (backend config issue)
+                # Always use demo key for FinSight (SEC data is public)
+                headers["X-API-Key"] = "demo-key-123"
+                
+                # Also add JWT if we have it
                 if self.auth_token:
                     headers["Authorization"] = f"Bearer {self.auth_token}"
-                    headers["X-API-Key"] = "demo-key-123"  # Fallback key for JWT users
-                elif not headers.get("X-API-Key"):
-                    headers["X-API-Key"] = "demo-key-123"
+                
+                debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+                if debug_mode:
+                    print(f"🔍 FinSight headers: {list(headers.keys())}, X-API-Key={headers.get('X-API-Key')}")
+                    print(f"🔍 FinSight URL: {url}")
                 
                 async with self.session.get(url, params=params, headers=headers, timeout=30) as response:
                     if response.status == 200:

@@ -264,6 +264,7 @@ class LLMProviderManager:
         self,
         query: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        messages: Optional[List[Dict[str, str]]] = None,  # ← NEW: Accept pre-built messages
         model: Optional[str] = None,
         temperature: float = 0.2,  # CHANGED: Low temp for factual accuracy
         max_tokens: int = 4000
@@ -273,8 +274,13 @@ class LLMProviderManager:
         Priority: cerebras (14.4K RPD) → groq (1K RPD) → cloudflare → openrouter → together → fireworks
         """
         
-        messages = conversation_history or []
-        messages.append({"role": "user", "content": query})
+        # Use pre-built messages if provided, otherwise build from query
+        if messages:
+            pass  # Use the provided messages as-is
+        elif conversation_history:
+            messages = conversation_history + [{"role": "user", "content": query}]
+        else:
+            messages = [{"role": "user", "content": query}]
         
         # Try providers in order (Cerebras first - highest rate limit)
         provider_priority = ['cerebras', 'groq', 'cloudflare', 'openrouter', 'together', 'fireworks']

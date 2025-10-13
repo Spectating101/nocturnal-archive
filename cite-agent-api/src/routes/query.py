@@ -324,14 +324,38 @@ Remember: You are a specialized research assistant with access to real data sour
                 messages.extend(request.conversation_history)
             messages.append({"role": "user", "content": request.query})
             
-            result = await provider_manager.query_with_fallback(
-                query=request.query,
-                conversation_history=messages,
-                model=request.model,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                system_prompt=system_prompt
-            )
+            # Simple direct Groq call for testing
+            import httpx
+            groq_key = os.getenv("GROQ_API_KEY_1")
+            if not groq_key:
+                raise Exception("No Groq API key found")
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {groq_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": request.model,
+                        "messages": messages,
+                        "temperature": request.temperature,
+                        "max_tokens": request.max_tokens
+                    },
+                    timeout=30.0
+                )
+                
+                if response.status_code != 200:
+                    raise Exception(f"Groq API error: {response.status_code} - {response.text}")
+                
+                data = response.json()
+                result = {
+                    'content': data['choices'][0]['message']['content'],
+                    'tokens': data['usage']['total_tokens'],
+                    'model': data['model'],
+                    'provider': 'groq'
+                }
             
             response_text = result['content']
             tokens_used = result['tokens']

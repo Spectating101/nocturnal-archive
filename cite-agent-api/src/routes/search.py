@@ -228,7 +228,7 @@ def _prepare_paper_payload(raw_paper: Any, trace_id: str) -> Optional[Dict[str, 
     return payload
 
 
-@router.post("/search", response_model=SearchResult)
+@router.post("", response_model=SearchResult)  # Empty path since prefix is /api/search
 async def search_papers(
     request: SearchRequest,
     enhance: bool = Query(True, description="Enable performance enhancements"),

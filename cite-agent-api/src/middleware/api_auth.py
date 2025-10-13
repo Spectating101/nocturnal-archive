@@ -124,12 +124,12 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Check if this endpoint requires authentication
         if any(request.url.path.startswith(path) for path in self.protected_paths):
-            # Get API key from header
-            api_key = request.headers.get("Authorization")
-            if api_key and api_key.startswith("Bearer "):
-                api_key = api_key[7:]  # Remove "Bearer " prefix
-            else:
-                api_key = request.headers.get("X-API-Key")
+            # Get API key from header - prioritize X-API-Key over Authorization Bearer
+            api_key = request.headers.get("X-API-Key")
+            if not api_key:
+                auth_header = request.headers.get("Authorization")
+                if auth_header and auth_header.startswith("Bearer "):
+                    api_key = auth_header[7:]  # Remove "Bearer " prefix
             
             if not api_key:
                 if self.settings.environment == "test" and request.url.path.startswith("/api/"):

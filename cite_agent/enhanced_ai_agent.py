@@ -1698,12 +1698,22 @@ class EnhancedNocturnalAgent:
                 
                 # Always use demo key for Archive (public research data)
                 headers["X-API-Key"] = "demo-key-123"
+                headers["Content-Type"] = "application/json"
                 
                 # Also add JWT if we have it
                 if self.auth_token:
                     headers["Authorization"] = f"Bearer {self.auth_token}"
                 
+                debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+                if debug_mode:
+                    print(f"🔍 Archive headers: {list(headers.keys())}, X-API-Key={headers.get('X-API-Key')}")
+                    print(f"🔍 Archive URL: {url}")
+                    print(f"🔍 Archive data: {data}")
+                
                 async with self.session.post(url, json=data, headers=headers, timeout=30) as response:
+                    if debug_mode:
+                        print(f"🔍 Archive response status: {response.status}")
+                    
                     if response.status == 200:
                         payload = await response.json()
                         self._record_data_source("Archive", f"POST {endpoint}", True)

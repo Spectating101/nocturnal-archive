@@ -221,6 +221,7 @@ _routers = {
         "query",          # NEW: Secure query proxy
         "downloads",      # NEW: Download tracking
         "accuracy",       # NEW: Accuracy/citation metrics
+        "workflow",       # NEW: Workflow integration
         "simple_health",  # Simplified health without deps
         "search",
         "format",
@@ -253,8 +254,10 @@ def _include(name: str, **kwargs) -> None:
 
 _include("auth", prefix="/api", tags=["Authentication"])       # NEW
 _include("query", prefix="/api", tags=["Query"])             # NEW
+_include("nocturnal", prefix="/api", tags=["Nocturnal"])     # NEW - Specialized Cite-Agent
 _include("downloads", prefix="/api", tags=["Downloads"])     # NEW
 _include("accuracy", prefix="/api", tags=["Accuracy"])       # NEW
+_include("workflow", prefix="/api", tags=["Workflow"])       # NEW
 _include("simple_health", prefix="/api/health", tags=["System"])
 _include("search", prefix="/api", tags=["Search"])
 _include("format", prefix="/api", tags=["Format"])

@@ -76,6 +76,11 @@ class EnhancedNocturnalAgent:
         self.total_cost = 0.0
         self.cost_per_1k_tokens = 0.0001  # Groq pricing estimate
         self._auto_update_enabled = True
+        
+        # Workflow integration
+        from .workflow import WorkflowManager
+        self.workflow = WorkflowManager()
+        self.last_paper_result = None  # Track last paper mentioned for "save that"
         try:
             self.per_user_token_limit = int(os.getenv("GROQ_PER_USER_TOKENS", 50000))
         except (TypeError, ValueError):
@@ -108,11 +113,42 @@ class EnhancedNocturnalAgent:
         
         self._service_roots: List[str] = []
         self._backend_health_cache: Dict[str, Dict[str, Any]] = {}
+        
+        # Initialize authentication
+        self.auth_token = None
+        self.user_id = None
+        self._load_authentication()
         try:
             self._health_ttl = float(os.getenv("NOCTURNAL_HEALTH_TTL", 30))
         except Exception:
             self._health_ttl = 30.0
         self._recent_sources: List[Dict[str, Any]] = []
+
+    def _load_authentication(self):
+        """Load authentication from session file"""
+        use_local_keys = os.getenv("USE_LOCAL_KEYS", "true").lower() == "true"
+        
+        if not use_local_keys:
+            # Backend mode - load auth token from session
+            from pathlib import Path
+            session_file = Path.home() / ".nocturnal_archive" / "session.json"
+            if session_file.exists():
+                try:
+                    import json
+                    with open(session_file, 'r') as f:
+                        session_data = json.load(f)
+                        self.auth_token = session_data.get('access_token')
+                        self.user_id = session_data.get('user_id')
+                except Exception:
+                    self.auth_token = None
+                    self.user_id = None
+            else:
+                self.auth_token = None
+                self.user_id = None
+        else:
+            # Local keys mode
+            self.auth_token = None
+            self.user_id = None
         self._session_topics: Dict[str, Dict[str, Any]] = {}
 
         # Initialize API clients
@@ -817,7 +853,7 @@ class EnhancedNocturnalAgent:
             serialized = json.dumps(api_results, indent=2)
         except Exception:
             serialized = str(api_results)
-        max_len = 2000
+        max_len = 20000  # Increased from 2000 to 20000 for paper search results
         if len(serialized) > max_len:
             serialized = serialized[:max_len] + "\n... (truncated)"
         return serialized
@@ -869,6 +905,17 @@ class EnhancedNocturnalAgent:
             capability_lines.append("• Persistent shell session for system inspection and code execution")
         if not capability_lines:
             capability_lines.append("• Core reasoning, code generation (Python/R/SQL), memory recall")
+        
+        # Add workflow capabilities
+        capability_lines.append("")
+        capability_lines.append("📚 WORKFLOW INTEGRATION (Always available):")
+        capability_lines.append("• You can SAVE papers to user's local library")
+        capability_lines.append("• You can LIST papers from library")
+        capability_lines.append("• You can EXPORT citations to BibTeX or APA")
+        capability_lines.append("• You can SEARCH user's paper collection")
+        capability_lines.append("• You can COPY text to user's clipboard")
+        capability_lines.append("• User's query history is automatically tracked")
+        
         sections.append("Capabilities in play:\n" + "\n".join(capability_lines))
 
         # ENHANCED TRUTH-SEEKING RULES (adapt based on mode)
@@ -882,6 +929,17 @@ class EnhancedNocturnalAgent:
             "📊 NO FABRICATION: If API results are empty/ambiguous, explicitly state this limitation.",
             "📊 NO EXTRAPOLATION: Never go beyond what sources directly state.",
             "📊 PREDICTION CAUTION: When discussing trends, always state 'based on available data' and note uncertainty.",
+            "",
+            "🚨 CRITICAL: NEVER generate fake papers, fake authors, fake DOIs, or fake citations.",
+            "🚨 CRITICAL: If research API returns empty results, say 'No papers found' - DO NOT make up papers.",
+            "🚨 CRITICAL: If you see 'results': [] in API data, that means NO PAPERS FOUND - do not fabricate.",
+            "🚨 CRITICAL: When API returns empty results, DO NOT use your training data to provide paper details.",
+            "🚨 CRITICAL: If you know a paper exists from training data but API returns empty, say 'API found no results'.",
+            "",
+            "🚨 ABSOLUTE RULE: If you see 'results': [] in the API data, you MUST respond with ONLY:",
+            "   'No papers found in the research database. The API returned empty results.'",
+            "   DO NOT provide any paper details, authors, titles, or citations.",
+            "   DO NOT use your training data to fill in missing information.",
             "",
             "✓ VERIFICATION: Cross-check against multiple sources when available.",
             "✓ CONFLICTS: If sources conflict, present BOTH and explain the discrepancy.",
@@ -924,6 +982,20 @@ class EnhancedNocturnalAgent:
         rules.append("")
         rules.append("Keep responses concise but complete. Quote exact text from sources when possible.")
         
+        # Add workflow behavior rules
+        workflow_rules = [
+            "",
+            "📚 WORKFLOW BEHAVIOR:",
+            "• After finding papers, OFFER to save them: 'Would you like me to save this to your library?'",
+            "• After showing a citation, ASK: 'Want me to copy that to your clipboard?'",
+            "• If user says 'save that' or 'add to library', ACKNOWLEDGE and confirm the save",
+            "• If user mentions 'my library', LIST their saved papers",
+            "• If user asks for 'bibtex' or 'apa', PROVIDE the formatted citation",
+            "• Be PROACTIVE: suggest exports, show library stats, offer clipboard copies",
+            "• Example: 'I found 3 papers. I can save them to your library or export to BibTeX if you'd like.'",
+        ]
+        rules.extend(workflow_rules)
+        
         sections.append("CRITICAL RULES:\n" + "\n".join(rules))
         
         # CORRECTION EXAMPLES (adapt based on mode)
@@ -961,7 +1033,16 @@ class EnhancedNocturnalAgent:
             f"confidence={request_analysis.get('confidence')}"
         )
 
-        sections.append("API RESULTS:\n" + self._format_api_results_for_prompt(api_results))
+        # Add explicit instruction before API results
+        api_instructions = (
+            "🚨 CRITICAL: The following API RESULTS are REAL DATA from production APIs.\n"
+            "🚨 These are NOT examples or templates - they are ACTUAL results to use in your response.\n"
+            "🚨 DO NOT generate new/fake data - USE EXACTLY what is shown below.\n"
+            "🚨 If you see paper titles, authors, DOIs below - these are REAL papers you MUST cite.\n"
+            "🚨 If API results show empty/no papers, say 'No papers found' - DO NOT make up papers.\n"
+        )
+
+        sections.append(api_instructions + "\nAPI RESULTS:\n" + self._format_api_results_for_prompt(api_results))
 
         return "\n\n".join(sections)
 
@@ -1016,18 +1097,32 @@ class EnhancedNocturnalAgent:
         elif len(question.split()) <= 40 and request_analysis.get("type") in {"general", "system"} and not api_results:
             use_light_model = True
 
-        if use_light_model:
+        # Select model based on LLM provider
+        if getattr(self, 'llm_provider', 'groq') == 'cerebras':
+            if use_light_model:
+                return {
+                    "model": "llama3.1-8b",  # Cerebras 8B model
+                    "max_tokens": 520,
+                    "temperature": 0.2
+                }
             return {
-                "model": "llama-3.1-8b-instant",
-                "max_tokens": 520,
-                "temperature": 0.2
+                "model": "llama-3.3-70b",  # Cerebras 70B model
+                "max_tokens": 900,
+                "temperature": 0.3
             }
-
-        return {
-            "model": "llama-3.3-70b-versatile",
-            "max_tokens": 900,
-            "temperature": 0.3
-        }
+        else:
+            # Groq models
+            if use_light_model:
+                return {
+                    "model": "llama-3.1-8b-instant",
+                    "max_tokens": 520,
+                    "temperature": 0.2
+                }
+            return {
+                "model": "llama-3.3-70b-versatile",
+                "max_tokens": 900,
+                "temperature": 0.3
+            }
 
     def _mark_current_key_exhausted(self, reason: str = "rate_limit"):
         if not self.api_keys:
@@ -1055,11 +1150,18 @@ class EnhancedNocturnalAgent:
                     attempts += 1
                     continue
             try:
-                self.client = Groq(api_key=key)
+                if self.llm_provider == "cerebras":
+                    from openai import OpenAI
+                    self.client = OpenAI(
+                        api_key=key,
+                        base_url="https://api.cerebras.ai/v1"
+                    )
+                else:
+                    self.client = Groq(api_key=key)
                 self.current_api_key = key
                 return True
             except Exception as e:
-                logger.error(f"Failed to initialize Groq client for rotated key: {e}")
+                logger.error(f"Failed to initialize {self.llm_provider.upper()} client for rotated key: {e}")
                 self.exhausted_keys[key] = now
                 attempts += 1
         return False
@@ -1087,11 +1189,18 @@ class EnhancedNocturnalAgent:
                 del self.exhausted_keys[key]
 
             try:
-                self.client = Groq(api_key=key)
+                if self.llm_provider == "cerebras":
+                    from openai import OpenAI
+                    self.client = OpenAI(
+                        api_key=key,
+                        base_url="https://api.cerebras.ai/v1"
+                    )
+                else:
+                    self.client = Groq(api_key=key)
                 self.current_api_key = key
                 return True
             except Exception as e:
-                logger.error(f"Failed to initialize Groq client for key index {self.current_key_index}: {e}")
+                logger.error(f"Failed to initialize {self.llm_provider.upper()} client for key index {self.current_key_index}: {e}")
                 self.exhausted_keys[key] = now
                 attempts += 1
                 self.current_key_index = (self.current_key_index + 1) % total
@@ -1145,7 +1254,15 @@ class EnhancedNocturnalAgent:
                 payload = payload_full[:1500]
                 if len(payload_full) > 1500:
                     payload += "\n…"
-                details.append(f"**Research API snapshot**\n```json\n{payload}\n```")
+                
+                # Check if results are empty and add explicit warning
+                if research.get("results") == [] or not research.get("results"):
+                    details.append(f"**Research API snapshot**\n```json\n{payload}\n```")
+                    details.append("🚨 **CRITICAL: API RETURNED EMPTY RESULTS - DO NOT GENERATE ANY PAPER DETAILS**")
+                    details.append("🚨 **DO NOT PROVIDE AUTHORS, TITLES, DOIs, OR ANY PAPER INFORMATION**")
+                    details.append("🚨 **SAY 'NO PAPERS FOUND' AND STOP - DO NOT HALLUCINATE**")
+                else:
+                    details.append(f"**Research API snapshot**\n```json\n{payload}\n```")
 
             files_context = api_results.get("files_context")
             if files_context:
@@ -1245,7 +1362,22 @@ class EnhancedNocturnalAgent:
             # This prevents key extraction and piracy
             # DISABLED for beta testing - set USE_LOCAL_KEYS=false to enable backend-only mode
 
-            use_local_keys = os.getenv("USE_LOCAL_KEYS", "true").lower() == "true"
+            # Check if user has active backend session
+            from pathlib import Path
+            session_file = Path.home() / ".nocturnal_archive" / "session.json"
+            has_backend_session = session_file.exists()
+
+            # Priority: Backend session > USE_LOCAL_KEYS env var > local keys default
+            use_local_keys_env = os.getenv("USE_LOCAL_KEYS", "").lower()
+            if has_backend_session and use_local_keys_env != "true":
+                # User has backend session and didn't explicitly request local keys
+                use_local_keys = False
+            elif use_local_keys_env == "false":
+                # Explicitly requested backend mode
+                use_local_keys = False
+            else:
+                # Default or explicitly requested local keys
+                use_local_keys = True
 
             if not use_local_keys:
                 self.api_keys = []  # Empty - keys stay on server
@@ -1281,29 +1413,48 @@ class EnhancedNocturnalAgent:
                 else:
                     print("⚠️ Not authenticated. Please log in to use the agent.")
             else:
-                # Local keys mode - load Groq API keys
+                # Local keys mode - load Cerebras API keys (primary) with Groq fallback
                 self.auth_token = None
                 self.user_id = None
 
-                # Load Groq keys from environment
+                # Load Cerebras keys from environment (PRIMARY)
                 self.api_keys = []
-                for i in range(1, 10):  # Check GROQ_API_KEY_1 through GROQ_API_KEY_9
-                    key = os.getenv(f"GROQ_API_KEY_{i}") or os.getenv(f"GROQ_API_KEY")
+                for i in range(1, 10):  # Check CEREBRAS_API_KEY_1 through CEREBRAS_API_KEY_9
+                    key = os.getenv(f"CEREBRAS_API_KEY_{i}") or os.getenv(f"CEREBRAS_API_KEY")
                     if key and key not in self.api_keys:
                         self.api_keys.append(key)
 
+                # Fallback to Groq keys if no Cerebras keys found
                 if not self.api_keys:
-                    print("⚠️ No Groq API keys found. Set GROQ_API_KEY_1, GROQ_API_KEY_2, etc.")
+                    for i in range(1, 10):
+                        key = os.getenv(f"GROQ_API_KEY_{i}") or os.getenv(f"GROQ_API_KEY")
+                        if key and key not in self.api_keys:
+                            self.api_keys.append(key)
+                    self.llm_provider = "groq"
                 else:
-                    print(f"✅ Loaded {len(self.api_keys)} Groq API key(s)")
-                    # Initialize first client
+                    self.llm_provider = "cerebras"
+
+                if not self.api_keys:
+                    print("⚠️ No LLM API keys found. Set CEREBRAS_API_KEY or GROQ_API_KEY")
+                else:
+                    print(f"✅ Loaded {len(self.api_keys)} {self.llm_provider.upper()} API key(s)")
+                    # Initialize first client - Cerebras uses OpenAI-compatible API
                     try:
-                        from groq import Groq
-                        self.client = Groq(api_key=self.api_keys[0])
+                        if self.llm_provider == "cerebras":
+                            # Cerebras uses OpenAI client with custom base URL
+                            from openai import OpenAI
+                            self.client = OpenAI(
+                                api_key=self.api_keys[0],
+                                base_url="https://api.cerebras.ai/v1"
+                            )
+                        else:
+                            # Groq fallback
+                            from groq import Groq
+                            self.client = Groq(api_key=self.api_keys[0])
                         self.current_api_key = self.api_keys[0]
                         self.current_key_index = 0
                     except Exception as e:
-                        print(f"⚠️ Failed to initialize Groq client: {e}")
+                        print(f"⚠️ Failed to initialize {self.llm_provider.upper()} client: {e}")
 
             if self.shell_session and self.shell_session.poll() is not None:
                 self.shell_session = None
@@ -1388,7 +1539,7 @@ class EnhancedNocturnalAgent:
                 "Content-Type": "application/json"
             }
             
-            url = f"{self.backend_api_url}/query/"
+            url = f"{self.backend_api_url}/nocturnal/query/"
             
             async with self.session.post(url, json=payload, headers=headers, timeout=60) as response:
                 if response.status == 401:
@@ -1507,6 +1658,23 @@ class EnhancedNocturnalAgent:
                         payload = await response.json()
                         self._record_data_source("Archive", f"POST {endpoint}", True)
                         return payload
+                    elif response.status == 422:  # Validation error
+                        try:
+                            error_detail = await response.json()
+                            logger.error(f"Archive API validation error (HTTP 422): {error_detail}")
+                        except Exception:
+                            error_detail = await response.text()
+                            logger.error(f"Archive API validation error (HTTP 422): {error_detail}")
+
+                        if attempt < max_retries - 1:
+                            # Retry with simplified request
+                            if "sources" in data and len(data["sources"]) > 1:
+                                data["sources"] = [data["sources"][0]]  # Try single source
+                                logger.info(f"Retrying with single source: {data['sources']}")
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        self._record_data_source("Archive", f"POST {endpoint}", False, "422 validation error")
+                        return {"error": f"Archive API validation error: {error_detail}"}
                     elif response.status == 429:  # Rate limited
                         if attempt < max_retries - 1:
                             await asyncio.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
@@ -1517,6 +1685,8 @@ class EnhancedNocturnalAgent:
                         self._record_data_source("Archive", f"POST {endpoint}", False, "401 unauthorized")
                         return {"error": "Archive API authentication failed. Please check API key."}
                     else:
+                        error_text = await response.text()
+                        logger.error(f"Archive API error (HTTP {response.status}): {error_text}")
                         self._record_data_source("Archive", f"POST {endpoint}", False, f"HTTP {response.status}")
                         return {"error": f"Archive API error: {response.status}"}
                         
@@ -1639,9 +1809,18 @@ class EnhancedNocturnalAgent:
                 continue
 
             results = result.get("results") or result.get("papers") or []
-            if results:
+            # Validate papers have minimal required fields
+            validated_results = []
+            for paper in results:
+                if isinstance(paper, dict) and paper.get("title") and paper.get("year"):
+                    validated_results.append(paper)
+                else:
+                    logger.warning(f"Skipping invalid paper: {paper}")
+
+            if validated_results:
                 aggregated_payload = dict(result)
-                aggregated_payload["results"] = results
+                aggregated_payload["results"] = validated_results
+                aggregated_payload["validation_note"] = f"Validated {len(validated_results)} out of {len(results)} papers"
                 break
 
         aggregated_payload.setdefault("results", [])
@@ -1650,11 +1829,14 @@ class EnhancedNocturnalAgent:
         if provider_errors:
             aggregated_payload["provider_errors"] = provider_errors
 
+        # CRITICAL: Add explicit marker for empty results to prevent hallucination
         if not aggregated_payload["results"]:
             aggregated_payload["notes"] = (
                 "No papers were returned by the research providers. This often occurs during "
                 "temporary rate limits; please retry in a minute or adjust the query scope."
             )
+            aggregated_payload["EMPTY_RESULTS"] = True
+            aggregated_payload["warning"] = "DO NOT GENERATE FAKE PAPERS - API returned zero results"
 
         return aggregated_payload
     
@@ -1939,6 +2121,92 @@ class EnhancedNocturnalAgent:
 
         return formatted, 0
     
+    async def _handle_workflow_commands(self, request: ChatRequest) -> Optional[ChatResponse]:
+        """Handle natural language workflow commands directly"""
+        question_lower = request.question.lower()
+        
+        # Show library
+        if any(phrase in question_lower for phrase in ["show my library", "list my papers", "what's in my library", "my saved papers"]):
+            papers = self.workflow.list_papers()
+            if not papers:
+                message = "Your library is empty. As you find papers, I can save them for you."
+            else:
+                paper_list = []
+                for i, paper in enumerate(papers[:10], 1):
+                    authors_str = paper.authors[0] if paper.authors else "Unknown"
+                    if len(paper.authors) > 1:
+                        authors_str += " et al."
+                    paper_list.append(f"{i}. {paper.title} ({authors_str}, {paper.year})")
+                
+                message = f"You have {len(papers)} paper(s) in your library:\n\n" + "\n".join(paper_list)
+                if len(papers) > 10:
+                    message += f"\n\n...and {len(papers) - 10} more."
+            
+            return self._quick_reply(request, message, tools_used=["workflow_library"], confidence=1.0)
+        
+        # Export to BibTeX
+        if any(phrase in question_lower for phrase in ["export to bibtex", "export bibtex", "generate bibtex", "bibtex export"]):
+            success = self.workflow.export_to_bibtex()
+            if success:
+                message = f"✅ Exported {len(self.workflow.list_papers())} papers to BibTeX.\n\nFile: {self.workflow.bibtex_file}\n\nYou can import this into Zotero, Mendeley, or use it in your LaTeX project."
+            else:
+                message = "❌ Failed to export BibTeX. Make sure you have papers in your library first."
+            
+            return self._quick_reply(request, message, tools_used=["workflow_export"], confidence=1.0)
+        
+        # Export to Markdown
+        if any(phrase in question_lower for phrase in ["export to markdown", "export markdown", "markdown export"]):
+            success = self.workflow.export_to_markdown()
+            if success:
+                message = f"✅ Exported to Markdown. Check {self.workflow.exports_dir} for the file.\n\nYou can open it in Obsidian, Notion, or any markdown editor."
+            else:
+                message = "❌ Failed to export Markdown."
+            
+            return self._quick_reply(request, message, tools_used=["workflow_export"], confidence=1.0)
+        
+        # Show history
+        if any(phrase in question_lower for phrase in ["show history", "my history", "recent queries", "what did i search"]):
+            history = self.workflow.get_history()[:10]
+            if not history:
+                message = "No query history yet."
+            else:
+                history_list = []
+                for i, entry in enumerate(history, 1):
+                    timestamp = datetime.fromisoformat(entry['timestamp']).strftime("%m/%d %H:%M")
+                    query = entry['query'][:60] + "..." if len(entry['query']) > 60 else entry['query']
+                    history_list.append(f"{i}. [{timestamp}] {query}")
+                
+                message = "Recent queries:\n\n" + "\n".join(history_list)
+            
+            return self._quick_reply(request, message, tools_used=["workflow_history"], confidence=1.0)
+        
+        # Search library
+        search_match = re.match(r".*(?:search|find).*(?:in|my).*library.*[\"'](.+?)[\"']", question_lower)
+        if not search_match:
+            search_match = re.match(r".*search library (?:for )?(.+)", question_lower)
+        
+        if search_match:
+            query_term = search_match.group(1).strip()
+            results = self.workflow.search_library(query_term)
+            if not results:
+                message = f"No papers found matching '{query_term}' in your library."
+            else:
+                result_list = []
+                for i, paper in enumerate(results[:5], 1):
+                    authors_str = paper.authors[0] if paper.authors else "Unknown"
+                    if len(paper.authors) > 1:
+                        authors_str += " et al."
+                    result_list.append(f"{i}. {paper.title} ({authors_str}, {paper.year})")
+                
+                message = f"Found {len(results)} paper(s) matching '{query_term}':\n\n" + "\n".join(result_list)
+                if len(results) > 5:
+                    message += f"\n\n...and {len(results) - 5} more."
+            
+            return self._quick_reply(request, message, tools_used=["workflow_search"], confidence=1.0)
+        
+        # No workflow command detected
+        return None
+
     async def _analyze_request_type(self, question: str) -> Dict[str, Any]:
         """Analyze what type of request this is and what APIs to use"""
         
@@ -2151,6 +2419,11 @@ class EnhancedNocturnalAgent:
                     tools_used=["quick_reply"],
                     confidence=0.55
                 )
+            
+            # Check for workflow commands (natural language)
+            workflow_response = await self._handle_workflow_commands(request)
+            if workflow_response:
+                return workflow_response
             
             # Call appropriate APIs based on request type
             api_results = {}
@@ -2512,6 +2785,17 @@ class EnhancedNocturnalAgent:
                 request.user_id, 
                 request.conversation_id, 
                 f"Q: {request.question[:100]}... A: {final_response[:100]}..."
+            )
+            
+            # Save to workflow history automatically
+            self.workflow.save_query_result(
+                query=request.question,
+                response=final_response,
+                metadata={
+                    "tools_used": tools_used,
+                    "tokens_used": tokens_used,
+                    "confidence_score": request_analysis['confidence']
+                }
             )
             
             return ChatResponse(

@@ -1774,11 +1774,11 @@ class EnhancedNocturnalAgent:
                 headers = getattr(self, "_default_headers", None) or {}
                 headers = dict(headers)
                 
-                # Add auth for backend APIs
-                if self.auth_token and "Authorization" not in headers:
+                # FinSight needs BOTH JWT and API key for now (backend config issue)
+                if self.auth_token:
                     headers["Authorization"] = f"Bearer {self.auth_token}"
-                elif not headers.get("X-API-Key") and not headers.get("Authorization"):
-                    # Demo key for unauthenticated requests
+                    headers["X-API-Key"] = "demo-key-123"  # Fallback key for JWT users
+                elif not headers.get("X-API-Key"):
                     headers["X-API-Key"] = "demo-key-123"
                 
                 async with self.session.get(url, params=params, headers=headers, timeout=30) as response:

@@ -25,9 +25,9 @@ class NocturnalUpdater:
     
     def __init__(self):
         self.current_version = self.get_current_version()
-        self.package_name = "nocturnal-archive"
+        self.package_name = "cite-agent"  # Fixed: was "nocturnal-archive"
         self.pypi_url = f"https://pypi.org/pypi/{self.package_name}/json"
-        self.kill_switch_url = "https://api.nocturnal.dev/api/admin/status"
+        self.kill_switch_url = "https://cite-agent-api-720dfadd602c.herokuapp.com/api/health"
     
     def check_kill_switch(self) -> Dict[str, Any]:
         """Check if kill switch is activated"""

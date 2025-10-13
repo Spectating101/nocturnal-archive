@@ -1502,28 +1502,29 @@ class EnhancedNocturnalAgent:
             return True
     
     def _check_updates_background(self):
-        """Check for updates in background (silent, non-blocking)"""
+        """Check for updates and auto-install if available"""
         if not self._auto_update_enabled:
             return
+        
+        # Check for updates (synchronous, fast)
+        try:
+            from .updater import NocturnalUpdater
+            updater = NocturnalUpdater()
+            update_info = updater.check_for_updates()
             
-        import threading
-        
-        def update_check():
-            try:
-                from .updater import NocturnalUpdater
-                updater = NocturnalUpdater()
-                update_info = updater.check_for_updates()
+            if update_info and update_info["available"]:
+                # Auto-update silently in background
+                import threading
+                def do_update():
+                    try:
+                        updater.update_package(silent=True)
+                    except:
+                        pass
+                threading.Thread(target=do_update, daemon=True).start()
                 
-                if update_info and update_info["available"]:
-                    # Silent update - no interruption
-                    updater.update_package()
-                    
-            except Exception:
-                # Completely silent - don't interrupt user experience
-                pass
-        
-        # Run in background thread
-        threading.Thread(target=update_check, daemon=True).start()
+        except Exception:
+            # Silently ignore update check failures
+            pass
     
     async def call_backend_query(self, query: str, conversation_history: Optional[List[Dict]] = None, 
                                  api_results: Optional[Dict[str, Any]] = None, tools_used: Optional[List[str]] = None) -> ChatResponse:

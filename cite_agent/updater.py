@@ -107,32 +107,47 @@ class NocturnalUpdater:
         except:
             return False
     
-    def update_package(self, force: bool = False) -> bool:
+    def update_package(self, force: bool = False, silent: bool = False) -> bool:
         """Update the package to latest version"""
         try:
-            print("🔄 Updating Nocturnal Archive...")
+            if not silent:
+                print("🔄 Updating cite-agent...")
             
             # Check if update is needed
             if not force:
                 update_info = self.check_for_updates()
                 if not update_info or not update_info["available"]:
-                    print("✅ No updates available")
+                    if not silent:
+                        print("✅ No updates available")
                     return True
             
-            # Perform update
-            cmd = [sys.executable, "-m", "pip", "install", "--upgrade", self.package_name]
+            # Perform update with user flag to avoid system package conflicts
+            cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "--user", self.package_name]
             result = subprocess.run(cmd, capture_output=True, text=True)
             
             if result.returncode == 0:
-                new_version = self.get_current_version()
-                print(f"✅ Updated to version {new_version}")
+                # Create flag file to notify next launch
+                try:
+                    from pathlib import Path
+                    update_flag = Path.home() / ".nocturnal_archive" / ".updated"
+                    update_flag.parent.mkdir(exist_ok=True)
+                    update_flag.write_text(self.get_current_version())
+                except:
+                    pass
+                
+                if not silent:
+                    new_version = self.get_current_version()
+                    print(f"✅ Updated to version {new_version}")
+                    print("🔄 Restart cite-agent to use the new version")
                 return True
             else:
-                print(f"❌ Update failed: {result.stderr}")
+                if not silent:
+                    print(f"❌ Update failed: {result.stderr}")
                 return False
                 
         except Exception as e:
-            print(f"❌ Update error: {e}")
+            if not silent:
+                print(f"❌ Update error: {e}")
             return False
     
     def show_update_status(self):

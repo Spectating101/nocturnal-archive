@@ -869,7 +869,7 @@ class EnhancedNocturnalAgent:
             serialized = json.dumps(api_results, indent=2)
         except Exception:
             serialized = str(api_results)
-        max_len = 8000  # Keep under 12K token limit (backend + context)
+        max_len = 3000  # Aggressive limit to prevent token explosion
         if len(serialized) > max_len:
             serialized = serialized[:max_len] + "\n... (truncated for length)"
 
@@ -2565,8 +2565,16 @@ class EnhancedNocturnalAgent:
             if not is_vague:
                 # Archive API for research
                 if "archive" in request_analysis.get("apis", []):
-                    result = await self.search_academic_papers(request.question, 5)
+                    result = await self.search_academic_papers(request.question, 3)  # Reduced from 5 to save tokens
                     if "error" not in result:
+                        # Strip abstracts to save tokens - only keep essential fields
+                        if "results" in result:
+                            for paper in result["results"]:
+                                # Remove heavy fields
+                                paper.pop("abstract", None)
+                                paper.pop("tldr", None)
+                                paper.pop("full_text", None)
+                                # Keep only: title, authors, year, doi, url
                         api_results["research"] = result
                         tools_used.append("archive_api")
                 

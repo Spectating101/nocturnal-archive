@@ -6,15 +6,19 @@ Shows user activity, token usage, queries, etc.
 from fastapi import APIRouter, HTTPException, Header
 from typing import Optional
 import structlog
-from datetime import datetime, timedelta
-
-from src.database import get_db
+import os
+import asyncpg
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
-# Simple admin key (set in Heroku config)
+# Simple admin key
 ADMIN_KEY = "admin-key-for-stats-2024"
+
+async def get_db():
+    """Get database connection"""
+    db_url = os.getenv("DATABASE_URL", "postgresql://localhost/nocturnal_archive")
+    return await asyncpg.connect(db_url)
 
 @router.get("/stats")
 async def admin_stats(admin_key: Optional[str] = Header(None)):
@@ -23,53 +27,53 @@ async def admin_stats(admin_key: Optional[str] = Header(None)):
     if admin_key != ADMIN_KEY:
         raise HTTPException(status_code=403, detail="Unauthorized")
     
-    db = next(get_db())
+    db = await get_db()
     
     try:
         # User stats
-        total_users = db.execute("SELECT COUNT(*) FROM users").scalar()
-        users_list = db.execute("""
+        total_users = await db.fetchval("SELECT COUNT(*) FROM users")
+        users_list = await db.fetch("""
             SELECT email, created_at, query_limit 
             FROM users 
             ORDER BY created_at DESC 
             LIMIT 50
-        """).fetchall()
+        """)
         
         # Query stats
-        total_queries = db.execute("SELECT COUNT(*) FROM queries").scalar()
-        queries_today = db.execute("""
+        total_queries = await db.fetchval("SELECT COUNT(*) FROM queries")
+        queries_today = await db.fetchval("""
             SELECT COUNT(*) FROM queries 
             WHERE created_at >= NOW() - INTERVAL '1 day'
-        """).scalar()
+        """)
         
-        queries_last_7d = db.execute("""
+        queries_last_7d = await db.fetchval("""
             SELECT COUNT(*) FROM queries 
             WHERE created_at >= NOW() - INTERVAL '7 days'
-        """).scalar()
+        """)
         
         # Token usage by user
-        token_usage = db.execute("""
+        token_usage = await db.fetch("""
             SELECT u.email, 
                    COUNT(q.id) as query_count,
-                   SUM(q.tokens_used) as total_tokens,
+                   COALESCE(SUM(q.tokens_used), 0) as total_tokens,
                    MAX(q.created_at) as last_active
             FROM users u
             LEFT JOIN queries q ON u.user_id = q.user_id
             GROUP BY u.email
             ORDER BY total_tokens DESC
-        """).fetchall()
+        """)
         
         # Recent queries
-        recent_queries = db.execute("""
+        recent_queries = await db.fetch("""
             SELECT u.email, q.query, q.tokens_used, q.created_at
             FROM queries q
             JOIN users u ON q.user_id = u.user_id
             ORDER BY q.created_at DESC
             LIMIT 20
-        """).fetchall()
+        """)
         
         # Citation stats
-        papers_cited = db.execute("SELECT COUNT(*) FROM citation_details").scalar()
+        papers_cited = await db.fetchval("SELECT COUNT(*) FROM citation_details")
         
         return {
             "timestamp": datetime.utcnow().isoformat(),
@@ -113,4 +117,6 @@ async def admin_stats(admin_key: Optional[str] = Header(None)):
     except Exception as e:
         logger.error("Admin stats failed", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await db.close()
 

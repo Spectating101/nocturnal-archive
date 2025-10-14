@@ -25,7 +25,7 @@ class AuthManager:
         self.config_dir.mkdir(exist_ok=True)
         
         self.session_file = self.config_dir / "session.json"
-        self.api_base = os.getenv("NOCTURNAL_AUTH_API", "https://api.nocturnal.dev")
+        self.api_base = os.getenv("NOCTURNAL_AUTH_API", "https://cite-agent-api-720dfadd602c.herokuapp.com")
         
     def login(self, email: str, password: str) -> Dict:
         """

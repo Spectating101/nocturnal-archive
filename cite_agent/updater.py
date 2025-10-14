@@ -54,6 +54,13 @@ class NocturnalUpdater:
         except Exception:
             pass
         
+        # Try version file
+        try:
+            from cite_agent.__version__ import __version__
+            return __version__
+        except Exception:
+            pass
+        
         # Fallback to pkg_resources (deprecated)
         if pkg_resources:
             try:
@@ -61,12 +68,8 @@ class NocturnalUpdater:
             except Exception:
                 pass
         
-        # Last resort: try to get version from installed package
-        try:
-            import cite_agent
-            return getattr(cite_agent, '__version__', '1.0.0')
-        except ImportError:
-            return "1.0.0"
+        # Last resort
+        return "1.0.0"
     
     def check_for_updates(self) -> Optional[Dict[str, Any]]:
         """Check if updates are available"""

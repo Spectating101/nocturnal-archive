@@ -743,7 +743,7 @@ Examples:
     
     # Handle version
     if args.version:
-        print("Cite Agent v1.2.2")
+        print("Cite Agent v1.2.5")
         print("AI Research Assistant with real data integration")
         return
 

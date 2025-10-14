@@ -479,14 +479,15 @@ class EnhancedNocturnalAgent:
             from dotenv import load_dotenv
             from pathlib import Path
             
-            # Load from user's config directory, not current directory
+            # ONLY load from user's config directory (never from cwd/project root)
+            # Project .env.local is for developers, not end users
             env_local = Path.home() / ".nocturnal_archive" / ".env.local"
             if env_local.exists():
-                load_dotenv(env_local)
+                load_dotenv(env_local, override=False)  # Don't override existing env vars
         except ImportError:
             pass  # python-dotenv not installed
         except Exception as exc:
-            print(f"⚠️ Could not load .env.local: {exc}")
+            pass  # Silently fail - not critical
         finally:
             self._env_loaded = True
 
@@ -1423,18 +1424,23 @@ class EnhancedNocturnalAgent:
             # DISABLED for beta testing - set USE_LOCAL_KEYS=false to enable backend-only mode
 
             # SECURITY: Production users MUST use backend for monetization
-            # Dev mode only available via undocumented env var (not in user docs)
+            # Priority: 1) Session exists → backend, 2) USE_LOCAL_KEYS → dev mode
+            from pathlib import Path
+            session_file = Path.home() / ".nocturnal_archive" / "session.json"
+            has_session = session_file.exists()
             use_local_keys_env = os.getenv("USE_LOCAL_KEYS", "").lower()
 
-            if use_local_keys_env == "true":
-                # Dev mode - use local keys
+            if has_session:
+                # Session exists → ALWAYS use backend mode (ignore USE_LOCAL_KEYS)
+                use_local_keys = False
+            elif use_local_keys_env == "true":
+                # No session but dev mode requested → use local keys
                 use_local_keys = True
             elif use_local_keys_env == "false":
                 # Explicit backend mode
                 use_local_keys = False
             else:
                 # Default: Always use backend (for monetization)
-                # Even if session doesn't exist, we'll prompt for login
                 use_local_keys = False
 
             if not use_local_keys:

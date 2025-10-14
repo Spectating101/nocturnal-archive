@@ -99,7 +99,8 @@ class NocturnalCLI:
             
             if session_file.exists() or has_env_creds or use_local_keys:
                 # Skip interactive setup if session exists, env vars present, or using local keys
-                if use_local_keys:
+                if use_local_keys and not session_file.exists():
+                    # Only show dev mode if explicitly in dev mode (no session)
                     self.console.print("[success]⚙️  Dev mode - using local API keys.[/success]")
                 else:
                     self.console.print("[success]⚙️  Using saved credentials.[/success]")

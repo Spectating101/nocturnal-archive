@@ -2002,59 +2002,61 @@ class EnhancedNocturnalAgent:
         return results
     
     def execute_command(self, command: str) -> str:
-        """Execute command in persistent shell session and return output"""
+        """Execute command and return output - improved with echo markers"""
         try:
             if self.shell_session is None:
                 return "ERROR: Shell session not initialized"
             
-            # Send command to persistent shell
-            self.shell_session.stdin.write(command + '\n')
+            # Clean command - remove natural language prefixes
+            command = command.strip()
+            prefixes_to_remove = [
+                'run this bash:', 'execute this:', 'run command:', 'execute:', 
+                'run this:', 'run:', 'bash:', 'command:', 'this bash:', 'this:',
+                'r code to', 'R code to', 'python code to', 'in r:', 'in R:',
+                'in python:', 'in bash:', 'with r:', 'with bash:'
+            ]
+            for prefix in prefixes_to_remove:
+                if command.lower().startswith(prefix.lower()):
+                    command = command[len(prefix):].strip()
+                    # Try again in case of nested prefixes
+                    for prefix2 in prefixes_to_remove:
+                        if command.lower().startswith(prefix2.lower()):
+                            command = command[len(prefix2):].strip()
+                            break
+                    break
+            
+            # Use echo markers to detect when command is done
+            import uuid
+            marker = f"CMD_DONE_{uuid.uuid4().hex[:8]}"
+            
+            # Send command with marker
+            full_command = f"{command}; echo '{marker}'\n"
+            self.shell_session.stdin.write(full_command)
             self.shell_session.stdin.flush()
             
-            # Read output with timeout
-            try:
-                import select
-                use_select = True
-            except ImportError:
-                # Windows doesn't have select module
-                use_select = False
-            
+            # Read until we see the marker
             output_lines = []
             start_time = time.time()
-            timeout = 10  # seconds
+            timeout = 30  # Increased for R scripts
             
-            if use_select:
-                while time.time() - start_time < timeout:
-                    if select.select([self.shell_session.stdout], [], [], 0.1)[0]:
-                        line = self.shell_session.stdout.readline()
-                        if line:
-                            output_lines.append(line.rstrip())
-                        else:
-                            break
-                    else:
-                        # No more output available
+            while time.time() - start_time < timeout:
+                try:
+                    line = self.shell_session.stdout.readline()
+                    if not line:
                         break
-            else:
-                # Fallback for Windows - simpler approach
-                import threading
-                
-                def read_output():
-                    try:
-                        while True:
-                            line = self.shell_session.stdout.readline()
-                            if line:
-                                output_lines.append(line.rstrip())
-                            else:
-                                break
-                    except:
-                        pass
-                
-                reader_thread = threading.Thread(target=read_output, daemon=True)
-                reader_thread.start()
-                reader_thread.join(timeout=timeout)
+                    
+                    line = line.rstrip()
+                    
+                    # Check if we hit the marker
+                    if marker in line:
+                        break
+                    
+                    output_lines.append(line)
+                except Exception:
+                    break
             
-            output = '\n'.join(output_lines)
-            return output if output else "Command executed successfully"
+            output = '\n'.join(output_lines).strip()
+            return output if output else "Command executed (no output)"
             
         except Exception as e:
             return f"ERROR: {e}"

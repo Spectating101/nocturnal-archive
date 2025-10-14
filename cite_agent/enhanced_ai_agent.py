@@ -72,6 +72,14 @@ class EnhancedNocturnalAgent:
         self.daily_limit = 100000
         self.daily_query_limit = self._resolve_daily_query_limit()
         self.per_user_query_limit = self.daily_query_limit
+        
+        # Initialize web search for fallback
+        self.web_search = None
+        try:
+            from .web_search import WebSearchIntegration
+            self.web_search = WebSearchIntegration()
+        except Exception:
+            pass  # Web search optional
         self.daily_query_count = 0
         self.total_cost = 0.0
         self.cost_per_1k_tokens = 0.0001  # Groq pricing estimate
@@ -2575,19 +2583,59 @@ class EnhancedNocturnalAgent:
                     if debug_mode:
                         print(f"🔍 Extracted tickers: {tickers}")
                     
-                    if tickers:
-                        # Call FinSight with proper endpoint format
+                if tickers:
+                    # Detect what metric user is asking for
+                    question_lower = request.question.lower()
+                    metric = "revenue"  # Default
+                    
+                    if any(word in question_lower for word in ['market cap', 'marketcap', 'market value', 'valuation']):
+                        metric = "marketCap"
+                    elif any(word in question_lower for word in ['stock price', 'share price', 'current price', 'trading at']):
+                        metric = "price"
+                    elif 'profit' in question_lower and 'gross' not in question_lower:
+                        metric = "netIncome"
+                    elif 'earnings' in question_lower or 'eps' in question_lower:
+                        metric = "eps"
+                    elif any(word in question_lower for word in ['cash flow', 'cashflow']):
+                        metric = "freeCashFlow"
+                    
+                    # Call FinSight with detected metric
+                    if debug_mode:
+                        print(f"🔍 Calling FinSight API: calc/{tickers[0]}/{metric}")
+                    financial_data = await self._call_finsight_api(f"calc/{tickers[0]}/{metric}")
+                    if debug_mode:
+                        print(f"🔍 FinSight returned: {list(financial_data.keys()) if financial_data else None}")
+                    if financial_data and "error" not in financial_data:
+                        api_results["financial"] = financial_data
+                        tools_used.append("finsight_api")
+                    else:
+                        if debug_mode and financial_data:
+                            print(f"🔍 FinSight error: {financial_data.get('error')}")
+            
+            # Web Search fallback - if Archive/FinSight didn't find data
+            # Use for: market share, industry data, current events, anything not in APIs
+            if self.web_search and not is_vague:
+                # Only search if query needs data and APIs didn't provide it
+                needs_web_search = (
+                    ('market share' in request.question.lower() and not api_results.get('financial')) or
+                    ('market size' in request.question.lower()) or
+                    ('industry' in request.question.lower() and not api_results.get('research')) or
+                    ('current' in request.question.lower() and 'price' in request.question.lower())
+                )
+                
+                if needs_web_search or (not api_results and len(request.question.split()) > 5):
+                    try:
                         if debug_mode:
-                            print(f"🔍 Calling FinSight API: calc/{tickers[0]}/revenue")
-                        financial_data = await self._call_finsight_api(f"calc/{tickers[0]}/revenue")
+                            print(f"🔍 Using web search for: {request.question[:50]}...")
+                        web_results = await self.web_search.search_web(request.question, num_results=3)
+                        if web_results and "results" in web_results:
+                            api_results["web_search"] = web_results
+                            tools_used.append("web_search")
+                            if debug_mode:
+                                print(f"🔍 Web search returned: {len(web_results.get('results', []))} results")
+                    except Exception as e:
                         if debug_mode:
-                            print(f"🔍 FinSight returned: {list(financial_data.keys()) if financial_data else None}")
-                        if financial_data and "error" not in financial_data:
-                            api_results["financial"] = financial_data
-                            tools_used.append("finsight_api")
-                        else:
-                            if debug_mode and financial_data:
-                                print(f"🔍 FinSight error: {financial_data.get('error')}")
+                            print(f"🔍 Web search failed: {e}")
             
             # PRODUCTION MODE: Send to backend LLM with API results
             if self.client is None:

@@ -84,6 +84,15 @@ class CalculationEngine:
             self.sec_adapter = get_sec_facts_adapter()
         except Exception as e:
             logger.debug("SEC adapter unavailable", error=str(e))
+        
+        # Initialize Yahoo Finance adapter for market data, prices, crypto
+        self.yahoo_adapter = None
+        try:
+            from src.adapters.yahoo_finance import YahooFinanceAdapter
+            self.yahoo_adapter = YahooFinanceAdapter()
+            logger.info("Yahoo Finance adapter initialized")
+        except Exception as e:
+            logger.debug("Yahoo Finance adapter unavailable", error=str(e))
     
     async def calculate_metric(
         self,
@@ -498,6 +507,40 @@ class CalculationEngine:
             )
             if fact:
                 return self._convert_store_fact(fact)
+
+        # Final fallback: Try Yahoo Finance for market data
+        if self.yahoo_adapter:
+            try:
+                # Map common metrics to Yahoo Finance data
+                yahoo_data = await self.yahoo_adapter.get_quote(ticker)
+                if yahoo_data:
+                    # Try to extract requested metric from Yahoo data
+                    metric_map = {
+                        'marketCap': yahoo_data.get('marketCap'),
+                        'price': yahoo_data.get('regularMarketPrice'),
+                        'volume': yahoo_data.get('volume'),
+                        'pe_ratio': yahoo_data.get('trailingPE'),
+                        'beta': yahoo_data.get('beta'),
+                    }
+                    
+                    # Check if any concept matches what we need
+                    for concept in concepts:
+                        yahoo_key = concept.replace('_', '')  # Convert to camelCase-ish
+                        if yahoo_key in metric_map and metric_map[yahoo_key]:
+                            logger.info(f"Using Yahoo Finance fallback for {input_name}", 
+                                       ticker=ticker, concept=concept)
+                            return Fact(
+                                concept=concept,
+                                value=float(metric_map[yahoo_key]),
+                                unit="USD" if 'market' in concept.lower() or 'price' in concept.lower() else "",
+                                period=datetime.now().strftime("%Y-%m-%d"),
+                                period_type=PeriodType.INSTANT,
+                                accession="yahoo_finance",
+                                url=f"https://finance.yahoo.com/quote/{ticker}",
+                                dimensions={"source": "Yahoo Finance"}
+                            )
+            except Exception as e:
+                logger.debug("Yahoo Finance fallback failed", ticker=ticker, error=str(e))
 
         return None
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Nocturnal Archive CLI - Command Line Interface
+Cite Agent CLI - Command Line Interface
 Provides a terminal interface similar to cursor-agent
 """
 
@@ -29,7 +29,7 @@ from .workflow import WorkflowManager, Paper, parse_paper_from_response
 from .session_manager import SessionManager
 
 class NocturnalCLI:
-    """Command Line Interface for Nocturnal Archive"""
+    """Command Line Interface for Cite Agent"""
     
     def __init__(self):
         self.agent: Optional[EnhancedNocturnalAgent] = None
@@ -175,7 +175,7 @@ class NocturnalCLI:
         )
         panel = Panel(
             message,
-            title="🌙  Initializing Nocturnal Archive",
+            title="🤖  Initializing Cite Agent",
             border_style="magenta",
             padding=(1, 2),
             box=box.ROUNDED,
@@ -186,7 +186,7 @@ class NocturnalCLI:
         panel = Panel(
             "Systems check complete.\n"
             "Type [bold]help[/] for commands or [bold]tips[/] for power moves.",
-            title="✅ Nocturnal Archive ready!",
+            title="✅ Cite Agent ready!",
             border_style="green",
             padding=(1, 2),
             box=box.ROUNDED,
@@ -289,18 +289,22 @@ class NocturnalCLI:
                     self.console.print("\n[warning]👋 Goodbye![/warning]")
                     break
                 
-                self.console.print("[bold violet]🤖 Agent[/]: ", end="", highlight=False)
-                
                 try:
-                    request = ChatRequest(
-                        question=user_input,
-                        user_id="cli_user",
-                        conversation_id=self.session_id
-                    )
+                    from rich.spinner import Spinner
+                    from rich.live import Live
                     
-                    response = await self.agent.process_request(request)
+                    # Show loading indicator while processing
+                    with Live(Spinner("dots", text="[dim]Thinking...[/dim]"), console=self.console, transient=True):
+                        request = ChatRequest(
+                            question=user_input,
+                            user_id="cli_user",
+                            conversation_id=self.session_id
+                        )
+                        
+                        response = await self.agent.process_request(request)
 
                     # Print response with proper formatting
+                    self.console.print("[bold violet]🤖 Agent[/]: ", end="", highlight=False)
                     self.console.print(response.response)
 
                     # Save to history automatically
@@ -412,7 +416,7 @@ class NocturnalCLI:
 
         content = "\n".join(lines)
         with open(feedback_path, "w", encoding="utf-8") as handle:
-            handle.write("# Nocturnal Archive Beta Feedback\n")
+            handle.write("# Cite Agent Feedback\n")
             handle.write(f"timestamp = {timestamp}Z\n")
             handle.write("\n")
             handle.write(content)
@@ -601,7 +605,7 @@ class NocturnalCLI:
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
-        description="Nocturnal Archive - AI Research Assistant",
+        description="Cite Agent - AI Research Assistant with real data",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -739,7 +743,7 @@ Examples:
     
     # Handle version
     if args.version:
-        print("Nocturnal Archive v1.0.0")
+        print("Cite Agent v1.2.2")
         print("AI Research Assistant with real data integration")
         return
 

@@ -856,9 +856,9 @@ class EnhancedNocturnalAgent:
             serialized = json.dumps(api_results, indent=2)
         except Exception:
             serialized = str(api_results)
-        max_len = 20000  # Increased from 2000 to 20000 for paper search results
+        max_len = 8000  # Keep under 12K token limit (backend + context)
         if len(serialized) > max_len:
-            serialized = serialized[:max_len] + "\n... (truncated)"
+            serialized = serialized[:max_len] + "\n... (truncated for length)"
 
         # DEBUG: Log formatted results length and preview
         logger.info(f"🔍 DEBUG: _format_api_results_for_prompt returning {len(serialized)} chars")

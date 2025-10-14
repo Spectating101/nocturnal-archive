@@ -1,6 +1,6 @@
 # Cite-Agent: AI Research Assistant
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://pypi.org/project/cite-agent/)
+[![Version](https://img.shields.io/badge/version-1.2.6-blue.svg)](https://pypi.org/project/cite-agent/)
 [![Python](https://img.shields.io/badge/python-3.8+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
@@ -44,9 +44,33 @@
 
 ### Installation
 
+**Option 1: pipx (Recommended - handles PATH automatically)**
 ```bash
-pip install cite-agent
+# Install pipx if you don't have it
+pip install --user pipx
+python3 -m pipx ensurepath
+
+# Install cite-agent
+pipx install cite-agent
+
+# Ready to use (no PATH setup needed)
+cite-agent --version
 ```
+
+**Option 2: pip (requires PATH setup)**
+```bash
+# Install
+pip install --user cite-agent
+
+# Add to PATH (one-time setup)
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# Ready to use
+cite-agent --version
+```
+
+**If cite-agent command not found:** Run `python3 -m cite_agent.cli` instead.
 
 ### Basic Usage
 

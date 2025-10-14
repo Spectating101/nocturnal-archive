@@ -609,6 +609,16 @@ class NocturnalCLI:
 
 def main():
     """Main CLI entry point"""
+    # Check if ~/.local/bin is in PATH and warn if not
+    import sys
+    from pathlib import Path
+    local_bin = Path.home() / ".local" / "bin"
+    if local_bin.exists() and str(local_bin) not in os.environ.get("PATH", ""):
+        print("⚠️  NOTE: ~/.local/bin is not in your PATH")
+        print("   Add this to ~/.bashrc or ~/.zshrc:")
+        print('   export PATH="$HOME/.local/bin:$PATH"')
+        print("")
+    
     parser = argparse.ArgumentParser(
         description="Cite Agent - AI Research Assistant with real data",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -748,7 +758,7 @@ Examples:
     
     # Handle version
     if args.version:
-        print("Cite Agent v1.2.6")
+        print("Cite Agent v1.2.7")
         print("AI Research Assistant with real data integration")
         return
 

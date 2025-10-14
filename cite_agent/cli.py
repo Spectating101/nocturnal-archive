@@ -95,10 +95,14 @@ class NocturnalCLI:
             from pathlib import Path
             session_file = Path.home() / ".nocturnal_archive" / "session.json"
             has_env_creds = os.getenv("NOCTURNAL_ACCOUNT_EMAIL") and os.getenv("NOCTURNAL_ACCOUNT_PASSWORD")
+            use_local_keys = os.getenv("USE_LOCAL_KEYS", "").lower() == "true"
             
-            if session_file.exists() or has_env_creds:
-                # Skip interactive setup if session exists or env vars present
-                self.console.print("[success]⚙️  Using saved credentials.[/success]")
+            if session_file.exists() or has_env_creds or use_local_keys:
+                # Skip interactive setup if session exists, env vars present, or using local keys
+                if use_local_keys:
+                    self.console.print("[success]⚙️  Dev mode - using local API keys.[/success]")
+                else:
+                    self.console.print("[success]⚙️  Using saved credentials.[/success]")
             else:
                 # Need interactive setup
                 if non_interactive:

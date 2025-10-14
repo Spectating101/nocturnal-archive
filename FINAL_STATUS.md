@@ -201,3 +201,4 @@ Backend /api/query (with JWT)
 
 **TL;DR**: Archive works. FinSight needs Heroku config. Ready to deploy for academic use.
 
+

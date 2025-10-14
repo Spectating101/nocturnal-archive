@@ -34,6 +34,7 @@ setup(
         "pydantic>=2.5.0",
         "rich>=13.7.0",
         "keyring>=24.3.0",
+        "ddgs>=1.0.0",  # For web search fallback (DuckDuckGo)
     ],
     entry_points={
         "console_scripts": [

@@ -192,3 +192,4 @@ twine upload dist/cite_agent-1.2.2*
 - ⏳ Need to push to GitHub + Heroku
 - ⚠️ FinSight needs JWT auth support (backend issue)
 
+

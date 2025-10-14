@@ -289,3 +289,4 @@ curl -X POST .../api/auth/login -d '{"email":"...", "password":"..."}'
 *Tested October 13, 2025 - Ready for deployment after Heroku backend push*
 
 
+

@@ -182,3 +182,4 @@ twine upload dist/cite_agent-1.2.2*
 
 **Rating**: **8/10** - Production ready, auto-updates work, workflow integrated like Cursor.
 
+

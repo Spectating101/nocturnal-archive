@@ -23,23 +23,14 @@ class WebSearchIntegration:
         self._initialized = False
     
     async def _ensure_initialized(self):
-        """Lazy initialization of SearchEngine"""
+        """Lazy initialization with duckduckgo-search"""
         if not self._initialized:
             try:
-                # Import here to avoid circular dependencies
-                import sys
-                from pathlib import Path
-                
-                # Add src to path if needed
-                repo_root = Path(__file__).parent.parent.parent
-                src_path = repo_root / "src"
-                if str(src_path) not in sys.path:
-                    sys.path.insert(0, str(src_path))
-                
-                from services.search_service.search_engine import SearchEngine
-                self.search_engine = SearchEngine()
+                # Use ddgs (duckduckgo search)
+                from ddgs import DDGS
+                self.search_engine = DDGS()
                 self._initialized = True
-                logger.info("Web search engine initialized successfully")
+                logger.info("Web search engine initialized (DuckDuckGo)")
             except Exception as e:
                 logger.error(f"Failed to initialize web search: {e}")
                 self.search_engine = None
@@ -74,9 +65,17 @@ class WebSearchIntegration:
             }
         
         try:
-            results = await self.search_engine.web_search(query, num_results=num_results)
+            # Use DDGS.text() for web search
+            results_list = []
+            for result in self.search_engine.text(query, max_results=num_results):
+                results_list.append({
+                    "title": result.get("title", ""),
+                    "url": result.get("href", ""),
+                    "snippet": result.get("body", ""),
+                    "source": "DuckDuckGo"
+                })
             
-            if not results:
+            if not results_list:
                 return {
                     "success": True,
                     "results": [],
@@ -87,13 +86,13 @@ class WebSearchIntegration:
                 }
             
             # Format results conversationally
-            formatted = self._format_conversational_results(query, results)
+            formatted = self._format_conversational_results(query, results_list)
             
             return {
                 "success": True,
-                "results": results,
+                "results": results_list,
                 "formatted_response": formatted,
-                "count": len(results)
+                "count": len(results_list)
             }
             
         except Exception as e:

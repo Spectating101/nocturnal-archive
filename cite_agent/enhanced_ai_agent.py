@@ -2547,16 +2547,17 @@ class EnhancedNocturnalAgent:
             if debug_mode:
                 print(f"🔍 Request analysis: {request_analysis}")
             
-            # Check if query is too vague - skip API calls to save tokens
+            # Check if query is too vague - skip EXPENSIVE API calls to save tokens
+            # But still allow web search (cheap and flexible)
             is_vague = self._is_query_too_vague_for_apis(request.question)
             if debug_mode and is_vague:
-                print(f"🔍 Query detected as VAGUE - skipping API calls, asking for clarification")
+                print(f"🔍 Query detected as VAGUE - skipping Archive/FinSight, but may use web search")
             
             # Call appropriate APIs (Archive, FinSight) - BOTH production and dev mode
             api_results = {}
             tools_used = []
             
-            # Skip API calls if query is too vague
+            # Skip Archive/FinSight if query is too vague, but still allow web search later
             if not is_vague:
                 # Archive API for research
                 if "archive" in request_analysis.get("apis", []):
@@ -2583,44 +2584,48 @@ class EnhancedNocturnalAgent:
                     if debug_mode:
                         print(f"🔍 Extracted tickers: {tickers}")
                     
-                if tickers:
-                    # Detect what metric user is asking for
-                    question_lower = request.question.lower()
-                    metric = "revenue"  # Default
-                    
-                    if any(word in question_lower for word in ['market cap', 'marketcap', 'market value', 'valuation']):
-                        metric = "marketCap"
-                    elif any(word in question_lower for word in ['stock price', 'share price', 'current price', 'trading at']):
-                        metric = "price"
-                    elif 'profit' in question_lower and 'gross' not in question_lower:
-                        metric = "netIncome"
-                    elif 'earnings' in question_lower or 'eps' in question_lower:
-                        metric = "eps"
-                    elif any(word in question_lower for word in ['cash flow', 'cashflow']):
-                        metric = "freeCashFlow"
-                    
-                    # Call FinSight with detected metric
-                    if debug_mode:
-                        print(f"🔍 Calling FinSight API: calc/{tickers[0]}/{metric}")
-                    financial_data = await self._call_finsight_api(f"calc/{tickers[0]}/{metric}")
-                    if debug_mode:
-                        print(f"🔍 FinSight returned: {list(financial_data.keys()) if financial_data else None}")
-                    if financial_data and "error" not in financial_data:
-                        api_results["financial"] = financial_data
-                        tools_used.append("finsight_api")
-                    else:
-                        if debug_mode and financial_data:
-                            print(f"🔍 FinSight error: {financial_data.get('error')}")
+                    if tickers:
+                        # Detect what metric user is asking for
+                        question_lower = request.question.lower()
+                        metric = "revenue"  # Default
+                        
+                        if any(word in question_lower for word in ['market cap', 'marketcap', 'market value', 'valuation']):
+                            metric = "marketCap"
+                        elif any(word in question_lower for word in ['stock price', 'share price', 'current price', 'trading at']):
+                            metric = "price"
+                        elif 'profit' in question_lower and 'gross' not in question_lower:
+                            metric = "netIncome"
+                        elif 'earnings' in question_lower or 'eps' in question_lower:
+                            metric = "eps"
+                        elif any(word in question_lower for word in ['cash flow', 'cashflow']):
+                            metric = "freeCashFlow"
+                        
+                        # Call FinSight with detected metric
+                        if debug_mode:
+                            print(f"🔍 Calling FinSight API: calc/{tickers[0]}/{metric}")
+                        financial_data = await self._call_finsight_api(f"calc/{tickers[0]}/{metric}")
+                        if debug_mode:
+                            print(f"🔍 FinSight returned: {list(financial_data.keys()) if financial_data else None}")
+                        if financial_data and "error" not in financial_data:
+                            api_results["financial"] = financial_data
+                            tools_used.append("finsight_api")
+                        else:
+                            if debug_mode and financial_data:
+                                print(f"🔍 FinSight error: {financial_data.get('error')}")
             
-            # Web Search fallback - if Archive/FinSight didn't find data
-            # Use for: market share, industry data, current events, anything not in APIs
-            if self.web_search and not is_vague:
+            # Web Search fallback - ALWAYS available even for vague queries
+            # Use for: market share, industry data, current events, prices, anything not in APIs
+            if self.web_search:
+                question_lower = request.question.lower()
                 # Only search if query needs data and APIs didn't provide it
                 needs_web_search = (
-                    ('market share' in request.question.lower() and not api_results.get('financial')) or
-                    ('market size' in request.question.lower()) or
-                    ('industry' in request.question.lower() and not api_results.get('research')) or
-                    ('current' in request.question.lower() and 'price' in request.question.lower())
+                    ('market share' in question_lower) or
+                    ('market size' in question_lower) or
+                    ('industry' in question_lower and not api_results.get('research')) or
+                    ('price' in question_lower and ('today' in question_lower or 'current' in question_lower or 'now' in question_lower)) or
+                    ('bitcoin' in question_lower or 'btc' in question_lower or 'crypto' in question_lower) or
+                    ('exchange rate' in question_lower or 'forex' in question_lower) or
+                    (not api_results and 'latest' in question_lower)  # Latest news/data
                 )
                 
                 if needs_web_search or (not api_results and len(request.question.split()) > 5):

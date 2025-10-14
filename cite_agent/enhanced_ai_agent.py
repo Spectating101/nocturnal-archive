@@ -1580,7 +1580,7 @@ class EnhancedNocturnalAgent:
                 "query": query,  # Keep query clean
                 "conversation_history": conversation_history or [],
                 "api_context": api_results,  # Send API results separately
-                "model": "llama-3.3-70b-versatile",
+                "model": "llama-3.3-70b",  # Compatible with Cerebras (priority) and Groq
                 "temperature": 0.2,  # Low temp for accuracy
                 "max_tokens": 4000
             }

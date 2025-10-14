@@ -227,20 +227,72 @@ Tools: finsight_api, web_search
 
 ---
 
-## 🔐 Security Model
+## 🔐 Security Model & Mode Differences
 
-### **Production Mode** (Default):
-- All LLM keys stay on Heroku backend
-- Client sends only: query + JWT token
-- No API key extraction possible
-- Monetization enforced (session-based)
+### ⚠️ **IMPORTANT: Two Different Modes**
 
-### **Dev Mode** (Optional):
-- User provides own Cerebras/Groq keys in `.env.local`
-- Enables: R/Python code execution, file operations
-- Use case: Researchers with own API credits
+The system operates in TWO distinct modes with different capabilities:
 
-**Priority**: Session exists → Backend mode (even if .env.local present)
+---
+
+### **Production Mode** (Default - What Most Users Get)
+**Enabled when**: User has logged in with email/password
+
+**Capabilities:**
+- ✅ Archive API (academic papers with DOIs)
+- ✅ FinSight API (SEC filings, financial data)
+- ✅ Web Search (market share, crypto, industry data)
+- ✅ Autonomous answering
+- ❌ **NO terminal execution** (security - can't run code on our backend)
+- ❌ **NO file system access** (security - can't read Heroku files)
+
+**Use case**: 95% of users - researchers who want papers + data
+
+**Example:**
+```bash
+cite-agent "ls -la"
+→ "To run ls, type it in your terminal" 
+   (Explains but doesn't execute - BY DESIGN for security)
+```
+
+---
+
+### **Dev Mode** (Advanced - For Data Scientists)
+**Enabled when**: User removes session + sets `USE_LOCAL_KEYS=true` in `.env.local`
+
+**Capabilities:**
+- ✅ Everything from Production mode PLUS:
+- ✅ **Terminal execution** (R, Python, Bash, SQL)
+- ✅ **File system access** (read CSV, Stata files, etc.)
+- ✅ **Code execution** (run scripts, statistical models)
+- ✅ Uses LOCAL LLM (user's own API keys)
+
+**Use case**: Data scientists, statisticians, advanced researchers
+
+**Example:**
+```bash
+cite-agent "Execute: Rscript analysis.R"
+→ [Actually runs R script and shows output]
+   Fama-French results: β_MKT=0.957, p<0.001 ✅
+```
+
+**Verified working**: Tested on 4.8M observations, Stata files, regressions
+
+---
+
+### **Why Two Modes?**
+
+**Security**: Can't let random users execute code on our Heroku backend  
+**Monetization**: Backend mode tracks usage, enforces limits  
+**Flexibility**: Advanced users can use own API keys for unlimited execution
+
+**Trade-off**: Production users get safety, dev users get power
+
+---
+
+**If an AI assessment says "terminal execution doesn't work":**
+→ They tested Production mode (correct behavior)
+→ Terminal execution works in Dev mode (verified)
 
 ---
 

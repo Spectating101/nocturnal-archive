@@ -2458,6 +2458,47 @@ class EnhancedNocturnalAgent:
             "analysis_mode": analysis_mode  # NEW: qualitative, quantitative, or mixed
         }
     
+    def _is_query_too_vague_for_apis(self, question: str) -> bool:
+        """
+        Detect if query is too vague to warrant API calls
+        Returns True if we should skip APIs and just ask clarifying questions
+        """
+        question_lower = question.lower()
+        
+        # Pattern 1: Multiple years without SPECIFIC topic (e.g., "2008, 2015, 2019")
+        import re
+        years_pattern = r'\b(19\d{2}|20\d{2})\b'
+        years = re.findall(years_pattern, question)
+        if len(years) >= 2:
+            # Multiple years - check if there's a SPECIFIC topic beyond just "papers on"
+            # Generic terms that don't add specificity
+            generic_terms = ['papers', 'about', 'on', 'regarding', 'concerning', 'related to']
+            # Remove generic terms and check what's left
+            words = question_lower.split()
+            content_words = [w for w in words if w not in generic_terms and not re.match(r'\d{4}', w)]
+            # If fewer than 2 meaningful content words, it's too vague
+            if len(content_words) < 2:
+                return True  # Too vague: "papers on 2008, 2015, 2019" needs topic
+        
+        # Pattern 2: Market share without market specified
+        if 'market share' in question_lower:
+            market_indicators = ['analytics', 'software', 'government', 'data', 'cloud', 'sector', 'industry']
+            if not any(indicator in question_lower for indicator in market_indicators):
+                return True  # Too vague: needs market specification
+        
+        # Pattern 3: Comparison without metric (compare X and Y)
+        if any(word in question_lower for word in ['compare', 'versus', 'vs', 'vs.']):
+            metric_indicators = ['revenue', 'market cap', 'sales', 'growth', 'profit', 'valuation']
+            if not any(indicator in question_lower for indicator in metric_indicators):
+                return True  # Too vague: needs metric specification
+        
+        # Pattern 4: Ultra-short queries without specifics (< 4 words)
+        word_count = len(question.split())
+        if word_count <= 3 and '?' in question:
+            return True  # Too short and questioning - likely needs clarification
+        
+        return False  # Query seems specific enough for API calls
+    
     async def process_request(self, request: ChatRequest) -> ChatResponse:
         """Process request with full AI capabilities and API integration"""
         try:
@@ -2474,48 +2515,55 @@ class EnhancedNocturnalAgent:
             if debug_mode:
                 print(f"🔍 Request analysis: {request_analysis}")
             
+            # Check if query is too vague - skip API calls to save tokens
+            is_vague = self._is_query_too_vague_for_apis(request.question)
+            if debug_mode and is_vague:
+                print(f"🔍 Query detected as VAGUE - skipping API calls, asking for clarification")
+            
             # Call appropriate APIs (Archive, FinSight) - BOTH production and dev mode
             api_results = {}
             tools_used = []
             
-            # Archive API for research
-            if "archive" in request_analysis.get("apis", []):
-                result = await self.search_academic_papers(request.question, 5)
-                if "error" not in result:
-                    api_results["research"] = result
-                    tools_used.append("archive_api")
-            
-            # FinSight API for financial data
-            if "finsight" in request_analysis.get("apis", []):
-                tickers = self._extract_tickers_from_text(request.question)
-                if not tickers:
-                    # Try common company name mappings
-                    question_lower = request.question.lower()
-                    if "apple" in question_lower:
-                        tickers = ["AAPL"]
-                    elif "tesla" in question_lower:
-                        tickers = ["TSLA"]
-                    elif "microsoft" in question_lower:
-                        tickers = ["MSFT"]
-                    elif "google" in question_lower or "alphabet" in question_lower:
-                        tickers = ["GOOGL"]
+            # Skip API calls if query is too vague
+            if not is_vague:
+                # Archive API for research
+                if "archive" in request_analysis.get("apis", []):
+                    result = await self.search_academic_papers(request.question, 5)
+                    if "error" not in result:
+                        api_results["research"] = result
+                        tools_used.append("archive_api")
                 
-                if debug_mode:
-                    print(f"🔍 Extracted tickers: {tickers}")
-                
-                if tickers:
-                    # Call FinSight with proper endpoint format
+                # FinSight API for financial data
+                if "finsight" in request_analysis.get("apis", []):
+                    tickers = self._extract_tickers_from_text(request.question)
+                    if not tickers:
+                        # Try common company name mappings
+                        question_lower = request.question.lower()
+                        if "apple" in question_lower:
+                            tickers = ["AAPL"]
+                        elif "tesla" in question_lower:
+                            tickers = ["TSLA"]
+                        elif "microsoft" in question_lower:
+                            tickers = ["MSFT"]
+                        elif "google" in question_lower or "alphabet" in question_lower:
+                            tickers = ["GOOGL"]
+                    
                     if debug_mode:
-                        print(f"🔍 Calling FinSight API: calc/{tickers[0]}/revenue")
-                    financial_data = await self._call_finsight_api(f"calc/{tickers[0]}/revenue")
-                    if debug_mode:
-                        print(f"🔍 FinSight returned: {list(financial_data.keys()) if financial_data else None}")
-                    if financial_data and "error" not in financial_data:
-                        api_results["financial"] = financial_data
-                        tools_used.append("finsight_api")
-                    else:
-                        if debug_mode and financial_data:
-                            print(f"🔍 FinSight error: {financial_data.get('error')}")
+                        print(f"🔍 Extracted tickers: {tickers}")
+                    
+                    if tickers:
+                        # Call FinSight with proper endpoint format
+                        if debug_mode:
+                            print(f"🔍 Calling FinSight API: calc/{tickers[0]}/revenue")
+                        financial_data = await self._call_finsight_api(f"calc/{tickers[0]}/revenue")
+                        if debug_mode:
+                            print(f"🔍 FinSight returned: {list(financial_data.keys()) if financial_data else None}")
+                        if financial_data and "error" not in financial_data:
+                            api_results["financial"] = financial_data
+                            tools_used.append("finsight_api")
+                        else:
+                            if debug_mode and financial_data:
+                                print(f"🔍 FinSight error: {financial_data.get('error')}")
             
             # PRODUCTION MODE: Send to backend LLM with API results
             if self.client is None:

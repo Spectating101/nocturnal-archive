@@ -12,13 +12,20 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 try:
-    import warnings
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        warnings.filterwarnings("ignore", category=UserWarning)
-        import pkg_resources
+    # Use modern importlib.metadata instead of deprecated pkg_resources
+    from importlib.metadata import version as get_version
+    pkg_resources = None  # Not needed anymore
 except ImportError:
-    pkg_resources = None
+    # Fallback for Python < 3.8
+    try:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            warnings.filterwarnings("ignore", category=UserWarning)
+            import pkg_resources
+    except ImportError:
+        pkg_resources = None
+        get_version = None
 
 class NocturnalUpdater:
     """Handles automatic updates for Nocturnal Archive"""
@@ -41,16 +48,23 @@ class NocturnalUpdater:
     
     def get_current_version(self) -> str:
         """Get current installed version"""
+        # Try modern importlib.metadata first
+        try:
+            return get_version(self.package_name)
+        except Exception:
+            pass
+        
+        # Fallback to pkg_resources (deprecated)
         if pkg_resources:
             try:
                 return pkg_resources.get_distribution(self.package_name).version
-            except (pkg_resources.DistributionNotFound, Exception):
+            except Exception:
                 pass
         
-        # Fallback: try to get version from installed package
+        # Last resort: try to get version from installed package
         try:
-            import nocturnal_archive
-            return getattr(nocturnal_archive, '__version__', '1.0.0')
+            import cite_agent
+            return getattr(cite_agent, '__version__', '1.0.0')
         except ImportError:
             return "1.0.0"
     

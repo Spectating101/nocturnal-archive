@@ -251,8 +251,9 @@ async def search_papers(
             trace_id=trace_id
         )
         
-        # Try sophisticated engine first, fallback to basic search
-        if sophisticated_engine.enhanced_research:
+        # Use basic search (sophisticated engine disabled for production)
+        use_advanced = False  # Disabled: sophisticated_engine.enhanced_research
+        if use_advanced:
             logger.info("Using sophisticated research engine", trace_id=trace_id)
             advanced_results = await sophisticated_engine.search_papers_advanced(
                 query=request.query,

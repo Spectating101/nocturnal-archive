@@ -135,7 +135,7 @@ class NocturnalCLI:
         # Only show panels in debug mode or interactive mode
         if not non_interactive or os.getenv("NOCTURNAL_DEBUG", "").lower() == "1":
             self._show_ready_panel()
-            self._show_beta_banner()
+            # Beta banner removed for production
         return True
 
     def _show_beta_banner(self):
@@ -348,8 +348,7 @@ class NocturnalCLI:
             
             self.console.print(f"\n📝 [bold]Response[/]:\n{response.response}")
             
-            if response.tools_used:
-                self.console.print(f"\n🔧 Tools used: {', '.join(response.tools_used)}")
+            # Tools used removed for cleaner output
             
             if response.tokens_used > 0:
                 stats = self.agent.get_usage_stats()
@@ -542,8 +541,7 @@ class NocturnalCLI:
             
             self.console.print(f"\n📝 [bold]Response[/]:\n{response.response}")
             
-            if response.tools_used:
-                self.console.print(f"\n🔧 Tools used: {', '.join(response.tools_used)}")
+            # Tools used removed for cleaner output
             
             if response.tokens_used > 0:
                 stats = self.agent.get_usage_stats()

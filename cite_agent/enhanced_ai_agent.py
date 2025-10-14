@@ -477,10 +477,14 @@ class EnhancedNocturnalAgent:
 
         try:
             from dotenv import load_dotenv
-
-            load_dotenv('.env.local')
+            from pathlib import Path
+            
+            # Load from user's config directory, not current directory
+            env_local = Path.home() / ".nocturnal_archive" / ".env.local"
+            if env_local.exists():
+                load_dotenv(env_local)
         except ImportError:
-            print("⚠️ python-dotenv not installed, using system environment variables")
+            pass  # python-dotenv not installed
         except Exception as exc:
             print(f"⚠️ Could not load .env.local: {exc}")
         finally:
@@ -896,12 +900,24 @@ class EnhancedNocturnalAgent:
                 "You have access to production data sources and can write/execute code (Python, R, SQL)."
             )
         else:  # quantitative
-            intro = (
-                "You are Cite Agent, a truth-seeking research and finance AI. "
-                "PRIMARY DIRECTIVE: Accuracy > Agreeableness. Ask clarifying questions when context is missing. "
-                "You are a fact-checker and analyst, NOT a people-pleaser. "
-                "You have direct access to production-grade data sources and can write/execute code (Python, R, SQL)."
-            )
+            # Check if we're in dev mode (has local LLM client)
+            dev_mode = self.client is not None
+            
+            if dev_mode:
+                intro = (
+                    "You are Cite Agent, a data analysis and research assistant with CODE EXECUTION. "
+                    "PRIMARY DIRECTIVE: Execute code when needed. You have a persistent shell session. "
+                    "When user asks for data analysis, calculations, or file operations: WRITE and EXECUTE the code. "
+                    "Languages available: Python, R, SQL, Bash. "
+                    "You can read files, run scripts, perform calculations, and show results."
+                )
+            else:
+                intro = (
+                    "You are Cite Agent, a truth-seeking research and finance AI. "
+                    "PRIMARY DIRECTIVE: Accuracy > Agreeableness. Ask clarifying questions when context is missing. "
+                    "You are a fact-checker and analyst, NOT a people-pleaser. "
+                    "You have access to research (Archive) and financial data (FinSight SEC filings)."
+                )
         
         sections.append(intro)
 

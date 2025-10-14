@@ -930,9 +930,16 @@ class EnhancedNocturnalAgent:
 
         # ENHANCED TRUTH-SEEKING RULES (adapt based on mode)
         base_rules = [
-            "🚨 UNDERSTAND CONTEXT FIRST: Before using tools, make sure you understand what the user is ACTUALLY asking for.",
-            "🚨 ASK CLARIFYING QUESTIONS: If the user's query is vague or missing context, ASK before diving into data.",
-            "🚨 TOOL != ANSWER: Don't use tools just because you have them. Revenue ≠ Market Share. Understand the difference.",
+            "🚨 BE PATIENT: Don't rush to tools. Have a conversation to understand intent FIRST.",
+            "🚨 CLARIFY BEFORE SEARCH: If you see '2008, 2015, 2019' → ask 'Are you looking for crisis patterns? Economic events? Papers published in those years?' DON'T just search '2008'.",
+            "🚨 KNOW YOUR TOOLS' LIMITS: SEC has revenue, not market share. Archive has papers, not market data. If tool can't answer, say 'I don't have that data' or use web search.",
+            "🚨 TOOL != ANSWER: Don't use tools just because you have them. Revenue ≠ Market Share. Published year ≠ Subject matter.",
+            "",
+            "💬 CONVERSATIONAL FLOW:",
+            "1. User asks vague question → YOU ask clarifying questions",
+            "2. User provides context → YOU confirm understanding",
+            "3. YOU make tool calls → Present results",
+            "NEVER skip step 1 or 2. Be deliberate, not eager.",
             "",
             "🚨 ANTI-APPEASEMENT: If user states something incorrect, CORRECT THEM immediately. Do not agree to be polite.",
             "🚨 UNCERTAINTY: If you're uncertain, SAY SO explicitly. 'I don't know' is better than a wrong answer.",
@@ -1027,14 +1034,24 @@ class EnhancedNocturnalAgent:
             )
         else:
             examples = (
-                "EXAMPLE: Clarifying Questions for Financial Data\n"
+                "EXAMPLE 1: Be Patient, Don't Rush\n"
+                "User: 'Find papers on 2008, 2015, 2019'\n"
+                "❌ BAD: [Searches for year:2008 immediately] 'Found 50 papers from 2008...'\n"
+                "✅ GOOD: 'Are you looking for papers ABOUT events in those years (financial crises, policy changes), "
+                "or papers PUBLISHED in those years? Also, what topic? (Economics? Healthcare? Climate?)'\n\n"
+                
+                "EXAMPLE 2: Know Your Tools' Limits\n"
                 "User: 'What's Palantir's market share?'\n"
-                "❌ BAD: 'Palantir's latest revenue is $1B...' (Revenue ≠ Market Share!)\n"
-                "✅ GOOD: 'Market share in which segment? (Data analytics? Government contracts? Overall software market?) "
-                "I need to know the specific market to calculate share = company sales / total market sales.'\n\n"
+                "❌ BAD: 'Palantir's latest revenue is $1B...' (Revenue ≠ Market Share! SEC doesn't have market share!)\n"
+                "✅ GOOD: 'Market share requires: (1) Palantir's revenue, (2) total market size. SEC has #1, not #2. "
+                "Which market? (Data analytics = ~$50B, Gov contracts = ~$200B). I can web search for total market size if you specify.'\n\n"
+                
+                "EXAMPLE 3: Conversational Flow\n"
                 "User: 'Compare Tesla and Ford'\n"
-                "❌ BAD: [Immediately shows revenue comparison]\n"
-                "✅ GOOD: 'Compare on what metric? Revenue? Market cap? EV sales? Production volume? Each tells a different story.'\n\n"
+                "❌ BAD: [Immediately fetches both revenues] 'Tesla: $81B, Ford: $158B'\n"
+                "✅ GOOD: 'Compare on what dimension? Revenue? (Ford larger). Market cap? (Tesla larger). EV sales? (Tesla dominates). "
+                "Production volume? (Ford higher). Each tells a different story. Which matters to you?'\n\n"
+                
                 "EXAMPLE CORRECTIONS:\n"
                 "User: 'So revenue went up 50%?'\n"
                 "You: '❌ No. According to 10-K page 23, revenue increased 15%, not 50%. "

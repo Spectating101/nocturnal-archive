@@ -179,34 +179,45 @@ class SessionManager:
     
     def setup_environment_variables(self):
         """Set up environment variables for backend mode"""
-        # Load .env.local FIRST if it exists (for dev mode)
-        try:
-            from dotenv import load_dotenv
-            from pathlib import Path
-            env_local = Path.home() / ".nocturnal_archive" / ".env.local"
-            if env_local.exists():
-                load_dotenv(env_local)
-                debug = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
-                if debug:
-                    print(f"🔍 Loaded .env.local: USE_LOCAL_KEYS={os.getenv('USE_LOCAL_KEYS')}")
-        except Exception as e:
-            debug = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
-            if debug:
-                print(f"⚠️ Failed to load .env.local: {e}")
+        # PRIORITY 1: Check if user has production credentials
+        # If they do, force production mode (ignore .env.local)
+        from pathlib import Path
+        session_file = Path.home() / ".nocturnal_archive" / "session.json"
+        has_session = session_file.exists()
+        has_config_creds = (
+            os.getenv("NOCTURNAL_ACCOUNT_EMAIL") and 
+            os.getenv("NOCTURNAL_AUTH_TOKEN")
+        )
         
-        # Check if dev mode is enabled
-        dev_mode = os.getenv("CITE_AGENT_DEV_MODE", "").lower() == "true"
-        
-        if not dev_mode:
-            # PRODUCTION MODE: Force backend, ensure monetization
-            # Set backend URL if not already set
+        if has_session or has_config_creds:
+            # User is logged in → FORCE production mode
+            os.environ["USE_LOCAL_KEYS"] = "false"
             if "NOCTURNAL_API_URL" not in os.environ:
                 os.environ["NOCTURNAL_API_URL"] = "https://cite-agent-api-720dfadd602c.herokuapp.com/api"
             
-            # SECURITY: Default to backend mode (USE_LOCAL_KEYS=false)
-            # This ensures users MUST authenticate and pay
+            debug = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+            if debug:
+                print(f"🔍 Production mode: User has credentials, ignoring .env.local")
+        else:
+            # No production credentials → Allow dev mode from .env.local
+            try:
+                from dotenv import load_dotenv
+                env_local = Path.home() / ".nocturnal_archive" / ".env.local"
+                if env_local.exists():
+                    load_dotenv(env_local)
+                    debug = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+                    if debug:
+                        print(f"🔍 Loaded .env.local: USE_LOCAL_KEYS={os.getenv('USE_LOCAL_KEYS')}")
+            except Exception as e:
+                debug = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+                if debug:
+                    print(f"⚠️ Failed to load .env.local: {e}")
+            
+            # Default to production if no explicit dev mode
             if "USE_LOCAL_KEYS" not in os.environ:
                 os.environ["USE_LOCAL_KEYS"] = "false"
+            if "NOCTURNAL_API_URL" not in os.environ:
+                os.environ["NOCTURNAL_API_URL"] = "https://cite-agent-api-720dfadd602c.herokuapp.com/api"
     
     def get_session_status(self) -> Dict[str, Any]:
         """Get current session status for debugging"""

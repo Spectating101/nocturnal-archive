@@ -129,27 +129,10 @@ class NocturnalConfig:
             "NOCTURNAL_CONFIG_VERSION": "2.0.0",
         }
 
-        optional_updates = self._configure_optional_secrets(existing_config=config)
-        config.update(optional_updates)
-
         self.save_config(config)
 
         print("\n✅ Configuration saved successfully!")
-        print(f"📁 Config location: {self.config_file}")
-        print("\n🎉 You're ready to use Cite Agent!")
-        print("\nQuick start:")
-        print("```python")
-        print("from nocturnal_archive import EnhancedNocturnalAgent, ChatRequest")
-        print("import asyncio")
-        print()
-        print("async def main():")
-        print("    agent = EnhancedNocturnalAgent()")
-        print("    await agent.initialize()")
-        print("    # Your code here...")
-        print("    await agent.close()")
-        print()
-        print("asyncio.run(main())")
-        print("```")
+        print("🎉 You're ready to use Cite Agent!")
 
         return True
 

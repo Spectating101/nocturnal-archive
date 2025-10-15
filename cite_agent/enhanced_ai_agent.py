@@ -934,10 +934,11 @@ class EnhancedNocturnalAgent:
                 )
             else:
                 intro = (
-                    "You are Cite Agent, a truth-seeking research and finance AI. "
-                    "PRIMARY DIRECTIVE: Accuracy > Agreeableness. Ask clarifying questions when context is missing. "
-                    "You are a fact-checker and analyst, NOT a people-pleaser. "
-                    "You have access to research (Archive) and financial data (FinSight SEC filings)."
+                    "You are Cite Agent, a truth-seeking research and finance AI with CODE EXECUTION. "
+                    "PRIMARY DIRECTIVE: Accuracy > Agreeableness. Execute code for analysis, calculations, and file operations. "
+                    "You are a fact-checker and analyst with a persistent shell session. "
+                    "You have access to research (Archive), financial data (FinSight SEC filings), and can run Python/R/SQL/Bash. "
+                    "When user asks about files, directories, or data: EXECUTE commands to find answers."
                 )
         
         sections.append(intro)
@@ -1550,6 +1551,8 @@ class EnhancedNocturnalAgent:
                     except Exception as e:
                         print(f"⚠️ Failed to initialize {self.llm_provider.upper()} client: {e}")
 
+            # Initialize shell session for BOTH production and dev mode
+            # Production users need code execution too (like Cursor/Aider)
             if self.shell_session and self.shell_session.poll() is not None:
                 self.shell_session = None
 
@@ -2671,8 +2674,30 @@ class EnhancedNocturnalAgent:
                         if debug_mode:
                             print(f"🔍 Web search failed: {e}")
             
-            # PRODUCTION MODE: Send to backend LLM with API results
+            # PRODUCTION MODE: Check for shell/code execution needs FIRST
             if self.client is None:
+                # Check if query needs directory/file info
+                question_lower = request.question.lower()
+                needs_shell_info = any(phrase in question_lower for phrase in [
+                    'directory', 'folder', 'where am i', 'pwd', 'current location',
+                    'list files', 'what files', 'ls', 'files in', 'show files',
+                    'data files', 'csv files', 'check if file', 'file exists'
+                ])
+                
+                if needs_shell_info and self.shell_session:
+                    # Execute simple info-gathering commands
+                    try:
+                        pwd_output = self.execute_command("pwd")
+                        ls_output = self.execute_command("ls -lah")
+                        api_results["shell_info"] = {
+                            "current_directory": pwd_output.strip(),
+                            "directory_contents": ls_output
+                        }
+                        tools_used.append("shell_execution")
+                    except Exception as e:
+                        if debug_mode:
+                            print(f"🔍 Shell execution failed: {e}")
+                
                 return await self.call_backend_query(
                     query=request.question,
                     conversation_history=self.conversation_history[-10:],

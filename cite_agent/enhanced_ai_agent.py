@@ -161,8 +161,39 @@ class EnhancedNocturnalAgent:
                     self.auth_token = None
                     self.user_id = None
             else:
-                self.auth_token = None
-                self.user_id = None
+                # FALLBACK: Check if config.env has credentials but session.json is missing
+                # This handles cases where old setup didn't create session.json
+                import json
+                email = os.getenv("NOCTURNAL_ACCOUNT_EMAIL")
+                account_id = os.getenv("NOCTURNAL_ACCOUNT_ID")
+                auth_token = os.getenv("NOCTURNAL_AUTH_TOKEN")
+                
+                if email and account_id and auth_token:
+                    # Auto-create session.json from config.env
+                    try:
+                        session_data = {
+                            "email": email,
+                            "account_id": account_id,
+                            "auth_token": auth_token,
+                            "refresh_token": "auto_generated",
+                            "issued_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        session_file.parent.mkdir(parents=True, exist_ok=True)
+                        session_file.write_text(json.dumps(session_data, indent=2))
+                        
+                        self.auth_token = auth_token
+                        self.user_id = account_id
+                        
+                        if debug_mode:
+                            print(f"🔍 _load_authentication: Auto-created session.json from config.env")
+                    except Exception as e:
+                        if debug_mode:
+                            print(f"🔍 _load_authentication: Failed to auto-create session: {e}")
+                        self.auth_token = None
+                        self.user_id = None
+                else:
+                    self.auth_token = None
+                    self.user_id = None
         else:
             # Local keys mode
             if debug_mode:

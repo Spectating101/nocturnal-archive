@@ -2744,6 +2744,7 @@ class EnhancedNocturnalAgent:
                             
                             # Check if user is referring to previous context ("it", "there")
                             has_pronoun = any(word in question_lower for word in ['it', 'there', 'that folder', 'that directory'])
+                            pronoun_resolved = False
                             
                             if has_pronoun and len(self.conversation_history) > 0:
                                 # Look for directory path in last assistant message
@@ -2763,46 +2764,46 @@ class EnhancedNocturnalAgent:
                                         api_results["shell_info"]["directory_contents"] = ls_output
                                         api_results["shell_info"]["target_path"] = target_path
                                         tools_used.append("shell_execution")
-                                        # Skip generic search
-                                        break
+                                        pronoun_resolved = True
                             
-                            # Generic search if no pronoun or no path found
-                            # Common words to ignore
-                            ignore_words = {
-                                'looking', 'find', 'folder', 'directory', 'called', 'something',
-                                'forgot', 'name', 'think', 'can', 'you', 'look', 'for', 'somewhere',
-                                'computer', 'downloads', 'the', 'this', 'that', 'class', 'investment',
-                                'check', 'what', 'into'
-                            }
-                            
-                            # Extract potential target names (prefer short alphanumeric codes)
-                            all_words = re.findall(r'\b([a-zA-Z0-9_-]+)\b', request.question)
-                            potential_names = [w for w in all_words if len(w) >= 2 and w.lower() not in ignore_words]
-                            
-                            # Detect location hints
-                            search_path = "~"  # Default to home
-                            if 'downloads' in question_lower:
-                                search_path = "~/Downloads"
-                            elif 'documents' in question_lower:
-                                search_path = "~/Documents"
-                            
-                            search_results = []
-                            searched_terms = []
-                            
-                            for name in potential_names[:2]:  # Limit to 2 best candidates
-                                if name in searched_terms:
-                                    continue
-                                searched_terms.append(name)
+                            # Generic search if no pronoun or pronoun not resolved
+                            if not pronoun_resolved:
+                                # Common words to ignore
+                                ignore_words = {
+                                    'looking', 'find', 'folder', 'directory', 'called', 'something',
+                                    'forgot', 'name', 'think', 'can', 'you', 'look', 'for', 'somewhere',
+                                    'computer', 'downloads', 'the', 'this', 'that', 'class', 'investment',
+                                    'check', 'what', 'into'
+                                }
                                 
-                                # Search with increasing depth if needed
-                                find_output = self.execute_command(f"find {search_path} -maxdepth 4 -type d -iname '*{name}*' 2>/dev/null | head -20")
-                                if find_output.strip():
-                                    search_results.append(f"Searched for '*{name}*' in {search_path}:\n{find_output}")
-                            
-                            if search_results:
-                                api_results["shell_info"]["search_results"] = "\n\n".join(search_results)
-                            elif potential_names:
-                                api_results["shell_info"]["search_results"] = f"No directories matching '{', '.join(searched_terms)}' found in {search_path}"
+                                # Extract potential target names (prefer short alphanumeric codes)
+                                all_words = re.findall(r'\b([a-zA-Z0-9_-]+)\b', request.question)
+                                potential_names = [w for w in all_words if len(w) >= 2 and w.lower() not in ignore_words]
+                                
+                                # Detect location hints
+                                search_path = "~"  # Default to home
+                                if 'downloads' in question_lower:
+                                    search_path = "~/Downloads"
+                                elif 'documents' in question_lower:
+                                    search_path = "~/Documents"
+                                
+                                search_results = []
+                                searched_terms = []
+                                
+                                for name in potential_names[:2]:  # Limit to 2 best candidates
+                                    if name in searched_terms:
+                                        continue
+                                    searched_terms.append(name)
+                                    
+                                    # Search with increasing depth if needed
+                                    find_output = self.execute_command(f"find {search_path} -maxdepth 4 -type d -iname '*{name}*' 2>/dev/null | head -20")
+                                    if find_output.strip():
+                                        search_results.append(f"Searched for '*{name}*' in {search_path}:\n{find_output}")
+                                
+                                if search_results:
+                                    api_results["shell_info"]["search_results"] = "\n\n".join(search_results)
+                                elif potential_names:
+                                    api_results["shell_info"]["search_results"] = f"No directories matching '{', '.join(searched_terms)}' found in {search_path}"
                         
                         tools_used.append("shell_execution")
                     except Exception as e:

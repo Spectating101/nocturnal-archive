@@ -150,7 +150,26 @@ class LLMProviderManager:
         if not provider:
             raise ValueError(f"Unknown provider: {provider_name}")
         
-        model_to_use = model or provider.models[0]
+        # MODEL MAPPING: Translate model names between providers
+        # Cerebras uses 'llama-3.3-70b', Groq uses 'llama-3.3-70b-versatile'
+        model_map = {
+            'groq': {
+                'llama-3.3-70b': 'llama-3.3-70b-versatile',
+                'llama3.1-8b': 'llama-3.1-8b-instant'
+            },
+            'cerebras': {
+                'llama-3.3-70b-versatile': 'llama-3.3-70b',
+                'llama-3.1-8b-instant': 'llama3.1-8b'
+            }
+        }
+        
+        requested_model = model or provider.models[0]
+        
+        # Map model if needed
+        if provider_name in model_map and requested_model in model_map[provider_name]:
+            model_to_use = model_map[provider_name][requested_model]
+        else:
+            model_to_use = requested_model
         
         try:
             if provider_name in ['groq', 'cerebras', 'openrouter', 'together', 'fireworks']:

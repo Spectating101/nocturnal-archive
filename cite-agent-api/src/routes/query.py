@@ -316,6 +316,12 @@ Otherwise: ANSWER using your tools. Be resourceful, not helpless."""
             if request.api_context:
                 import json
                 api_context_str = json.dumps(request.api_context, indent=2)
+                
+                # DEBUG: Log what we received
+                if request.api_context.get("shell_info", {}).get("search_results"):
+                    logger.info("Shell search results received", 
+                              results=request.api_context["shell_info"]["search_results"][:200])
+                
                 messages.append({"role": "system", "content": f"API Data Available:\n{api_context_str}"})
             
             # CONVERSATION SUMMARIZATION: Pure token-based (like Claude/Cursor)

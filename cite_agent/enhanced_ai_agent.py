@@ -2795,10 +2795,18 @@ class EnhancedNocturnalAgent:
                                         continue
                                     searched_terms.append(name)
                                     
-                                    # Search with increasing depth if needed
-                                    find_output = self.execute_command(f"find {search_path} -maxdepth 4 -type d -iname '*{name}*' 2>/dev/null | head -20")
-                                    if find_output.strip():
-                                        search_results.append(f"Searched for '*{name}*' in {search_path}:\n{find_output}")
+                                # Search with increasing depth if needed
+                                find_cmd = f"find {search_path} -maxdepth 4 -type d -iname '*{name}*' 2>/dev/null | head -20"
+                                find_output = self.execute_command(find_cmd)
+                                
+                                # DEBUG: Log exact output
+                                debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+                                if debug_mode:
+                                    print(f"🔍 FIND EXECUTED: {find_cmd}")
+                                    print(f"🔍 FIND OUTPUT: {repr(find_output)}")
+                                
+                                if find_output.strip():
+                                    search_results.append(f"Searched for '*{name}*' in {search_path}:\n{find_output}")
                                 
                                 if search_results:
                                     api_results["shell_info"]["search_results"] = "\n\n".join(search_results)
@@ -2809,6 +2817,12 @@ class EnhancedNocturnalAgent:
                     except Exception as e:
                         if debug_mode:
                             print(f"🔍 Shell execution failed: {e}")
+                
+                # DEBUG: Log exactly what we're sending to backend
+                debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+                if debug_mode and api_results.get("shell_info", {}).get("search_results"):
+                    print(f"🔍 SENDING TO BACKEND:")
+                    print(f"🔍 shell_info.search_results = {repr(api_results['shell_info']['search_results'])}")
                 
                 # Call backend and UPDATE CONVERSATION HISTORY
                 response = await self.call_backend_query(

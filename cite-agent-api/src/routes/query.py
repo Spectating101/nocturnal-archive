@@ -318,8 +318,43 @@ Otherwise: ANSWER using your tools. Be resourceful, not helpless."""
                 api_context_str = json.dumps(request.api_context, indent=2)
                 messages.append({"role": "system", "content": f"API Data Available:\n{api_context_str}"})
             
-            if request.conversation_history:
+            # CONVERSATION SUMMARIZATION: Handle long conversations
+            if request.conversation_history and len(request.conversation_history) > 12:
+                # Split: early history (to summarize) + recent history (keep verbatim)
+                early_history = request.conversation_history[:-6]
+                recent_history = request.conversation_history[-6:]
+                
+                # Create summary of early conversation
+                try:
+                    summary_messages = [
+                        {"role": "system", "content": "Summarize the key points and context from this conversation in 2-3 sentences. Focus on: topic discussed, data found, decisions made."},
+                        {"role": "user", "content": f"Conversation to summarize:\n{json.dumps(early_history, indent=2)}"}
+                    ]
+                    
+                    # Use fast model for summarization (save tokens)
+                    summary_result = await provider_manager.query_with_fallback(
+                        query="summarize",
+                        conversation_history=[],
+                        messages=summary_messages,
+                        model="llama-3.1-8b-instant",  # Fast, cheap model
+                        temperature=0.2,
+                        max_tokens=200
+                    )
+                    
+                    conversation_summary = summary_result['content']
+                    messages.append({"role": "system", "content": f"Previous conversation summary: {conversation_summary}"})
+                    messages.extend(recent_history)
+                    
+                    logger.info("Summarized conversation", early_msgs=len(early_history), recent_msgs=len(recent_history))
+                    
+                except Exception as e:
+                    # If summarization fails, just use recent history
+                    logger.warning("Failed to summarize conversation", error=str(e))
+                    messages.extend(request.conversation_history[-10:])
+            elif request.conversation_history:
+                # Short conversation - use full history
                 messages.extend(request.conversation_history)
+            
             messages.append({"role": "user", "content": request.query})
             
             # Use multi-provider manager with automatic failover

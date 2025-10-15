@@ -320,7 +320,7 @@ Otherwise: ANSWER using your tools. Be resourceful, not helpless."""
             
             # CONVERSATION SUMMARIZATION: Pure token-based (like Claude/Cursor)
             # Model: Cerebras llama-3.3-70b has 128K context window
-            # Budget breakdown: System(2K) + API(3K) + Conversation(60K) + Response(4K) = 69K / 128K (54% usage)
+            # Budget: System(2K) + API(3K) + Conversation(30K) + Response(4K) = 39K / 128K (30% usage, safe margin)
             if request.conversation_history:
                 # Use actual tokenizer for accurate counting
                 try:
@@ -336,8 +336,9 @@ Otherwise: ANSWER using your tools. Be resourceful, not helpless."""
                     history_str = json.dumps(request.conversation_history)
                     estimated_tokens = len(history_str) // 4
                 
-                TARGET_TOKENS = 60000  # Max conversation tokens (can handle ~100+ messages)
-                RECENT_TOKENS = 30000  # Keep this many recent tokens verbatim (no summarization)
+                # Optimal thresholds (balanced between Claude 20K and over-generous 60K)
+                TARGET_TOKENS = 30000  # Start summarizing (handles ~60 message conversations)
+                RECENT_TOKENS = 15000  # Keep recent context (last ~30 messages worth)
                 
                 if estimated_tokens <= TARGET_TOKENS:
                     # Fits in budget - keep everything

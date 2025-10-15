@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Automatic setup and configuration for Nocturnal Archive
+Automatic setup and configuration for Cite Agent
 """
 
 import os
@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from .account_client import AccountClient, AccountCredentials, AccountProvisioningError
 
 KEY_PLACEHOLDER = "__KEYRING__"
-KEYRING_SERVICE = "Nocturnal Archive"
+KEYRING_SERVICE = "Cite Agent"
 DEFAULT_QUERY_LIMIT = 25
 
 # Production: Users don't need API keys - backend has them
@@ -50,15 +50,22 @@ class NocturnalConfig:
     
     def interactive_setup(self) -> bool:
         """Interactive setup for account authentication and configuration."""
-        print("🚀 Nocturnal Archive Beta Setup")
+        print("🚀 Cite Agent Beta Setup")
         print("=" * 40)
         print()
 
-        if self.config_file.exists():
+        # Check if session exists
+        from pathlib import Path
+        session_file = Path.home() / ".nocturnal_archive" / "session.json"
+        
+        if self.config_file.exists() and session_file.exists():
             print("✅ Configuration already exists!")
             response = input("Do you want to reconfigure? (y/N): ").strip().lower()
             if response not in ["y", "yes"]:
                 return True
+        elif self.config_file.exists() and not session_file.exists():
+            print("⚠️  Configuration exists but you're not logged in.")
+            print("Let's get you authenticated...")
 
         print("You'll use your institution-issued account to sign in. No invite codes or manual API keys required.")
         print()
@@ -80,6 +87,18 @@ class NocturnalConfig:
         except AccountProvisioningError as exc:
             print(f"❌ Could not verify your account: {exc}")
             return False
+
+        # Save session.json for authentication
+        import json
+        session_data = {
+            "email": credentials.email,
+            "account_id": credentials.account_id,
+            "auth_token": credentials.auth_token,
+            "refresh_token": credentials.refresh_token,
+            "issued_at": credentials.issued_at
+        }
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        session_file.write_text(json.dumps(session_data, indent=2))
 
         print("\n🛡️  Recap of beta limitations:")
         for item in self._beta_limitations():
@@ -110,7 +129,7 @@ class NocturnalConfig:
 
         print("\n✅ Configuration saved successfully!")
         print(f"📁 Config location: {self.config_file}")
-        print("\n🎉 You're ready to use Nocturnal Archive!")
+        print("\n🎉 You're ready to use Cite Agent!")
         print("\nQuick start:")
         print("```python")
         print("from nocturnal_archive import EnhancedNocturnalAgent, ChatRequest")
@@ -312,7 +331,7 @@ class NocturnalConfig:
     def save_config(self, config: Dict[str, Any]):
         """Save configuration to file"""
         with open(self.config_file, 'w') as f:
-            f.write("# Nocturnal Archive Configuration\n")
+            f.write("# Cite Agent Configuration\n")
             f.write("# Generated automatically - do not edit manually\n\n")
             
             for key, value in config.items():
@@ -406,7 +425,7 @@ def auto_setup():
         return True
     
     # If no config exists, run interactive setup
-    print("🔧 Nocturnal Archive needs initial setup")
+    print("🔧 Cite Agent needs initial setup")
     return config.interactive_setup()
 
 def get_config():

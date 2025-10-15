@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Auto-updater for Nocturnal Archive
+Auto-updater for Cite Agent
 Checks for updates and handles installation
 """
 
@@ -28,7 +28,7 @@ except ImportError:
         get_version = None
 
 class NocturnalUpdater:
-    """Handles automatic updates for Nocturnal Archive"""
+    """Handles automatic updates for Cite Agent"""
     
     def __init__(self):
         self.current_version = self.get_current_version()
@@ -185,7 +185,7 @@ def main():
     """CLI for updater"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="Nocturnal Archive Updater")
+    parser = argparse.ArgumentParser(description="Cite Agent Updater")
     parser.add_argument("--check", action="store_true", help="Check for updates")
     parser.add_argument("--update", action="store_true", help="Update to latest version")
     parser.add_argument("--force", action="store_true", help="Force update even if up to date")

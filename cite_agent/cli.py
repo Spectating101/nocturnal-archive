@@ -109,7 +109,7 @@ class NocturnalCLI:
                     self.console.print("[error]❌ Not authenticated. Run 'cite-agent --setup' to configure.[/error]")
                     return False
                 
-                self.console.print("\n[warning]👋 Hey there, looks like this machine hasn't met Nocturnal yet.[/warning]")
+                self.console.print("\n[warning]👋 Hey there, looks like this machine hasn't been set up yet.[/warning]")
                 self.console.print("[banner]Let's get you signed in — this only takes a minute.[/banner]")
                 try:
                     if not config.interactive_setup():

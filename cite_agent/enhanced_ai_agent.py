@@ -2707,23 +2707,55 @@ class EnhancedNocturnalAgent:
             
             # PRODUCTION MODE: Check for shell/code execution needs FIRST
             if self.client is None:
-                # Check if query needs directory/file info
+                # Check if query needs directory/file info or exploration
                 question_lower = request.question.lower()
+                
+                # Basic info queries
                 needs_shell_info = any(phrase in question_lower for phrase in [
                     'directory', 'folder', 'where am i', 'pwd', 'current location',
                     'list files', 'what files', 'ls', 'files in', 'show files',
                     'data files', 'csv files', 'check if file', 'file exists'
                 ])
                 
-                if needs_shell_info and self.shell_session:
-                    # Execute simple info-gathering commands
+                # Fuzzy search queries (find similar directories/files)
+                needs_find = any(phrase in question_lower for phrase in [
+                    'find directory', 'find folder', 'search for', 'similar to',
+                    'go to directory', 'cd to', 'navigate to', 'or something'
+                ])
+                
+                if (needs_shell_info or needs_find) and self.shell_session:
+                    # Execute exploration commands
                     try:
+                        api_results["shell_info"] = {}
+                        
+                        # Always include current location
                         pwd_output = self.execute_command("pwd")
-                        ls_output = self.execute_command("ls -lah")
-                        api_results["shell_info"] = {
-                            "current_directory": pwd_output.strip(),
-                            "directory_contents": ls_output
-                        }
+                        api_results["shell_info"]["current_directory"] = pwd_output.strip()
+                        
+                        if needs_shell_info and not needs_find:
+                            # Just list current directory
+                            ls_output = self.execute_command("ls -lah")
+                            api_results["shell_info"]["directory_contents"] = ls_output
+                        
+                        if needs_find:
+                            # Smart search: extract potential directory name and search
+                            # Look for patterns like "cm522", "cm*", directory names
+                            import re
+                            # Extract potential names (alphanumeric sequences)
+                            potential_names = re.findall(r'\b([a-zA-Z0-9_-]{3,})\b', request.question)
+                            
+                            search_results = []
+                            for name in potential_names[:3]:  # Limit to 3 searches
+                                # Search in common places
+                                find_output = self.execute_command(f"find ~ -maxdepth 3 -type d -iname '*{name}*' 2>/dev/null | head -20")
+                                if find_output.strip():
+                                    search_results.append(f"Search for '{name}':\n{find_output}")
+                            
+                            if search_results:
+                                api_results["shell_info"]["search_results"] = "\n\n".join(search_results)
+                            else:
+                                api_results["shell_info"]["search_results"] = "No matching directories found"
+                        
                         tools_used.append("shell_execution")
                     except Exception as e:
                         if debug_mode:

@@ -2768,17 +2768,19 @@ class EnhancedNocturnalAgent:
                             
                             # Generic search if no pronoun or pronoun not resolved
                             if not pronoun_resolved:
-                                # Common words to ignore
+                                # Common words to ignore (add prepositions and articles)
                                 ignore_words = {
                                     'looking', 'find', 'folder', 'directory', 'called', 'something',
                                     'forgot', 'name', 'think', 'can', 'you', 'look', 'for', 'somewhere',
                                     'computer', 'downloads', 'the', 'this', 'that', 'class', 'investment',
-                                    'check', 'what', 'into'
+                                    'check', 'what', 'into', 'in', 'on', 'at', 'to', 'from', 'with',
+                                    'and', 'or', 'is', 'it', 'my', 'me', 'there', 'here'
                                 }
                                 
-                                # Extract potential target names (prefer short alphanumeric codes)
+                                # Extract potential target names
+                                # Filter: must be 3+ chars (avoid "in", "to") AND not in ignore list
                                 all_words = re.findall(r'\b([a-zA-Z0-9_-]+)\b', request.question)
-                                potential_names = [w for w in all_words if len(w) >= 2 and w.lower() not in ignore_words]
+                                potential_names = [w for w in all_words if len(w) >= 3 and w.lower() not in ignore_words]
                                 
                                 # Detect location hints
                                 search_path = "~"  # Default to home

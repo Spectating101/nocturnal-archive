@@ -134,20 +134,30 @@ class EnhancedNocturnalAgent:
 
     def _load_authentication(self):
         """Load authentication from session file"""
-        use_local_keys = os.getenv("USE_LOCAL_KEYS", "true").lower() == "true"
+        use_local_keys = os.getenv("USE_LOCAL_KEYS", "false").lower() == "true"
+        
+        debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+        if debug_mode:
+            print(f"🔍 _load_authentication: USE_LOCAL_KEYS={os.getenv('USE_LOCAL_KEYS')}, use_local_keys={use_local_keys}")
         
         if not use_local_keys:
             # Backend mode - load auth token from session
             from pathlib import Path
             session_file = Path.home() / ".nocturnal_archive" / "session.json"
+            if debug_mode:
+                print(f"🔍 _load_authentication: session_file exists={session_file.exists()}")
             if session_file.exists():
                 try:
                     import json
                     with open(session_file, 'r') as f:
                         session_data = json.load(f)
-                        self.auth_token = session_data.get('access_token')
-                        self.user_id = session_data.get('user_id')
-                except Exception:
+                        self.auth_token = session_data.get('auth_token')
+                        self.user_id = session_data.get('account_id')
+                        if debug_mode:
+                            print(f"🔍 _load_authentication: loaded auth_token={self.auth_token}, user_id={self.user_id}")
+                except Exception as e:
+                    if debug_mode:
+                        print(f"🔍 _load_authentication: ERROR loading session: {e}")
                     self.auth_token = None
                     self.user_id = None
             else:
@@ -155,6 +165,8 @@ class EnhancedNocturnalAgent:
                 self.user_id = None
         else:
             # Local keys mode
+            if debug_mode:
+                print(f"🔍 _load_authentication: Local keys mode, not loading session")
             self.auth_token = None
             self.user_id = None
         self._session_topics: Dict[str, Dict[str, Any]] = {}
@@ -1475,8 +1487,8 @@ class EnhancedNocturnalAgent:
                         import json
                         with open(session_file, 'r') as f:
                             session_data = json.load(f)
-                            self.auth_token = session_data.get('access_token')
-                            self.user_id = session_data.get('user_id')
+                            self.auth_token = session_data.get('auth_token')
+                            self.user_id = session_data.get('account_id')
                     except Exception:
                         self.auth_token = None
                         self.user_id = None
@@ -1596,6 +1608,11 @@ class EnhancedNocturnalAgent:
         This is the SECURE method - all API keys stay on server
         Includes API results (Archive, FinSight) in context for better responses
         """
+        # DEBUG: Print auth status
+        debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+        if debug_mode:
+            print(f"🔍 call_backend_query: auth_token={self.auth_token}, user_id={self.user_id}")
+        
         if not self.auth_token:
             return ChatResponse(
                 response="❌ Not authenticated. Please log in first.",

@@ -318,72 +318,91 @@ Otherwise: ANSWER using your tools. Be resourceful, not helpless."""
                 api_context_str = json.dumps(request.api_context, indent=2)
                 messages.append({"role": "system", "content": f"API Data Available:\n{api_context_str}"})
             
-            # CONVERSATION SUMMARIZATION: Token-based (like Claude/Cursor)
-            # Target: Keep conversation under 30K tokens to leave room for system prompt, API context, response
+            # CONVERSATION SUMMARIZATION: Pure token-based (like Claude/Cursor)
+            # Model: Cerebras llama-3.3-70b has 128K context window
+            # Budget breakdown: System(2K) + API(3K) + Conversation(60K) + Response(4K) = 69K / 128K (54% usage)
             if request.conversation_history:
                 # Estimate tokens: ~4 chars per token
                 history_str = json.dumps(request.conversation_history)
                 estimated_tokens = len(history_str) // 4
                 
-                # If conversation history exceeds 30K tokens, summarize
-                if estimated_tokens > 30000:
-                    # Keep recent messages that fit in ~15K tokens
+                TARGET_TOKENS = 60000  # Max conversation tokens (can handle ~100+ messages)
+                RECENT_TOKENS = 30000  # Keep this many recent tokens verbatim (no summarization)
+                
+                if estimated_tokens <= TARGET_TOKENS:
+                    # Fits in budget - keep everything
+                    messages.extend(request.conversation_history)
+                    logger.info("Conversation fits", tokens=estimated_tokens, msgs=len(request.conversation_history))
+                else:
+                    # Exceeds budget - summarize old, keep recent
+                    # Step 1: Count backwards to find recent messages that fit in RECENT_TOKENS
                     recent_history = []
                     recent_tokens = 0
-                    target_recent_tokens = 15000
                     
                     for msg in reversed(request.conversation_history):
                         msg_tokens = len(json.dumps(msg)) // 4
-                        if recent_tokens + msg_tokens < target_recent_tokens:
+                        if recent_tokens + msg_tokens <= RECENT_TOKENS:
                             recent_history.insert(0, msg)
                             recent_tokens += msg_tokens
                         else:
                             break
                     
-                    # Everything else gets summarized
+                    # Step 2: Everything else gets summarized
                     early_history = request.conversation_history[:len(request.conversation_history) - len(recent_history)]
                     
-                    # Create summary of early conversation
-                    try:
-                        summary_messages = [
-                            {"role": "system", "content": "Summarize the key points and context from this conversation. Focus on: topic discussed, data/papers found, conclusions reached, user's goals. Keep under 300 words."},
-                            {"role": "user", "content": f"Conversation to summarize:\n{json.dumps(early_history, indent=2)}"}
-                        ]
-                        
-                        # Use fast model for summarization
-                        summary_result = await provider_manager.query_with_fallback(
-                            query="summarize",
-                            conversation_history=[],
-                            messages=summary_messages,
-                            model="llama-3.1-8b-instant",  # Fast, cheap
-                            temperature=0.2,
-                            max_tokens=500
-                        )
-                        
-                        conversation_summary = summary_result['content']
-                        messages.append({"role": "system", "content": f"📜 Previous conversation summary:\n{conversation_summary}"})
-                        messages.extend(recent_history)
-                        
-                        logger.info("Summarized conversation", 
-                                  total_tokens=estimated_tokens,
-                                  early_msgs=len(early_history), 
-                                  recent_msgs=len(recent_history),
-                                  saved_tokens=estimated_tokens - recent_tokens)
-                        
-                    except Exception as e:
-                        # If summarization fails, truncate to recent messages only
-                        logger.warning("Failed to summarize conversation", error=str(e))
-                        # Fallback: keep last 20 messages (roughly 10K tokens)
-                        messages.extend(request.conversation_history[-20:])
-                        
-                elif estimated_tokens > 15000:
-                    # Medium conversation (15-30K tokens): keep last 20 messages
-                    messages.extend(request.conversation_history[-20:])
-                    logger.info("Medium conversation", tokens=estimated_tokens, kept_msgs=min(20, len(request.conversation_history)))
-                else:
-                    # Short conversation: use full history
-                    messages.extend(request.conversation_history)
-                    logger.info("Short conversation", tokens=estimated_tokens, msgs=len(request.conversation_history))
+                    if not early_history:
+                        # Edge case: even one message is > RECENT_TOKENS
+                        # Just truncate the message
+                        messages.extend(request.conversation_history)
+                        logger.warning("Single message too large", tokens=estimated_tokens)
+                    else:
+                        # Summarize early history
+                        try:
+                            summary_messages = [
+                                {"role": "system", "content": "Summarize the key points and context from this conversation. Focus on: topic discussed, data/papers found, conclusions reached, user's goals. Keep under 300 words."},
+                                {"role": "user", "content": f"Conversation to summarize:\n{json.dumps(early_history, indent=2)}"}
+                            ]
+                            
+                            # Use fast model for summarization (cheap)
+                            summary_result = await provider_manager.query_with_fallback(
+                                query="summarize",
+                                conversation_history=[],
+                                messages=summary_messages,
+                                model="llama-3.1-8b-instant",
+                                temperature=0.2,
+                                max_tokens=500
+                            )
+                            
+                            conversation_summary = summary_result['content']
+                            summary_tokens = len(conversation_summary) // 4
+                            
+                            messages.append({"role": "system", "content": f"📜 Previous conversation summary:\n{conversation_summary}"})
+                            messages.extend(recent_history)
+                            
+                            final_tokens = summary_tokens + recent_tokens
+                            logger.info("Summarized conversation", 
+                                      original_tokens=estimated_tokens,
+                                      final_tokens=final_tokens,
+                                      saved_tokens=estimated_tokens - final_tokens,
+                                      early_msgs=len(early_history), 
+                                      recent_msgs=len(recent_history))
+                            
+                        except Exception as e:
+                            # If summarization fails, truncate to fit RECENT_TOKENS budget
+                            logger.warning("Summarization failed, truncating", error=str(e))
+                            
+                            truncated_history = []
+                            truncated_tokens = 0
+                            for msg in reversed(request.conversation_history):
+                                msg_tokens = len(json.dumps(msg)) // 4
+                                if truncated_tokens + msg_tokens <= RECENT_TOKENS:
+                                    truncated_history.insert(0, msg)
+                                    truncated_tokens += msg_tokens
+                                else:
+                                    break
+                            
+                            messages.extend(truncated_history)
+                            logger.info("Truncated to recent", tokens=truncated_tokens, msgs=len(truncated_history))
             
             messages.append({"role": "user", "content": request.query})
             

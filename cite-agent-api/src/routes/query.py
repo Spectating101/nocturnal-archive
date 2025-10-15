@@ -322,9 +322,19 @@ Otherwise: ANSWER using your tools. Be resourceful, not helpless."""
             # Model: Cerebras llama-3.3-70b has 128K context window
             # Budget breakdown: System(2K) + API(3K) + Conversation(60K) + Response(4K) = 69K / 128K (54% usage)
             if request.conversation_history:
-                # Estimate tokens: ~4 chars per token
-                history_str = json.dumps(request.conversation_history)
-                estimated_tokens = len(history_str) // 4
+                # Use actual tokenizer for accurate counting
+                try:
+                    import tiktoken
+                    # Use cl100k_base encoding (GPT-4, llama-3 compatible)
+                    encoder = tiktoken.get_encoding("cl100k_base")
+                    
+                    # Count tokens accurately
+                    history_str = json.dumps(request.conversation_history)
+                    estimated_tokens = len(encoder.encode(history_str))
+                except Exception:
+                    # Fallback to heuristic if tiktoken fails
+                    history_str = json.dumps(request.conversation_history)
+                    estimated_tokens = len(history_str) // 4
                 
                 TARGET_TOKENS = 60000  # Max conversation tokens (can handle ~100+ messages)
                 RECENT_TOKENS = 30000  # Keep this many recent tokens verbatim (no summarization)
@@ -339,8 +349,19 @@ Otherwise: ANSWER using your tools. Be resourceful, not helpless."""
                     recent_history = []
                     recent_tokens = 0
                     
+                    # Use same encoder for per-message counting
+                    try:
+                        encoder = tiktoken.get_encoding("cl100k_base")
+                        use_tiktoken = True
+                    except:
+                        use_tiktoken = False
+                    
                     for msg in reversed(request.conversation_history):
-                        msg_tokens = len(json.dumps(msg)) // 4
+                        if use_tiktoken:
+                            msg_tokens = len(encoder.encode(json.dumps(msg)))
+                        else:
+                            msg_tokens = len(json.dumps(msg)) // 4
+                            
                         if recent_tokens + msg_tokens <= RECENT_TOKENS:
                             recent_history.insert(0, msg)
                             recent_tokens += msg_tokens
@@ -393,8 +414,13 @@ Otherwise: ANSWER using your tools. Be resourceful, not helpless."""
                             
                             truncated_history = []
                             truncated_tokens = 0
+                            
                             for msg in reversed(request.conversation_history):
-                                msg_tokens = len(json.dumps(msg)) // 4
+                                if use_tiktoken:
+                                    msg_tokens = len(encoder.encode(json.dumps(msg)))
+                                else:
+                                    msg_tokens = len(json.dumps(msg)) // 4
+                                    
                                 if truncated_tokens + msg_tokens <= RECENT_TOKENS:
                                     truncated_history.insert(0, msg)
                                     truncated_tokens += msg_tokens

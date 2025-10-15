@@ -186,12 +186,10 @@ class SessionManager:
             env_local = Path.home() / ".nocturnal_archive" / ".env.local"
             if env_local.exists():
                 load_dotenv(env_local)
-                import os
                 debug = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
                 if debug:
                     print(f"🔍 Loaded .env.local: USE_LOCAL_KEYS={os.getenv('USE_LOCAL_KEYS')}")
         except Exception as e:
-            import os
             debug = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
             if debug:
                 print(f"⚠️ Failed to load .env.local: {e}")

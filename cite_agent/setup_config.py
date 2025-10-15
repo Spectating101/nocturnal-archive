@@ -58,13 +58,20 @@ class NocturnalConfig:
         from pathlib import Path
         session_file = Path.home() / ".nocturnal_archive" / "session.json"
         
-        if self.config_file.exists() and session_file.exists():
+        # Check if we have actual credentials (not just auto-generated config)
+        existing_config = self.load_config()
+        has_credentials = (
+            existing_config.get("NOCTURNAL_ACCOUNT_EMAIL") or 
+            existing_config.get("NOCTURNAL_AUTH_TOKEN")
+        )
+        
+        if session_file.exists() and has_credentials:
             print("✅ Configuration already exists!")
             response = input("Do you want to reconfigure? (y/N): ").strip().lower()
             if response not in ["y", "yes"]:
                 return True
-        elif self.config_file.exists() and not session_file.exists():
-            print("⚠️  Configuration exists but you're not logged in.")
+        elif has_credentials and not session_file.exists():
+            print("⚠️  Found saved credentials but no active session.")
             print("Let's get you authenticated...")
 
         print("You'll use your institution-issued account to sign in. No invite codes or manual API keys required.")

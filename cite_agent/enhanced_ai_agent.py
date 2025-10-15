@@ -2719,8 +2719,8 @@ class EnhancedNocturnalAgent:
                 
                 # Fuzzy search queries (find similar directories/files)
                 needs_find = any(phrase in question_lower for phrase in [
-                    'find directory', 'find folder', 'search for', 'similar to',
-                    'go to directory', 'cd to', 'navigate to', 'or something'
+                    'looking for', 'find', 'search for', 'similar to',
+                    'go to', 'cd to', 'navigate to', 'or something', 'forgot the name'
                 ])
                 
                 if (needs_shell_info or needs_find) and self.shell_session:
@@ -2738,23 +2738,44 @@ class EnhancedNocturnalAgent:
                             api_results["shell_info"]["directory_contents"] = ls_output
                         
                         if needs_find:
-                            # Smart search: extract potential directory name and search
-                            # Look for patterns like "cm522", "cm*", directory names
+                            # Smart search: extract directory name and location hints
                             import re
-                            # Extract potential names (alphanumeric sequences)
-                            potential_names = re.findall(r'\b([a-zA-Z0-9_-]{3,})\b', request.question)
+                            
+                            # Common words to ignore
+                            ignore_words = {
+                                'looking', 'find', 'folder', 'directory', 'called', 'something',
+                                'forgot', 'name', 'think', 'can', 'you', 'look', 'for', 'somewhere',
+                                'computer', 'downloads', 'the', 'this', 'that', 'class', 'investment'
+                            }
+                            
+                            # Extract potential target names (prefer short alphanumeric codes)
+                            all_words = re.findall(r'\b([a-zA-Z0-9_-]+)\b', request.question)
+                            potential_names = [w for w in all_words if len(w) >= 2 and w.lower() not in ignore_words]
+                            
+                            # Detect location hints
+                            search_path = "~"  # Default to home
+                            if 'downloads' in question_lower:
+                                search_path = "~/Downloads"
+                            elif 'documents' in question_lower:
+                                search_path = "~/Documents"
                             
                             search_results = []
-                            for name in potential_names[:3]:  # Limit to 3 searches
-                                # Search in common places
-                                find_output = self.execute_command(f"find ~ -maxdepth 3 -type d -iname '*{name}*' 2>/dev/null | head -20")
+                            searched_terms = []
+                            
+                            for name in potential_names[:2]:  # Limit to 2 best candidates
+                                if name in searched_terms:
+                                    continue
+                                searched_terms.append(name)
+                                
+                                # Search with increasing depth if needed
+                                find_output = self.execute_command(f"find {search_path} -maxdepth 4 -type d -iname '*{name}*' 2>/dev/null | head -20")
                                 if find_output.strip():
-                                    search_results.append(f"Search for '{name}':\n{find_output}")
+                                    search_results.append(f"Searched for '*{name}*' in {search_path}:\n{find_output}")
                             
                             if search_results:
                                 api_results["shell_info"]["search_results"] = "\n\n".join(search_results)
                             else:
-                                api_results["shell_info"]["search_results"] = "No matching directories found"
+                                api_results["shell_info"]["search_results"] = f"No directories matching '{', '.join(searched_terms)}' found in {search_path}"
                         
                         tools_used.append("shell_execution")
                     except Exception as e:

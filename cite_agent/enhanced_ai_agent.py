@@ -2768,19 +2768,42 @@ class EnhancedNocturnalAgent:
                             
                             # Generic search if no pronoun or pronoun not resolved
                             if not pronoun_resolved:
-                                # Common words to ignore (add prepositions and articles)
-                                ignore_words = {
-                                    'looking', 'find', 'folder', 'directory', 'called', 'something',
-                                    'forgot', 'name', 'think', 'can', 'you', 'look', 'for', 'somewhere',
-                                    'computer', 'downloads', 'the', 'this', 'that', 'class', 'investment',
-                                    'check', 'what', 'into', 'in', 'on', 'at', 'to', 'from', 'with',
-                                    'and', 'or', 'is', 'it', 'my', 'me', 'there', 'here'
-                                }
+                                # SMART EXTRACTION: Use pattern matching + common sense
+                                import re
                                 
-                                # Extract potential target names
-                                # Filter: must be 3+ chars (avoid "in", "to") AND not in ignore list
-                                all_words = re.findall(r'\b([a-zA-Z0-9_-]+)\b', request.question)
-                                potential_names = [w for w in all_words if len(w) >= 3 and w.lower() not in ignore_words]
+                                # Strategy: Look for quoted strings or alphanumeric codes
+                                # Priority 1: Quoted strings ("cm522", 'my_folder')
+                                quoted = re.findall(r'["\']([^"\']+)["\']', request.question)
+                                
+                                if quoted:
+                                    search_terms = quoted
+                                else:
+                                    # Priority 2: Alphanumeric codes/IDs (cm522, hw03, proj_2024)
+                                    # Pattern: letters + numbers mixed, or underscores/dashes
+                                    codes = re.findall(r'\b([a-zA-Z]*\d+[a-zA-Z0-9_-]*|[a-zA-Z0-9]*[_-]+[a-zA-Z0-9]+)\b', request.question)
+                                    
+                                    # Priority 3: Capitalize words (likely proper nouns: GitHub, MyProject)
+                                    capitalized = re.findall(r'\b([A-Z][a-zA-Z0-9_-]+)\b', request.question)
+                                    
+                                    # Priority 4: Long words (≥ 6 chars, likely meaningful)
+                                    long_words = re.findall(r'\b([a-zA-Z]{6,})\b', request.question)
+                                    
+                                    # Combine and dedupe
+                                    search_terms = list(dict.fromkeys(codes + capitalized + long_words))
+                                    
+                                    # Filter out common words
+                                    common = {
+                                        'looking', 'folder', 'directory', 'called', 'something',
+                                        'downloads', 'documents', 'computer', 'somewhere'
+                                    }
+                                    search_terms = [t for t in search_terms if t.lower() not in common][:2]
+                                
+                                debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+                                if debug_mode:
+                                    print(f"🔍 EXTRACTED SEARCH TERMS: {search_terms}")
+                                
+                                if not search_terms:
+                                    search_terms = ['']  # Empty search to show "no target found"
                                 
                                 # Detect location hints
                                 search_path = "~"  # Default to home
@@ -2790,30 +2813,27 @@ class EnhancedNocturnalAgent:
                                     search_path = "~/Documents"
                                 
                                 search_results = []
-                                searched_terms = []
                                 
-                                for name in potential_names[:2]:  # Limit to 2 best candidates
-                                    if name in searched_terms:
+                                for name in search_terms:
+                                    if not name:
                                         continue
-                                    searched_terms.append(name)
+                                        
+                                    # Search with increasing depth
+                                    find_cmd = f"find {search_path} -maxdepth 4 -type d -iname '*{name}*' 2>/dev/null | head -20"
+                                    find_output = self.execute_command(find_cmd)
                                     
-                                # Search with increasing depth if needed
-                                find_cmd = f"find {search_path} -maxdepth 4 -type d -iname '*{name}*' 2>/dev/null | head -20"
-                                find_output = self.execute_command(find_cmd)
-                                
-                                # DEBUG: Log exact output
-                                debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
-                                if debug_mode:
-                                    print(f"🔍 FIND EXECUTED: {find_cmd}")
-                                    print(f"🔍 FIND OUTPUT: {repr(find_output)}")
-                                
-                                if find_output.strip():
-                                    search_results.append(f"Searched for '*{name}*' in {search_path}:\n{find_output}")
+                                    debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+                                    if debug_mode:
+                                        print(f"🔍 FIND EXECUTED: {find_cmd}")
+                                        print(f"🔍 FIND OUTPUT: {repr(find_output)}")
+                                    
+                                    if find_output.strip():
+                                        search_results.append(f"Searched for '*{name}*' in {search_path}:\n{find_output}")
                                 
                                 if search_results:
                                     api_results["shell_info"]["search_results"] = "\n\n".join(search_results)
-                                elif potential_names:
-                                    api_results["shell_info"]["search_results"] = f"No directories matching '{', '.join(searched_terms)}' found in {search_path}"
+                                else:
+                                    api_results["shell_info"]["search_results"] = f"No directories found matching query in {search_path}"
                         
                         tools_used.append("shell_execution")
                     except Exception as e:

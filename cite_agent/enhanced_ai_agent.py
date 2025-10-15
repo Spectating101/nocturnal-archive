@@ -2720,7 +2720,8 @@ class EnhancedNocturnalAgent:
                 # Fuzzy search queries (find similar directories/files)
                 needs_find = any(phrase in question_lower for phrase in [
                     'looking for', 'find', 'search for', 'similar to',
-                    'go to', 'cd to', 'navigate to', 'or something', 'forgot the name'
+                    'go to', 'cd to', 'navigate to', 'or something', 'forgot the name',
+                    'look into', 'check what', 'what\'s in'
                 ])
                 
                 if (needs_shell_info or needs_find) and self.shell_session:
@@ -2741,11 +2742,37 @@ class EnhancedNocturnalAgent:
                             # Smart search: extract directory name and location hints
                             import re
                             
+                            # Check if user is referring to previous context ("it", "there")
+                            has_pronoun = any(word in question_lower for word in ['it', 'there', 'that folder', 'that directory'])
+                            
+                            if has_pronoun and len(self.conversation_history) > 0:
+                                # Look for directory path in last assistant message
+                                last_assistant = None
+                                for msg in reversed(self.conversation_history):
+                                    if msg.get('role') == 'assistant':
+                                        last_assistant = msg.get('content', '')
+                                        break
+                                
+                                if last_assistant:
+                                    # Extract paths like /home/user/Downloads/cm522-main
+                                    paths = re.findall(r'(/[\w/.-]+)', last_assistant)
+                                    if paths:
+                                        # List contents of the first path found
+                                        target_path = paths[0]
+                                        ls_output = self.execute_command(f"ls -lah {target_path}")
+                                        api_results["shell_info"]["directory_contents"] = ls_output
+                                        api_results["shell_info"]["target_path"] = target_path
+                                        tools_used.append("shell_execution")
+                                        # Skip generic search
+                                        break
+                            
+                            # Generic search if no pronoun or no path found
                             # Common words to ignore
                             ignore_words = {
                                 'looking', 'find', 'folder', 'directory', 'called', 'something',
                                 'forgot', 'name', 'think', 'can', 'you', 'look', 'for', 'somewhere',
-                                'computer', 'downloads', 'the', 'this', 'that', 'class', 'investment'
+                                'computer', 'downloads', 'the', 'this', 'that', 'class', 'investment',
+                                'check', 'what', 'into'
                             }
                             
                             # Extract potential target names (prefer short alphanumeric codes)
@@ -2774,7 +2801,7 @@ class EnhancedNocturnalAgent:
                             
                             if search_results:
                                 api_results["shell_info"]["search_results"] = "\n\n".join(search_results)
-                            else:
+                            elif potential_names:
                                 api_results["shell_info"]["search_results"] = f"No directories matching '{', '.join(searched_terms)}' found in {search_path}"
                         
                         tools_used.append("shell_execution")
@@ -2782,12 +2809,19 @@ class EnhancedNocturnalAgent:
                         if debug_mode:
                             print(f"🔍 Shell execution failed: {e}")
                 
-                return await self.call_backend_query(
+                # Call backend and UPDATE CONVERSATION HISTORY
+                response = await self.call_backend_query(
                     query=request.question,
                     conversation_history=self.conversation_history[-10:],
                     api_results=api_results,  # Include the data!
                     tools_used=tools_used  # Pass tools list for history
                 )
+                
+                # CRITICAL: Save to conversation history for context
+                self.conversation_history.append({"role": "user", "content": request.question})
+                self.conversation_history.append({"role": "assistant", "content": response.response})
+                
+                return response
 
             # DEV MODE ONLY: Direct Groq calls (only works with local API keys)
             # This code path won't execute in production since self.client = None

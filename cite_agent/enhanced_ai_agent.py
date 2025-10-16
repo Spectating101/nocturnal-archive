@@ -1698,25 +1698,20 @@ class EnhancedNocturnalAgent:
                 
                 elif response.status == 503:
                     # Backend AI service temporarily unavailable (Cerebras/Groq rate limited)
-                    # Auto-retry with exponential backoff
-                    max_retries = 3
-                    retry_delays = [5, 15, 30]  # seconds
+                    # Auto-retry silently with exponential backoff
                     
-                    for retry_num in range(max_retries):
-                        delay = retry_delays[retry_num]
-                        print(f"\n⏳ Hit rate limit. Waiting {delay} seconds before retry {retry_num + 1}/{max_retries}...")
-                        
-                        # Wait with countdown
-                        import asyncio
-                        for remaining in range(delay, 0, -1):
-                            print(f"\r⏱️  Retrying in {remaining}s...", end='', flush=True)
-                            await asyncio.sleep(1)
-                        print("\r🔄 Retrying now...         ")
+                    print("\n💭 Thinking... (backend is busy, retrying automatically)")
+                    
+                    import asyncio
+                    retry_delays = [5, 15, 30]  # Exponential backoff
+                    
+                    for retry_num, delay in enumerate(retry_delays):
+                        await asyncio.sleep(delay)
                         
                         # Retry the request
                         async with self.session.post(url, json=payload, headers=headers, timeout=60) as retry_response:
                             if retry_response.status == 200:
-                                # Success after retry!
+                                # Success!
                                 data = await retry_response.json()
                                 response_text = data.get('response', '')
                                 tokens = data.get('tokens_used', 0)
@@ -1739,17 +1734,19 @@ class EnhancedNocturnalAgent:
                                 return ChatResponse(
                                     response=response_text,
                                     tokens_used=tokens,
-                                    model_used=data.get('model'),
-                                    sources=data.get('sources', [])
+                                    tools_used=all_tools,
+                                    model=data.get('model', 'llama-3.3-70b'),
+                                    timestamp=data.get('timestamp', datetime.now(timezone.utc).isoformat()),
+                                    api_results=api_results
                                 )
                             elif retry_response.status != 503:
                                 # Different error, stop retrying
                                 break
                     
-                    # All retries failed
+                    # All retries exhausted
                     return ChatResponse(
-                        response="❌ Service still unavailable after retries. Please try again in a few minutes.",
-                        error_message="Service temporarily unavailable after retries"
+                        response="❌ Service unavailable. Please try again in a few minutes.",
+                        error_message="Service unavailable after retries"
                     )
                 
                 elif response.status == 200:

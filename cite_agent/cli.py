@@ -256,6 +256,19 @@ class NocturnalCLI:
         if not await self.initialize():
             return
         
+        # Detect if user is in a project directory (R, Python, Node, Jupyter, etc.)
+        try:
+            from .project_detector import ProjectDetector
+            detector = ProjectDetector()
+            project_info = detector.detect_project()
+            
+            if project_info:
+                # Show project banner
+                banner = detector.format_project_banner(project_info)
+                self.console.print(banner, style="dim")
+        except:
+            pass  # Silently skip if detection fails
+        
         self.console.print("\n[bold]🤖 Interactive Mode[/] — Type your questions or 'quit' to exit")
         self.console.rule(style="magenta")
         

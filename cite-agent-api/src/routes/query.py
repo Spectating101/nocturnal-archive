@@ -341,9 +341,11 @@ Otherwise: ANSWER using your tools. Be resourceful, not helpless."""
             # Build messages with specialized system prompt
             messages = [{"role": "system", "content": system_prompt}]
             
+            # Import json at module level (used in multiple places)
+            import json
+            
             # Add API context if provided
             if request.api_context:
-                import json
                 api_context_str = json.dumps(request.api_context, indent=2)
                 
                 # DEBUG: Log what we received

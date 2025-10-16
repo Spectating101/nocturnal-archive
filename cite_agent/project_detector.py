@@ -28,13 +28,22 @@ class ProjectDetector:
             "description": None
         }
         
-        # Check for R project (.Rproj file)
+        # Check for R project (.Rproj file OR 2+ .R files)
         rproj_files = list(self.working_dir.glob("*.Rproj"))
+        r_files = list(self.working_dir.glob("*.R")) + list(self.working_dir.glob("*.Rmd"))
+        
         if rproj_files:
             project_info["type"] = "R"
             project_info["name"] = rproj_files[0].stem
             project_info["recent_files"] = self._get_recent_files([".R", ".Rmd", ".qmd"])
             project_info["description"] = f"R/RStudio project: {project_info['name']}"
+            return project_info
+        elif len(r_files) >= 2:
+            # R project without .Rproj file
+            project_info["type"] = "R"
+            project_info["name"] = self.working_dir.name
+            project_info["recent_files"] = self._get_recent_files([".R", ".Rmd", ".qmd"])
+            project_info["description"] = f"R project: {project_info['name']}"
             return project_info
         
         # Check for Python project

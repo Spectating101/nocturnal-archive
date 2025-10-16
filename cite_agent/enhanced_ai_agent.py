@@ -2676,17 +2676,21 @@ Previous conversation: {json.dumps(self.conversation_history[-2:]) if self.conve
 
 Respond ONLY with JSON:
 {{
-  "action": "pwd|ls|find|none",
+  "action": "pwd|ls|find|read_file|none",
   "search_target": "cm522" (if find),
   "search_path": "~/Downloads" (if find),
-  "target_path": "/full/path" (if ls on previous result)
+  "target_path": "/full/path" (if ls on previous result),
+  "file_path": "/full/path/to/file.R" (if read_file)
 }}
 
 Examples:
 "where am i?" → {{"action": "pwd"}}
 "what files here?" → {{"action": "ls"}}
-"find cm522 in downloads" → {{"action": "find", "search_target": "cm522", "search_path": "~/Downloads"}}
-"look into it" + Previous: "Found /path/to/dir" → {{"action": "ls", "target_path": "/path/to/dir"}}
+"find cm522" → {{"action": "find", "search_target": "cm522"}}
+"look into it" + Previous: "Found /path" → {{"action": "ls", "target_path": "/path"}}
+"show me calculate_betas.R" → {{"action": "read_file", "file_path": "/current/dir/calculate_betas.R"}}
+"open that file" + Previous: "calculate_betas.R" → {{"action": "read_file", "file_path": "/path/to/calculate_betas.R"}}
+"what columns does it have?" + Previous: Opened file → Parse from conversation for column detection
 "Tesla revenue" → {{"action": "none"}}
 
 JSON:"""
@@ -2746,6 +2750,64 @@ JSON:"""
                                     "search_results": f"No directories matching '{search_target}' found in {search_path}"
                                 }
                             tools_used.append("shell_execution")
+                    
+                    elif shell_action == "read_file":
+                        # NEW: Read and inspect file (R, Python, CSV, etc.)
+                        file_path = plan.get("file_path", "")
+                        if not file_path and might_need_shell:
+                            # Try to infer from query (e.g., "show me calculate_betas.R")
+                            import re
+                            filenames = re.findall(r'([a-zA-Z0-9_-]+\.[a-zA-Z]{1,4})', request.question)
+                            if filenames:
+                                # Check if file exists in current directory
+                                pwd = self.execute_command("pwd").strip()
+                                file_path = f"{pwd}/{filenames[0]}"
+                        
+                        if file_path:
+                            if debug_mode:
+                                print(f"🔍 READING FILE: {file_path}")
+                            
+                            # Read file content (first 100 lines to detect structure)
+                            cat_output = self.execute_command(f"head -100 {file_path}")
+                            
+                            if not cat_output.startswith("ERROR"):
+                                # Detect file type and extract structure
+                                file_ext = file_path.split('.')[-1].lower()
+                                
+                                # Extract column/variable info based on file type
+                                columns_info = ""
+                                if file_ext in ['csv', 'tsv']:
+                                    # CSV: first line is usually headers
+                                    first_line = cat_output.split('\n')[0] if cat_output else ""
+                                    columns_info = f"CSV columns: {first_line}"
+                                elif file_ext in ['r', 'rmd']:
+                                    # R script: look for dataframe column references (df$columnname)
+                                    column_refs = re.findall(r'\$(\w+)', cat_output)
+                                    unique_cols = list(dict.fromkeys(column_refs))[:10]
+                                    if unique_cols:
+                                        columns_info = f"Detected columns/variables: {', '.join(unique_cols)}"
+                                elif file_ext == 'py':
+                                    # Python: look for DataFrame['column'] or df.column
+                                    column_refs = re.findall(r'\[[\'""](\w+)[\'"]\]|\.(\w+)', cat_output)
+                                    unique_cols = list(dict.fromkeys([c[0] or c[1] for c in column_refs if c[0] or c[1]]))[:10]
+                                    if unique_cols:
+                                        columns_info = f"Detected columns/attributes: {', '.join(unique_cols)}"
+                                
+                                api_results["file_context"] = {
+                                    "file_path": file_path,
+                                    "file_type": file_ext,
+                                    "content_preview": cat_output[:2000],  # First 2000 chars
+                                    "structure": columns_info,
+                                    "full_content": cat_output  # Full content for analysis
+                                }
+                                tools_used.append("file_read")
+                                
+                                if debug_mode:
+                                    print(f"🔍 FILE STRUCTURE: {columns_info}")
+                            else:
+                                api_results["file_context"] = {
+                                    "error": f"Could not read file: {file_path}"
+                                }
                 
                 except Exception as e:
                     if debug_mode:

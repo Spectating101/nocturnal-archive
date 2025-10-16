@@ -747,7 +747,8 @@ Examples:
     
     # Handle version
     if args.version:
-        print("Cite Agent v1.2.11")
+        from cite_agent.__version__ import __version__
+        print(f"Cite Agent v{__version__}")
         print("AI Research Assistant with real data integration")
         return
 
@@ -819,6 +820,42 @@ Examples:
         else:
             updater.show_update_status()
             sys.exit(0)
+    
+    # Auto-check for updates on startup (silent, non-blocking)
+    def check_updates_silently():
+        """Check for updates in background, show notification if available"""
+        try:
+            # Only check once per day to avoid API spam
+            from pathlib import Path
+            import time
+            
+            check_file = Path.home() / ".cite_agent" / ".last_update_check"
+            check_file.parent.mkdir(exist_ok=True)
+            
+            # Check if we've checked recently (within 24 hours)
+            if check_file.exists():
+                last_check = float(check_file.read_text().strip())
+                if time.time() - last_check < 86400:  # 24 hours
+                    return  # Skip check
+            
+            updater = NocturnalUpdater()
+            update_info = updater.check_for_updates()
+            
+            # Save check timestamp
+            check_file.write_text(str(time.time()))
+            
+            if update_info and update_info.get("available"):
+                current = update_info["current"]
+                latest = update_info["latest"]
+                print(f"\n💡 Update available: v{current} → v{latest}")
+                print(f"   Run: pip install --upgrade cite-agent")
+                print(f"   Or:  pipx upgrade cite-agent\n")
+        except:
+            pass  # Silently fail, don't block startup
+    
+    # Run update check in background (doesn't delay startup)
+    import threading
+    threading.Thread(target=check_updates_silently, daemon=True).start()
     
     # Handle query or interactive mode
     async def run_cli():

@@ -121,4 +121,21 @@ stress_test_results.json
 # Build Artifacts (ADDED)
 *.whl
 *.tar.gz
-=0.4.0
+build_dist/
+build_env/
+build_secure/
+dist_secure/
+test_env/
+*.bug.log
+# Keep PyInstaller specs in installers/
+cite-agent.spec
+!installers/*.spec
+
+# Old Status/Test Reports (keep only latest)
+v*.md
+!v*FINAL*.md
+READY_*.md
+TEST_*.md
+*_AUDIT*.md
+*_TEST_*.md
+*_STATUS*.md

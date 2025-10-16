@@ -1,6 +1,0 @@
-# Core runtime dependencies for the beta agent
-aiohttp>=3.9.0
-groq>=0.4.0
-python-dotenv>=1.0.0
-rich>=13.7.0
-keyring>=24.3.0

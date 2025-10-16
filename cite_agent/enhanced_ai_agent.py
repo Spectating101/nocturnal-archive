@@ -1696,6 +1696,14 @@ class EnhancedNocturnalAgent:
                         tokens_used=detail.get('tokens_used_today', 0)
                     )
                 
+                elif response.status == 503:
+                    # Backend AI service temporarily unavailable (Cerebras/Groq rate limited)
+                    # Graceful degradation: return helpful message instead of error
+                    return ChatResponse(
+                        response="⚠️ AI service temporarily busy. Try again in a moment, or rephrase your question.",
+                        error_message="Service temporarily unavailable"
+                    )
+                
                 elif response.status == 200:
                     data = await response.json()
                     response_text = data.get('response', '')

@@ -34,9 +34,9 @@ async def admin_stats(admin_key: Optional[str] = Header(None)):
         # User stats
         total_users = await db.fetchval("SELECT COUNT(*) FROM users")
         users_list = await db.fetch("""
-            SELECT email, created_at, query_limit 
-            FROM users 
-            ORDER BY created_at DESC 
+            SELECT email, created_at, tokens_used_today
+            FROM users
+            ORDER BY created_at DESC
             LIMIT 50
         """)
         
@@ -84,7 +84,7 @@ async def admin_stats(admin_key: Optional[str] = Header(None)):
                     {
                         "email": row[0],
                         "created_at": row[1].isoformat() if row[1] else None,
-                        "query_limit": row[2]
+                        "tokens_used_today": row[2]
                     }
                     for row in users_list
                 ]

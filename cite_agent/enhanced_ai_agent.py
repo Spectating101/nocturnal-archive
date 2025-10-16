@@ -2705,140 +2705,110 @@ class EnhancedNocturnalAgent:
                         if debug_mode:
                             print(f"🔍 Web search failed: {e}")
             
-            # PRODUCTION MODE: Check for shell/code execution needs FIRST
+            # PRODUCTION MODE: Use small LLM to plan shell commands (smarter than hardcoded patterns)
             if self.client is None:
-                # Check if query needs directory/file info or exploration
+                # Ask small LLM: What shell command should we run?
+                planner_prompt = f"""You are a shell command planner. Given the user's query, determine what shell command(s) to run.
+
+User query: "{request.question}"
+Previous conversation context: {json.dumps(self.conversation_history[-2:]) if self.conversation_history else "None"}
+
+Respond with JSON:
+{{
+  "action": "pwd|ls|find|none",
+  "search_target": "directory/file name to search for (if action=find)",
+  "search_path": "~/Downloads or ~/Documents or ~ (if action=find)",
+  "target_path": "/full/path (if referring to previous result)"
+}}
+
+Examples:
+Query: "where am i?" → {{"action": "pwd"}}
+Query: "what files are here?" → {{"action": "ls"}}
+Query: "find cm522 in downloads" → {{"action": "find", "search_target": "cm522", "search_path": "~/Downloads"}}
+Query: "can you look into it?" + Previous: "Found /home/user/Downloads/cm522-main" → {{"action": "ls", "target_path": "/home/user/Downloads/cm522-main"}}
+Query: "what's the capital of France?" → {{"action": "none"}}
+
+JSON:"""
+
                 question_lower = request.question.lower()
-                
-                # Basic info queries
-                needs_shell_info = any(phrase in question_lower for phrase in [
-                    'directory', 'folder', 'where am i', 'pwd', 'current location',
-                    'list files', 'what files', 'ls', 'files in', 'show files',
-                    'data files', 'csv files', 'check if file', 'file exists'
+                needs_shell = any(word in question_lower for word in [
+                    'directory', 'folder', 'where', 'find', 'list', 'files', 'look', 'search', 'check'
                 ])
                 
-                # Fuzzy search queries (find similar directories/files)
-                needs_find = any(phrase in question_lower for phrase in [
-                    'looking for', 'find', 'search for', 'similar to',
-                    'go to', 'cd to', 'navigate to', 'or something', 'forgot the name',
-                    'look into', 'check what', 'what\'s in'
-                ])
-                
-                if (needs_shell_info or needs_find) and self.shell_session:
-                    # Execute exploration commands
+                if needs_shell and self.shell_session:
                     try:
+                        # Use small LLM to plan shell command (smarter than regex)
+                        plan_response = await self.call_backend_query(
+                            query=planner_prompt,
+                            conversation_history=[],
+                            api_results={},
+                            tools_used=[]
+                        )
+                        
+                        # Parse JSON plan
+                        import json as json_module
+                        plan_text = plan_response.response.strip()
+                        # Extract JSON if wrapped in markdown
+                        if '```' in plan_text:
+                            plan_text = plan_text.split('```')[1].replace('json', '').strip()
+                        
+                        plan = json_module.loads(plan_text)
+                        
+                        debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+                        if debug_mode:
+                            print(f"🔍 LLM PLAN: {plan}")
+                        
                         api_results["shell_info"] = {}
                         
-                        # Always include current location
+                        # Execute based on plan
+                        action = plan.get("action", "none")
+                        
+                        if action == "pwd":
+                            pwd_output = self.execute_command("pwd")
+                            api_results["shell_info"]["current_directory"] = pwd_output.strip()
+                            tools_used.append("shell_execution")
+                        
+                        elif action == "ls":
+                            target = plan.get("target_path")
+                            if target:
+                                # List specific directory
+                                ls_output = self.execute_command(f"ls -lah {target}")
+                            else:
+                                # List current directory
+                                ls_output = self.execute_command("ls -lah")
+                            api_results["shell_info"]["directory_contents"] = ls_output
+                            if target:
+                                api_results["shell_info"]["target_path"] = target
+                            tools_used.append("shell_execution")
+                        
+                        elif action == "find":
+                            search_target = plan.get("search_target", "")
+                            search_path = plan.get("search_path", "~")
+                            
+                            if search_target:
+                                find_cmd = f"find {search_path} -maxdepth 4 -type d -iname '*{search_target}*' 2>/dev/null | head -20"
+                                find_output = self.execute_command(find_cmd)
+                                
+                                if debug_mode:
+                                    print(f"🔍 FIND EXECUTED: {find_cmd}")
+                                    print(f"🔍 FIND OUTPUT: {repr(find_output)}")
+                                
+                                if find_output.strip():
+                                    api_results["shell_info"]["search_results"] = f"Searched for '*{search_target}*' in {search_path}:\n{find_output}"
+                                else:
+                                    api_results["shell_info"]["search_results"] = f"No directories matching '{search_target}' found in {search_path}"
+                                tools_used.append("shell_execution")
+                        
+                        # Always include current directory
                         pwd_output = self.execute_command("pwd")
                         api_results["shell_info"]["current_directory"] = pwd_output.strip()
-                        
-                        if needs_shell_info and not needs_find:
-                            # Just list current directory
-                            ls_output = self.execute_command("ls -lah")
-                            api_results["shell_info"]["directory_contents"] = ls_output
-                        
-                        if needs_find:
-                            # Smart search: extract directory name and location hints
-                            import re
-                            
-                            # Check if user is referring to previous context ("it", "there")
-                            has_pronoun = any(word in question_lower for word in ['it', 'there', 'that folder', 'that directory'])
-                            pronoun_resolved = False
-                            
-                            if has_pronoun and len(self.conversation_history) > 0:
-                                # Look for directory path in last assistant message
-                                last_assistant = None
-                                for msg in reversed(self.conversation_history):
-                                    if msg.get('role') == 'assistant':
-                                        last_assistant = msg.get('content', '')
-                                        break
-                                
-                                if last_assistant:
-                                    # Extract paths like /home/user/Downloads/cm522-main
-                                    paths = re.findall(r'(/[\w/.-]+)', last_assistant)
-                                    if paths:
-                                        # List contents of the first path found
-                                        target_path = paths[0]
-                                        ls_output = self.execute_command(f"ls -lah {target_path}")
-                                        api_results["shell_info"]["directory_contents"] = ls_output
-                                        api_results["shell_info"]["target_path"] = target_path
-                                        tools_used.append("shell_execution")
-                                        pronoun_resolved = True
-                            
-                            # Generic search if no pronoun or pronoun not resolved
-                            if not pronoun_resolved:
-                                # SMART EXTRACTION: Use pattern matching + common sense
-                                import re
-                                
-                                # Strategy: Look for quoted strings or alphanumeric codes
-                                # Priority 1: Quoted strings ("cm522", 'my_folder')
-                                quoted = re.findall(r'["\']([^"\']+)["\']', request.question)
-                                
-                                if quoted:
-                                    search_terms = quoted
-                                else:
-                                    # Priority 2: Alphanumeric codes/IDs (cm522, hw03, proj_2024)
-                                    # Pattern: letters + numbers mixed, or underscores/dashes
-                                    codes = re.findall(r'\b([a-zA-Z]*\d+[a-zA-Z0-9_-]*|[a-zA-Z0-9]*[_-]+[a-zA-Z0-9]+)\b', request.question)
-                                    
-                                    # Priority 3: Capitalize words (likely proper nouns: GitHub, MyProject)
-                                    capitalized = re.findall(r'\b([A-Z][a-zA-Z0-9_-]+)\b', request.question)
-                                    
-                                    # Priority 4: Long words (≥ 6 chars, likely meaningful)
-                                    long_words = re.findall(r'\b([a-zA-Z]{6,})\b', request.question)
-                                    
-                                    # Combine and dedupe
-                                    search_terms = list(dict.fromkeys(codes + capitalized + long_words))
-                                    
-                                    # Filter out common words
-                                    common = {
-                                        'looking', 'folder', 'directory', 'called', 'something',
-                                        'downloads', 'documents', 'computer', 'somewhere'
-                                    }
-                                    search_terms = [t for t in search_terms if t.lower() not in common][:2]
-                                
-                                debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
-                                if debug_mode:
-                                    print(f"🔍 EXTRACTED SEARCH TERMS: {search_terms}")
-                                
-                                if not search_terms:
-                                    search_terms = ['']  # Empty search to show "no target found"
-                                
-                                # Detect location hints
-                                search_path = "~"  # Default to home
-                                if 'downloads' in question_lower:
-                                    search_path = "~/Downloads"
-                                elif 'documents' in question_lower:
-                                    search_path = "~/Documents"
-                                
-                                search_results = []
-                                
-                                for name in search_terms:
-                                    if not name:
-                                        continue
-                                        
-                                    # Search with increasing depth
-                                    find_cmd = f"find {search_path} -maxdepth 4 -type d -iname '*{name}*' 2>/dev/null | head -20"
-                                    find_output = self.execute_command(find_cmd)
-                                    
-                                    debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
-                                    if debug_mode:
-                                        print(f"🔍 FIND EXECUTED: {find_cmd}")
-                                        print(f"🔍 FIND OUTPUT: {repr(find_output)}")
-                                    
-                                    if find_output.strip():
-                                        search_results.append(f"Searched for '*{name}*' in {search_path}:\n{find_output}")
-                                
-                                if search_results:
-                                    api_results["shell_info"]["search_results"] = "\n\n".join(search_results)
-                                else:
-                                    api_results["shell_info"]["search_results"] = f"No directories found matching query in {search_path}"
-                        
-                        tools_used.append("shell_execution")
+                    
                     except Exception as e:
+                        # LLM planner failed, skip shell execution
+                        debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
                         if debug_mode:
-                            print(f"🔍 Shell execution failed: {e}")
+                            print(f"🔍 Shell planner failed: {e}")
+                
                 
                 # DEBUG: Log exactly what we're sending to backend
                 debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"

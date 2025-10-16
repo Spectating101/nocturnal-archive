@@ -2594,23 +2594,125 @@ class EnhancedNocturnalAgent:
             if workflow_response:
                 return workflow_response
             
-            # Analyze request to determine what APIs to call
-            request_analysis = await self._analyze_request_type(request.question)
-            
-            # Debug: Check what was detected
+            # Initialize
+            api_results = {}
+            tools_used = []
             debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+            
+            # ========================================================================
+            # PRIORITY 1: SHELL PLANNING (Reasoning Layer - Runs FIRST for ALL modes)
+            # ========================================================================
+            # This determines USER INTENT before fetching any data
+            # Prevents waste: "find cm522" won't trigger Archive API, "look into it" won't web search
+            # Works in BOTH production and dev modes
+            
+            shell_action = "none"  # Will be: pwd|ls|find|none
+            
+            # Quick check if query might need shell
+            question_lower = request.question.lower()
+            might_need_shell = any(word in question_lower for word in [
+                'directory', 'folder', 'where', 'find', 'list', 'files', 'look', 'search', 'check', 'into'
+            ])
+            
+            if might_need_shell and self.shell_session:
+                # Ask LLM planner: What shell command should we run?
+                planner_prompt = f"""You are a shell command planner. Determine what shell command to run.
+
+User query: "{request.question}"
+Previous conversation: {json.dumps(self.conversation_history[-2:]) if self.conversation_history else "None"}
+
+Respond ONLY with JSON:
+{{
+  "action": "pwd|ls|find|none",
+  "search_target": "cm522" (if find),
+  "search_path": "~/Downloads" (if find),
+  "target_path": "/full/path" (if ls on previous result)
+}}
+
+Examples:
+"where am i?" → {{"action": "pwd"}}
+"what files here?" → {{"action": "ls"}}
+"find cm522 in downloads" → {{"action": "find", "search_target": "cm522", "search_path": "~/Downloads"}}
+"look into it" + Previous: "Found /path/to/dir" → {{"action": "ls", "target_path": "/path/to/dir"}}
+"Tesla revenue" → {{"action": "none"}}
+
+JSON:"""
+
+                try:
+                    plan_response = await self.call_backend_query(
+                        query=planner_prompt,
+                        conversation_history=[],
+                        api_results={},
+                        tools_used=[]
+                    )
+                    
+                    plan_text = plan_response.response.strip()
+                    if '```' in plan_text:
+                        plan_text = plan_text.split('```')[1].replace('json', '').strip()
+                    
+                    plan = json.loads(plan_text)
+                    shell_action = plan.get("action", "none")
+                    
+                    if debug_mode:
+                        print(f"🔍 SHELL PLAN: {plan}")
+                    
+                    # Execute shell command based on plan
+                    if shell_action == "pwd":
+                        pwd_output = self.execute_command("pwd")
+                        api_results["shell_info"] = {"current_directory": pwd_output.strip()}
+                        tools_used.append("shell_execution")
+                    
+                    elif shell_action == "ls":
+                        target = plan.get("target_path")
+                        if target:
+                            ls_output = self.execute_command(f"ls -lah {target}")
+                            api_results["shell_info"] = {
+                                "directory_contents": ls_output,
+                                "target_path": target
+                            }
+                        else:
+                            ls_output = self.execute_command("ls -lah")
+                            api_results["shell_info"] = {"directory_contents": ls_output}
+                        tools_used.append("shell_execution")
+                    
+                    elif shell_action == "find":
+                        search_target = plan.get("search_target", "")
+                        search_path = plan.get("search_path", "~")
+                        if search_target:
+                            find_cmd = f"find {search_path} -maxdepth 4 -type d -iname '*{search_target}*' 2>/dev/null | head -20"
+                            find_output = self.execute_command(find_cmd)
+                            if debug_mode:
+                                print(f"🔍 FIND: {find_cmd}")
+                                print(f"🔍 OUTPUT: {repr(find_output)}")
+                            if find_output.strip():
+                                api_results["shell_info"] = {
+                                    "search_results": f"Searched for '*{search_target}*' in {search_path}:\n{find_output}"
+                                }
+                            else:
+                                api_results["shell_info"] = {
+                                    "search_results": f"No directories matching '{search_target}' found in {search_path}"
+                                }
+                            tools_used.append("shell_execution")
+                
+                except Exception as e:
+                    if debug_mode:
+                        print(f"🔍 Shell planner failed: {e}, continuing without shell")
+                    shell_action = "none"
+            
+            # ========================================================================
+            # PRIORITY 2: DATA APIs (Only if shell didn't fully handle the query)
+            # ========================================================================
+            # If shell_action = pwd/ls/find, we might still want data APIs
+            # But we skip vague queries to save tokens
+            
+            # Analyze what data APIs are needed (only if not pure shell command)
+            request_analysis = await self._analyze_request_type(request.question)
             if debug_mode:
                 print(f"🔍 Request analysis: {request_analysis}")
             
-            # Check if query is too vague - skip EXPENSIVE API calls to save tokens
-            # But still allow web search (cheap and flexible)
             is_vague = self._is_query_too_vague_for_apis(request.question)
             if debug_mode and is_vague:
-                print(f"🔍 Query detected as VAGUE - skipping Archive/FinSight, but may use web search")
-            
-            # Call appropriate APIs (Archive, FinSight) - BOTH production and dev mode
-            api_results = {}
-            tools_used = []
+                print(f"🔍 Query is VAGUE - skipping expensive APIs")
             
             # Skip Archive/FinSight if query is too vague, but still allow web search later
             if not is_vague:
@@ -2683,13 +2785,20 @@ JSON:"""
                         if debug_mode:
                             print(f"🔍 Finance LLM extraction failed: {e}")
             
-            # Web Search - Use LLM to decide if needed (smarter than hardcoded keywords)
-            if self.web_search:
+            # ========================================================================
+            # PRIORITY 3: WEB SEARCH (Fallback - only if shell didn't handle AND no data yet)
+            # ========================================================================
+            # Only web search if:
+            # - Shell said "none" (not a directory/file operation)
+            # - We don't have enough data from Archive/FinSight
+            
+            if self.web_search and shell_action == "none":
                 # Ask LLM: Should we web search for this?
                 web_decision_prompt = f"""Should we use web search for this query?
 
 User query: "{request.question}"
 Data already available: {list(api_results.keys())}
+Shell action: {shell_action}
 
 Respond with JSON:
 {{
@@ -2705,9 +2814,9 @@ Use web search for:
 - Questions not answered by existing data
 
 Don't use if:
-- Question already answered by research/financial APIs
+- Shell already handled it (pwd/ls/find)
+- Question answered by research/financial APIs
 - Pure opinion question
-- Command execution
 
 JSON:"""
 
@@ -2742,126 +2851,21 @@ JSON:"""
                     if debug_mode:
                         print(f"🔍 Web search decision failed: {e}")
             
-            # PRODUCTION MODE: Use small LLM to plan shell commands (smarter than hardcoded patterns)
+            # PRODUCTION MODE: Call backend LLM with all gathered data
             if self.client is None:
-                # Ask small LLM: What shell command should we run?
-                planner_prompt = f"""You are a shell command planner. Given the user's query, determine what shell command(s) to run.
-
-User query: "{request.question}"
-Previous conversation context: {json.dumps(self.conversation_history[-2:]) if self.conversation_history else "None"}
-
-Respond with JSON:
-{{
-  "action": "pwd|ls|find|none",
-  "search_target": "directory/file name to search for (if action=find)",
-  "search_path": "~/Downloads or ~/Documents or ~ (if action=find)",
-  "target_path": "/full/path (if referring to previous result)"
-}}
-
-Examples:
-Query: "where am i?" → {{"action": "pwd"}}
-Query: "what files are here?" → {{"action": "ls"}}
-Query: "find cm522 in downloads" → {{"action": "find", "search_target": "cm522", "search_path": "~/Downloads"}}
-Query: "can you look into it?" + Previous: "Found /home/user/Downloads/cm522-main" → {{"action": "ls", "target_path": "/home/user/Downloads/cm522-main"}}
-Query: "what's the capital of France?" → {{"action": "none"}}
-
-JSON:"""
-
-                question_lower = request.question.lower()
-                needs_shell = any(word in question_lower for word in [
-                    'directory', 'folder', 'where', 'find', 'list', 'files', 'look', 'search', 'check'
-                ])
-                
-                if needs_shell and self.shell_session:
-                    try:
-                        # Use small LLM to plan shell command (smarter than regex)
-                        plan_response = await self.call_backend_query(
-                            query=planner_prompt,
-                            conversation_history=[],
-                            api_results={},
-                            tools_used=[]
-                        )
-                        
-                        # Parse JSON plan
-                        import json as json_module
-                        plan_text = plan_response.response.strip()
-                        # Extract JSON if wrapped in markdown
-                        if '```' in plan_text:
-                            plan_text = plan_text.split('```')[1].replace('json', '').strip()
-                        
-                        plan = json_module.loads(plan_text)
-                        
-                        debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
-                        if debug_mode:
-                            print(f"🔍 LLM PLAN: {plan}")
-                        
-                        api_results["shell_info"] = {}
-                        
-                        # Execute based on plan
-                        action = plan.get("action", "none")
-                        
-                        if action == "pwd":
-                            pwd_output = self.execute_command("pwd")
-                            api_results["shell_info"]["current_directory"] = pwd_output.strip()
-                            tools_used.append("shell_execution")
-                        
-                        elif action == "ls":
-                            target = plan.get("target_path")
-                            if target:
-                                # List specific directory
-                                ls_output = self.execute_command(f"ls -lah {target}")
-                            else:
-                                # List current directory
-                                ls_output = self.execute_command("ls -lah")
-                            api_results["shell_info"]["directory_contents"] = ls_output
-                            if target:
-                                api_results["shell_info"]["target_path"] = target
-                            tools_used.append("shell_execution")
-                        
-                        elif action == "find":
-                            search_target = plan.get("search_target", "")
-                            search_path = plan.get("search_path", "~")
-                            
-                            if search_target:
-                                find_cmd = f"find {search_path} -maxdepth 4 -type d -iname '*{search_target}*' 2>/dev/null | head -20"
-                                find_output = self.execute_command(find_cmd)
-                                
-                                if debug_mode:
-                                    print(f"🔍 FIND EXECUTED: {find_cmd}")
-                                    print(f"🔍 FIND OUTPUT: {repr(find_output)}")
-                                
-                                if find_output.strip():
-                                    api_results["shell_info"]["search_results"] = f"Searched for '*{search_target}*' in {search_path}:\n{find_output}"
-                                else:
-                                    api_results["shell_info"]["search_results"] = f"No directories matching '{search_target}' found in {search_path}"
-                                tools_used.append("shell_execution")
-                        
-                        # Always include current directory
-                        pwd_output = self.execute_command("pwd")
-                        api_results["shell_info"]["current_directory"] = pwd_output.strip()
-                    
-                    except Exception as e:
-                        # LLM planner failed, skip shell execution
-                        debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
-                        if debug_mode:
-                            print(f"🔍 Shell planner failed: {e}")
-                
-                
-                # DEBUG: Log exactly what we're sending to backend
-                debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
-                if debug_mode and api_results.get("shell_info", {}).get("search_results"):
-                    print(f"🔍 SENDING TO BACKEND:")
-                    print(f"🔍 shell_info.search_results = {repr(api_results['shell_info']['search_results'])}")
+                # DEBUG: Log what we're sending
+                if debug_mode and api_results.get("shell_info"):
+                    print(f"🔍 SENDING TO BACKEND: shell_info keys = {list(api_results.get('shell_info', {}).keys())}")
                 
                 # Call backend and UPDATE CONVERSATION HISTORY
                 response = await self.call_backend_query(
                     query=request.question,
                     conversation_history=self.conversation_history[-10:],
-                    api_results=api_results,  # Include the data!
-                    tools_used=tools_used  # Pass tools list for history
+                    api_results=api_results,
+                    tools_used=tools_used
                 )
                 
-                # CRITICAL: Save to conversation history for context
+                # CRITICAL: Save to conversation history
                 self.conversation_history.append({"role": "user", "content": request.question})
                 self.conversation_history.append({"role": "assistant", "content": response.response})
                 

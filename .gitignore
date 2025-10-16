@@ -139,3 +139,7 @@ TEST_*.md
 *_AUDIT*.md
 *_TEST_*.md
 *_STATUS*.md
+
+# Keep personal reference files
+!cerebras-limit.md
+!groq-limit.md

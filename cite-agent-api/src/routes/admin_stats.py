@@ -43,21 +43,21 @@ async def admin_stats(admin_key: Optional[str] = Header(None)):
         # Query stats
         total_queries = await db.fetchval("SELECT COUNT(*) FROM queries")
         queries_today = await db.fetchval("""
-            SELECT COUNT(*) FROM queries 
-            WHERE created_at >= NOW() - INTERVAL '1 day'
+            SELECT COUNT(*) FROM queries
+            WHERE timestamp >= NOW() - INTERVAL '1 day'
         """)
-        
+
         queries_last_7d = await db.fetchval("""
-            SELECT COUNT(*) FROM queries 
-            WHERE created_at >= NOW() - INTERVAL '7 days'
+            SELECT COUNT(*) FROM queries
+            WHERE timestamp >= NOW() - INTERVAL '7 days'
         """)
         
         # Token usage by user
         token_usage = await db.fetch("""
-            SELECT u.email, 
-                   COUNT(q.id) as query_count,
+            SELECT u.email,
+                   COUNT(q.query_id) as query_count,
                    COALESCE(SUM(q.tokens_used), 0) as total_tokens,
-                   MAX(q.created_at) as last_active
+                   MAX(q.timestamp) as last_active
             FROM users u
             LEFT JOIN queries q ON u.user_id = q.user_id
             GROUP BY u.email
@@ -66,10 +66,10 @@ async def admin_stats(admin_key: Optional[str] = Header(None)):
         
         # Recent queries
         recent_queries = await db.fetch("""
-            SELECT u.email, q.query, q.tokens_used, q.created_at
+            SELECT u.email, q.query_text, q.tokens_used, q.timestamp
             FROM queries q
             JOIN users u ON q.user_id = u.user_id
-            ORDER BY q.created_at DESC
+            ORDER BY q.timestamp DESC
             LIMIT 20
         """)
         

@@ -2629,81 +2629,118 @@ class EnhancedNocturnalAgent:
                         api_results["research"] = result
                         tools_used.append("archive_api")
                 
-                # FinSight API for financial data
+                # FinSight API for financial data - Use LLM for ticker/metric extraction
                 if "finsight" in request_analysis.get("apis", []):
-                    tickers = self._extract_tickers_from_text(request.question)
-                    if not tickers:
-                        # Try common company name mappings
-                        question_lower = request.question.lower()
-                        if "apple" in question_lower:
-                            tickers = ["AAPL"]
-                        elif "tesla" in question_lower:
-                            tickers = ["TSLA"]
-                        elif "microsoft" in question_lower:
-                            tickers = ["MSFT"]
-                        elif "google" in question_lower or "alphabet" in question_lower:
-                            tickers = ["GOOGL"]
+                    # LLM extracts ticker + metric (more accurate than regex)
+                    finance_prompt = f"""Extract financial query details from user's question.
+
+User query: "{request.question}"
+
+Respond with JSON:
+{{
+  "tickers": ["AAPL", "TSLA"] (stock symbols - infer from company names if needed),
+  "metric": "revenue|marketCap|price|netIncome|eps|freeCashFlow|grossProfit"
+}}
+
+Examples:
+- "Tesla revenue" → {{"tickers": ["TSLA"], "metric": "revenue"}}
+- "What's Apple worth?" → {{"tickers": ["AAPL"], "metric": "marketCap"}}
+- "tsla stock price" → {{"tickers": ["TSLA"], "metric": "price"}}
+- "Microsoft profit" → {{"tickers": ["MSFT"], "metric": "netIncome"}}
+
+JSON:"""
+
+                    try:
+                        finance_response = await self.call_backend_query(
+                            query=finance_prompt,
+                            conversation_history=[],
+                            api_results={},
+                            tools_used=[]
+                        )
+                        
+                        import json as json_module
+                        finance_text = finance_response.response.strip()
+                        if '```' in finance_text:
+                            finance_text = finance_text.split('```')[1].replace('json', '').strip()
+                        
+                        finance_plan = json_module.loads(finance_text)
+                        tickers = finance_plan.get("tickers", [])
+                        metric = finance_plan.get("metric", "revenue")
+                        
+                        if debug_mode:
+                            print(f"🔍 LLM FINANCE PLAN: tickers={tickers}, metric={metric}")
+                        
+                        if tickers:
+                            # Call FinSight with extracted ticker + metric
+                            financial_data = await self._call_finsight_api(f"calc/{tickers[0]}/{metric}")
+                            if debug_mode:
+                                print(f"🔍 FinSight returned: {list(financial_data.keys()) if financial_data else None}")
+                            if financial_data and "error" not in financial_data:
+                                api_results["financial"] = financial_data
+                                tools_used.append("finsight_api")
+                    
+                    except Exception as e:
+                        if debug_mode:
+                            print(f"🔍 Finance LLM extraction failed: {e}")
+            
+            # Web Search - Use LLM to decide if needed (smarter than hardcoded keywords)
+            if self.web_search:
+                # Ask LLM: Should we web search for this?
+                web_decision_prompt = f"""Should we use web search for this query?
+
+User query: "{request.question}"
+Data already available: {list(api_results.keys())}
+
+Respond with JSON:
+{{
+  "use_web_search": true/false,
+  "reason": "why or why not"
+}}
+
+Use web search for:
+- Market share/size (not in SEC filings)
+- Current prices (Bitcoin, commodities, real-time data)
+- Industry data, statistics
+- Recent events, news
+- Questions not answered by existing data
+
+Don't use if:
+- Question already answered by research/financial APIs
+- Pure opinion question
+- Command execution
+
+JSON:"""
+
+                try:
+                    web_decision_response = await self.call_backend_query(
+                        query=web_decision_prompt,
+                        conversation_history=[],
+                        api_results={},
+                        tools_used=[]
+                    )
+                    
+                    import json as json_module
+                    decision_text = web_decision_response.response.strip()
+                    if '```' in decision_text:
+                        decision_text = decision_text.split('```')[1].replace('json', '').strip()
+                    
+                    decision = json_module.loads(decision_text)
+                    needs_web_search = decision.get("use_web_search", False)
                     
                     if debug_mode:
-                        print(f"🔍 Extracted tickers: {tickers}")
+                        print(f"🔍 WEB SEARCH DECISION: {needs_web_search}, reason: {decision.get('reason')}")
                     
-                    if tickers:
-                        # Detect what metric user is asking for
-                        question_lower = request.question.lower()
-                        metric = "revenue"  # Default
-                        
-                        if any(word in question_lower for word in ['market cap', 'marketcap', 'market value', 'valuation']):
-                            metric = "marketCap"
-                        elif any(word in question_lower for word in ['stock price', 'share price', 'current price', 'trading at']):
-                            metric = "price"
-                        elif 'profit' in question_lower and 'gross' not in question_lower:
-                            metric = "netIncome"
-                        elif 'earnings' in question_lower or 'eps' in question_lower:
-                            metric = "eps"
-                        elif any(word in question_lower for word in ['cash flow', 'cashflow']):
-                            metric = "freeCashFlow"
-                        
-                        # Call FinSight with detected metric
-                        if debug_mode:
-                            print(f"🔍 Calling FinSight API: calc/{tickers[0]}/{metric}")
-                        financial_data = await self._call_finsight_api(f"calc/{tickers[0]}/{metric}")
-                        if debug_mode:
-                            print(f"🔍 FinSight returned: {list(financial_data.keys()) if financial_data else None}")
-                        if financial_data and "error" not in financial_data:
-                            api_results["financial"] = financial_data
-                            tools_used.append("finsight_api")
-                        else:
-                            if debug_mode and financial_data:
-                                print(f"🔍 FinSight error: {financial_data.get('error')}")
-            
-            # Web Search fallback - ALWAYS available even for vague queries
-            # Use for: market share, industry data, current events, prices, anything not in APIs
-            if self.web_search:
-                question_lower = request.question.lower()
-                # Only search if query needs data and APIs didn't provide it
-                needs_web_search = (
-                    ('market share' in question_lower) or
-                    ('market size' in question_lower) or
-                    ('industry' in question_lower and not api_results.get('research')) or
-                    ('price' in question_lower and ('today' in question_lower or 'current' in question_lower or 'now' in question_lower)) or
-                    ('bitcoin' in question_lower or 'btc' in question_lower or 'crypto' in question_lower) or
-                    ('exchange rate' in question_lower or 'forex' in question_lower) or
-                    (not api_results and 'latest' in question_lower)  # Latest news/data
-                )
-                
-                if needs_web_search or (not api_results and len(request.question.split()) > 5):
-                    try:
-                        if debug_mode:
-                            print(f"🔍 Using web search for: {request.question[:50]}...")
+                    if needs_web_search:
                         web_results = await self.web_search.search_web(request.question, num_results=3)
                         if web_results and "results" in web_results:
                             api_results["web_search"] = web_results
                             tools_used.append("web_search")
                             if debug_mode:
                                 print(f"🔍 Web search returned: {len(web_results.get('results', []))} results")
-                    except Exception as e:
-                        if debug_mode:
-                            print(f"🔍 Web search failed: {e}")
+                
+                except Exception as e:
+                    if debug_mode:
+                        print(f"🔍 Web search decision failed: {e}")
             
             # PRODUCTION MODE: Use small LLM to plan shell commands (smarter than hardcoded patterns)
             if self.client is None:

@@ -821,13 +821,14 @@ Examples:
             updater.show_update_status()
             sys.exit(0)
     
-    # Auto-check for updates on startup (silent, non-blocking)
-    def check_updates_silently():
-        """Check for updates in background, show notification if available"""
+    # Auto-upgrade on startup (silent, non-blocking)
+    def auto_upgrade_if_needed():
+        """Automatically upgrade to latest version if available"""
         try:
             # Only check once per day to avoid API spam
             from pathlib import Path
             import time
+            import subprocess
             
             check_file = Path.home() / ".cite_agent" / ".last_update_check"
             check_file.parent.mkdir(exist_ok=True)
@@ -847,15 +848,44 @@ Examples:
             if update_info and update_info.get("available"):
                 current = update_info["current"]
                 latest = update_info["latest"]
-                print(f"\n💡 Update available: v{current} → v{latest}")
-                print(f"   Run: pip install --upgrade cite-agent")
-                print(f"   Or:  pipx upgrade cite-agent\n")
+                
+                print(f"\n🔄 Updating Cite Agent: v{current} → v{latest}...")
+                
+                # Detect if installed via pipx or pip
+                import shutil
+                if shutil.which("pipx"):
+                    # Try pipx upgrade first
+                    result = subprocess.run(
+                        ["pipx", "upgrade", "cite-agent"],
+                        capture_output=True,
+                        text=True,
+                        timeout=60
+                    )
+                    if result.returncode == 0:
+                        print(f"✅ Updated to v{latest} (via pipx)")
+                        print("🔄 Restart cite-agent to use the new version\n")
+                        return
+                
+                # Fall back to pip install --user
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "--upgrade", "--user", "cite-agent"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                
+                if result.returncode == 0:
+                    print(f"✅ Updated to v{latest}")
+                    print("🔄 Restart cite-agent to use the new version\n")
+                else:
+                    # Silent fail - don't show errors to users
+                    pass
         except:
             pass  # Silently fail, don't block startup
     
-    # Run update check in background (doesn't delay startup)
+    # Run auto-upgrade in background (doesn't delay startup)
     import threading
-    threading.Thread(target=check_updates_silently, daemon=True).start()
+    threading.Thread(target=auto_upgrade_if_needed, daemon=True).start()
     
     # Handle query or interactive mode
     async def run_cli():

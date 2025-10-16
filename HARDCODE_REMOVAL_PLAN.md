@@ -155,3 +155,4 @@ Test cases that currently FAIL with hardcoded patterns:
 **Current v1.3.0 status**: Shell planning uses LLM ✅, other areas still hardcoded
 
 
+

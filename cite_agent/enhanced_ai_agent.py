@@ -1698,10 +1698,58 @@ class EnhancedNocturnalAgent:
                 
                 elif response.status == 503:
                     # Backend AI service temporarily unavailable (Cerebras/Groq rate limited)
-                    # Graceful degradation: return helpful message instead of error
+                    # Auto-retry with exponential backoff
+                    max_retries = 3
+                    retry_delays = [5, 15, 30]  # seconds
+                    
+                    for retry_num in range(max_retries):
+                        delay = retry_delays[retry_num]
+                        print(f"\n⏳ Hit rate limit. Waiting {delay} seconds before retry {retry_num + 1}/{max_retries}...")
+                        
+                        # Wait with countdown
+                        import asyncio
+                        for remaining in range(delay, 0, -1):
+                            print(f"\r⏱️  Retrying in {remaining}s...", end='', flush=True)
+                            await asyncio.sleep(1)
+                        print("\r🔄 Retrying now...         ")
+                        
+                        # Retry the request
+                        async with self.session.post(url, json=payload, headers=headers, timeout=60) as retry_response:
+                            if retry_response.status == 200:
+                                # Success after retry!
+                                data = await retry_response.json()
+                                response_text = data.get('response', '')
+                                tokens = data.get('tokens_used', 0)
+                                
+                                all_tools = tools_used or []
+                                all_tools.append("backend_llm")
+                                
+                                self.workflow.save_query_result(
+                                    query=query,
+                                    response=response_text,
+                                    metadata={
+                                        "tools_used": all_tools,
+                                        "tokens_used": tokens,
+                                        "model": data.get('model'),
+                                        "provider": data.get('provider'),
+                                        "retries": retry_num + 1
+                                    }
+                                )
+                                
+                                return ChatResponse(
+                                    response=response_text,
+                                    tokens_used=tokens,
+                                    model_used=data.get('model'),
+                                    sources=data.get('sources', [])
+                                )
+                            elif retry_response.status != 503:
+                                # Different error, stop retrying
+                                break
+                    
+                    # All retries failed
                     return ChatResponse(
-                        response="⚠️ AI service temporarily busy. Try again in a moment, or rephrase your question.",
-                        error_message="Service temporarily unavailable"
+                        response="❌ Service still unavailable after retries. Please try again in a few minutes.",
+                        error_message="Service temporarily unavailable after retries"
                     )
                 
                 elif response.status == 200:

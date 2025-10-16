@@ -2664,7 +2664,8 @@ class EnhancedNocturnalAgent:
             # Quick check if query might need shell
             question_lower = request.question.lower()
             might_need_shell = any(word in question_lower for word in [
-                'directory', 'folder', 'where', 'find', 'list', 'files', 'look', 'search', 'check', 'into'
+                'directory', 'folder', 'where', 'find', 'list', 'files', 'look', 'search', 'check', 'into',
+                'show', 'open', 'read', 'display', 'cat', 'view', 'contents', '.r', '.py', '.csv', '.ipynb'
             ])
             
             if might_need_shell and self.shell_session:
@@ -2688,10 +2689,15 @@ Examples:
 "what files here?" → {{"action": "ls"}}
 "find cm522" → {{"action": "find", "search_target": "cm522"}}
 "look into it" + Previous: "Found /path" → {{"action": "ls", "target_path": "/path"}}
-"show me calculate_betas.R" → {{"action": "read_file", "file_path": "/current/dir/calculate_betas.R"}}
-"open that file" + Previous: "calculate_betas.R" → {{"action": "read_file", "file_path": "/path/to/calculate_betas.R"}}
-"what columns does it have?" + Previous: Opened file → Parse from conversation for column detection
+"show me calculate_betas.R" → {{"action": "read_file", "file_path": "calculate_betas.R"}}
+"open regression.R" → {{"action": "read_file", "file_path": "regression.R"}}
+"read that file" + Previous: "regression.R" → {{"action": "read_file", "file_path": "regression.R"}}
+"display analysis.py" → {{"action": "read_file", "file_path": "analysis.py"}}
+"cat data.csv" → {{"action": "read_file", "file_path": "data.csv"}}
+"what columns does it have?" + Previous: file was shown → {{"action": "none"}} (LLM will parse from conversation)
 "Tesla revenue" → {{"action": "none"}}
+
+KEY: If query mentions a specific FILENAME (*.R, *.py, *.csv), use read_file, NOT find!
 
 JSON:"""
 
@@ -2753,10 +2759,11 @@ JSON:"""
                     
                     elif shell_action == "read_file":
                         # NEW: Read and inspect file (R, Python, CSV, etc.)
+                        import re  # Import at function level
+                        
                         file_path = plan.get("file_path", "")
                         if not file_path and might_need_shell:
                             # Try to infer from query (e.g., "show me calculate_betas.R")
-                            import re
                             filenames = re.findall(r'([a-zA-Z0-9_-]+\.[a-zA-Z]{1,4})', request.question)
                             if filenames:
                                 # Check if file exists in current directory

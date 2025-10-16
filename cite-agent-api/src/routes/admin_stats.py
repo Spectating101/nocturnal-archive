@@ -5,6 +5,7 @@ Shows user activity, token usage, queries, etc.
 
 from fastapi import APIRouter, HTTPException, Header
 from typing import Optional
+from datetime import datetime
 import structlog
 import os
 import asyncpg

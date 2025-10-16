@@ -7,7 +7,7 @@ long_description = readme_path.read_text() if readme_path.exists() else "Termina
 
 setup(
     name="cite-agent",
-    version="1.3.5",
+    version="1.3.6",
     author="Cite-Agent Team",
     author_email="contact@citeagent.dev",
     description="Terminal AI assistant for academic research with citation verification",

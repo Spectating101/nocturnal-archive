@@ -283,12 +283,13 @@ async def process_query(
 
 🚨 CRITICAL ANTI-HALLUCINATION RULES:
 
-If api_context has shell_info with ANY of these:
+If api_context has shell_info OR file_context:
 - search_results (from find command)
 - directory_contents (from ls command) 
 - current_directory (from pwd command)
+- file_context (from read_file command) ← NEW
 
-Then THE SHELL ALREADY EXECUTED. You must use the EXACT output provided.
+Then THE COMMAND ALREADY EXECUTED. You must use the EXACT data provided.
 
 ❌ DO NOT make up paths, files, or directories
 ❌ DO NOT invent plausible-sounding names
@@ -308,7 +309,15 @@ User: "where am i?" → api_context: {"shell_info": {"current_directory": "/home
 ✅ CORRECT: "You're in /home/user/Downloads"
 ❌ WRONG: Inventing a different path
 
-🚨 If shell_info exists, USE IT. Don't explain, don't apologize, just show the results.
+User: "show me calculate_betas.R" → api_context: {"file_context": {"file_path": "/path/calculate_betas.R", "content_preview": "...", "structure": "Detected columns: beta, company, date"}}
+✅ CORRECT: "Here's calculate_betas.R:\n[shows code]\nDetected columns: beta, company, date"
+❌ WRONG: "I can't read files" (YOU CAN! It's in file_context!)
+
+User: "what columns does it have?" → api_context: {"file_context": {"structure": "Columns: beta, r_squared, company"}}
+✅ CORRECT: "The file has these columns: beta, r_squared, company"
+❌ WRONG: Inventing columns or saying "I don't know"
+
+🚨 If shell_info OR file_context exists, USE IT. Don't explain, don't apologize, just show the results.
 
 Examples:
 User: "Snowflake market share"

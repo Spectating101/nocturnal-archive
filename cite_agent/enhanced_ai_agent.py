@@ -89,6 +89,15 @@ class EnhancedNocturnalAgent:
         from .workflow import WorkflowManager
         self.workflow = WorkflowManager()
         self.last_paper_result = None  # Track last paper mentioned for "save that"
+        
+        # File context tracking (for pronoun resolution and multi-turn)
+        self.file_context = {
+            'last_file': None,           # Last file mentioned/read
+            'last_directory': None,      # Last directory mentioned/navigated
+            'recent_files': [],          # Last 5 files (for "those files")
+            'recent_dirs': [],           # Last 5 directories
+            'current_cwd': None,         # Track shell's current directory
+        }
         try:
             self.per_user_token_limit = int(os.getenv("GROQ_PER_USER_TOKENS", 50000))
         except (TypeError, ValueError):
@@ -1950,14 +1959,17 @@ class EnhancedNocturnalAgent:
                 url = f"{self.finsight_base_url}/{endpoint}"
                 # Start fresh with headers - don't use _default_headers which might be wrong
                 headers = {}
-                
+
                 # Always use demo key for FinSight (SEC data is public)
                 headers["X-API-Key"] = "demo-key-123"
-                
+
+                # Mark request as agent-mediated for product separation
+                headers["X-Request-Source"] = "agent"
+
                 # Also add JWT if we have it
                 if self.auth_token:
                     headers["Authorization"] = f"Bearer {self.auth_token}"
-                
+
                 debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
                 if debug_mode:
                     print(f"🔍 FinSight headers: {list(headers.keys())}, X-API-Key={headers.get('X-API-Key')}")
@@ -2183,36 +2195,80 @@ class EnhancedNocturnalAgent:
         except Exception as e:
             return f"ERROR: {e}"
 
-    def _is_safe_shell_command(self, cmd: str) -> bool:
+    def _classify_command_safety(self, cmd: str) -> str:
         """
-        Minimal safety check - only block truly catastrophic commands.
-        Philosophy: This is the user's machine. They can do anything in terminal anyway.
-        We only block commands that could cause immediate, irreversible system damage.
+        Classify command by safety level for smart execution.
+        Returns: 'SAFE', 'WRITE', 'DANGEROUS', or 'BLOCKED'
         """
         cmd = cmd.strip()
         if not cmd:
-            return False
-
-        # Block ONLY truly catastrophic commands
-        nuclear_patterns = [
-            'rm -rf /',       # Wipe root filesystem
-            'rm -rf ~/*',     # Wipe home directory
-            'dd if=/dev/zero of=/dev/sda',  # Wipe disk
-            'dd if=/dev/zero of=/dev/hda',
-            'mkfs',           # Format filesystem
-            'fdisk',          # Partition disk
-            ':(){ :|:& };:',  # Fork bomb
-            'chmod -R 777 /', # Make everything executable
-        ]
-
+            return 'BLOCKED'
+        
         cmd_lower = cmd.lower()
+        cmd_parts = cmd.split()
+        cmd_base = cmd_parts[0] if cmd_parts else ''
+        cmd_with_sub = ' '.join(cmd_parts[:2]) if len(cmd_parts) >= 2 else ''
+        
+        # BLOCKED: Catastrophic commands
+        nuclear_patterns = [
+            'rm -rf /',
+            'rm -rf ~',
+            'rm -rf /*',
+            'dd if=/dev/zero',
+            'mkfs',
+            'fdisk',
+            ':(){ :|:& };:',  # Fork bomb
+            'chmod -r 777 /',
+            '> /dev/sda',
+        ]
         for pattern in nuclear_patterns:
-            if pattern.lower() in cmd_lower:
-                return False
-
-        # Allow everything else - pip, npm, git, pipes, redirection, etc.
-        # User asked for it, user gets it. Just like Cursor.
-        return True
+            if pattern in cmd_lower:
+                return 'BLOCKED'
+        
+        # SAFE: Read-only commands
+        safe_commands = {
+            'pwd', 'ls', 'cd', 'cat', 'head', 'tail', 'grep', 'find', 'which', 'type',
+            'wc', 'diff', 'echo', 'ps', 'top', 'df', 'du', 'file', 'stat', 'tree',
+            'whoami', 'hostname', 'date', 'cal', 'uptime', 'printenv', 'env',
+        }
+        safe_git = {'git status', 'git log', 'git diff', 'git branch', 'git show', 'git remote'}
+        
+        if cmd_base in safe_commands or cmd_with_sub in safe_git:
+            return 'SAFE'
+        
+        # WRITE: File creation/modification (allowed but tracked)
+        write_commands = {'mkdir', 'touch', 'cp', 'mv', 'tee'}
+        if cmd_base in write_commands:
+            return 'WRITE'
+        
+        # WRITE: Redirection operations (echo > file, cat > file)
+        if '>' in cmd or '>>' in cmd:
+            # Allow redirection to regular files, block to devices
+            if '/dev/' not in cmd_lower:
+                return 'WRITE'
+            else:
+                return 'BLOCKED'
+        
+        # DANGEROUS: Deletion and permission changes
+        dangerous_commands = {'rm', 'rmdir', 'chmod', 'chown', 'chgrp'}
+        if cmd_base in dangerous_commands:
+            return 'DANGEROUS'
+        
+        # WRITE: Git write operations
+        write_git = {'git add', 'git commit', 'git push', 'git pull', 'git checkout', 'git merge'}
+        if cmd_with_sub in write_git:
+            return 'WRITE'
+        
+        # Default: Treat unknown commands as requiring user awareness
+        return 'WRITE'
+    
+    def _is_safe_shell_command(self, cmd: str) -> bool:
+        """
+        Compatibility wrapper for old safety check.
+        Now uses tiered classification system.
+        """
+        classification = self._classify_command_safety(cmd)
+        return classification in ['SAFE', 'WRITE']  # Allow SAFE and WRITE, block DANGEROUS and BLOCKED
     
     def _check_token_budget(self, estimated_tokens: int) -> bool:
         """Check if we have enough token budget"""
@@ -2450,12 +2506,42 @@ class EnhancedNocturnalAgent:
     async def _analyze_request_type(self, question: str) -> Dict[str, Any]:
         """Analyze what type of request this is and what APIs to use"""
         
-        # Financial indicators
+        # Financial indicators - COMPREHENSIVE list to ensure FinSight is used
         financial_keywords = [
-            'financial', 'revenue', 'profit', 'earnings', 'stock', 'market',
-            'ticker', 'company', 'balance sheet', 'income statement', 'cash flow',
-            'valuation', 'pe ratio', 'debt', 'equity', 'dividend', 'growth',
-            'ceo', 'earnings call', 'quarterly', 'annual report'
+            # Core metrics
+            'financial', 'revenue', 'sales', 'income', 'profit', 'earnings', 'loss',
+            'net income', 'operating income', 'gross profit', 'ebitda', 'ebit',
+            
+            # Margins & Ratios
+            'margin', 'gross margin', 'profit margin', 'operating margin', 'net margin', 'ebitda margin',
+            'ratio', 'current ratio', 'quick ratio', 'debt ratio', 'pe ratio', 'p/e',
+            'roe', 'roa', 'roic', 'roce', 'eps',
+            
+            # Balance Sheet
+            'assets', 'liabilities', 'equity', 'debt', 'cash', 'capital',
+            'balance sheet', 'total assets', 'current assets', 'fixed assets',
+            'shareholders equity', 'stockholders equity', 'retained earnings',
+            
+            # Cash Flow
+            'cash flow', 'fcf', 'free cash flow', 'operating cash flow',
+            'cfo', 'cfi', 'cff', 'capex', 'capital expenditure',
+            
+            # Market Metrics
+            'stock', 'market cap', 'market capitalization', 'enterprise value',
+            'valuation', 'price', 'share price', 'stock price', 'quote',
+            'volume', 'trading volume', 'shares outstanding',
+            
+            # Financial Statements
+            'income statement', '10-k', '10-q', '8-k', 'filing', 'sec filing',
+            'quarterly', 'annual report', 'earnings report', 'financial statement',
+            
+            # Company Info
+            'ticker', 'company', 'corporation', 'ceo', 'earnings call',
+            'dividend', 'dividend yield', 'payout ratio',
+            
+            # Growth & Performance
+            'growth', 'yoy', 'year over year', 'qoq', 'quarter over quarter',
+            'cagr', 'trend', 'performance', 'returns'
         ]
         
         # Research indicators (quantitative)
@@ -2664,40 +2750,68 @@ class EnhancedNocturnalAgent:
             # Quick check if query might need shell
             question_lower = request.question.lower()
             might_need_shell = any(word in question_lower for word in [
-                'directory', 'folder', 'where', 'find', 'list', 'files', 'look', 'search', 'check', 'into',
-                'show', 'open', 'read', 'display', 'cat', 'view', 'contents', '.r', '.py', '.csv', '.ipynb'
+                'directory', 'folder', 'where', 'find', 'list', 'files', 'file', 'look', 'search', 'check', 'into',
+                'show', 'open', 'read', 'display', 'cat', 'view', 'contents', '.r', '.py', '.csv', '.ipynb',
+                'create', 'make', 'mkdir', 'touch', 'new', 'write', 'copy', 'move', 'delete', 'remove',
+                'git', 'grep', 'navigate', 'go to', 'change to'
             ])
             
             if might_need_shell and self.shell_session:
+                # Get current directory and context for intelligent planning
+                try:
+                    current_dir = self.execute_command("pwd").strip()
+                    self.file_context['current_cwd'] = current_dir
+                except:
+                    current_dir = "~"
+                
+                last_file = self.file_context.get('last_file') or 'None'
+                last_dir = self.file_context.get('last_directory') or 'None'
+                
                 # Ask LLM planner: What shell command should we run?
-                planner_prompt = f"""You are a shell command planner. Determine what shell command to run.
+                planner_prompt = f"""You are a shell command planner. Determine what shell command to run, if any.
 
 User query: "{request.question}"
 Previous conversation: {json.dumps(self.conversation_history[-2:]) if self.conversation_history else "None"}
+Current directory: {current_dir}
+Last file mentioned: {last_file}
+Last directory mentioned: {last_dir}
 
 Respond ONLY with JSON:
 {{
-  "action": "pwd|ls|find|read_file|none",
-  "search_target": "cm522" (if find),
-  "search_path": "~/Downloads" (if find),
-  "target_path": "/full/path" (if ls on previous result),
-  "file_path": "/full/path/to/file.R" (if read_file)
+  "action": "execute|none",
+  "command": "pwd" (the actual shell command to run, if action=execute),
+  "reason": "Show current directory" (why this command is needed),
+  "updates_context": true (set to true if command changes files/directories)
 }}
 
-Examples:
-"where am i?" → {{"action": "pwd"}}
-"what files here?" → {{"action": "ls"}}
-"find cm522" → {{"action": "find", "search_target": "cm522"}}
-"look into it" + Previous: "Found /path" → {{"action": "ls", "target_path": "/path"}}
-"show me calculate_betas.R" → {{"action": "read_file", "file_path": "calculate_betas.R"}}
-"open regression.R" → {{"action": "read_file", "file_path": "regression.R"}}
-"read that file" + Previous: "regression.R" → {{"action": "read_file", "file_path": "regression.R"}}
-"display analysis.py" → {{"action": "read_file", "file_path": "analysis.py"}}
-"cat data.csv" → {{"action": "read_file", "file_path": "data.csv"}}
-"what columns does it have?" + Previous: file was shown → {{"action": "none"}} (LLM will parse from conversation)
-"Tesla revenue" → {{"action": "none"}}
+IMPORTANT RULES:
+1. Return "none" for conversational queries ("hello", "test", "thanks", "how are you")
+2. Return "none" when query is ambiguous without more context
+3. Return "none" for questions about data that don't need shell (e.g., "Tesla revenue", "Apple stock price")
+4. Use ACTUAL shell commands (pwd, ls, cd, mkdir, cat, grep, find, touch, etc.)
+5. Resolve pronouns using context: "it"={last_file}, "there"/{last_dir}
+6. For reading files, prefer: head -100 filename (shows first 100 lines)
+7. For finding things, use: find ~ -maxdepth 4 -name '*pattern*' 2>/dev/null
+8. For creating files: touch filename OR echo "content" > filename
+9. For creating directories: mkdir dirname
+10. ALWAYS include 2>/dev/null to suppress errors from find
 
-KEY: If query mentions a specific FILENAME (*.R, *.py, *.csv), use read_file, NOT find!
+Examples:
+"where am i?" → {{"action": "execute", "command": "pwd", "reason": "Show current directory", "updates_context": false}}
+"list files" → {{"action": "execute", "command": "ls -lah", "reason": "List all files with details", "updates_context": false}}
+"find cm522" → {{"action": "execute", "command": "find ~ -maxdepth 4 -name '*cm522*' -type d 2>/dev/null | head -20", "reason": "Search for cm522 directory", "updates_context": false}}
+"go to Downloads" → {{"action": "execute", "command": "cd ~/Downloads && pwd", "reason": "Navigate to Downloads directory", "updates_context": true}}
+"show me calc.R" → {{"action": "execute", "command": "head -100 calc.R", "reason": "Display file contents", "updates_context": true}}
+"create test directory" → {{"action": "execute", "command": "mkdir test && echo 'Created test/'", "reason": "Create new directory", "updates_context": true}}
+"create empty config.json" → {{"action": "execute", "command": "touch config.json && echo 'Created config.json'", "reason": "Create empty file", "updates_context": true}}
+"search for TODO in py files" → {{"action": "execute", "command": "grep -n 'TODO' *.py 2>/dev/null", "reason": "Find TODO comments", "updates_context": false}}
+"git status" → {{"action": "execute", "command": "git status", "reason": "Check repository status", "updates_context": false}}
+"what's in that file?" + last_file=data.csv → {{"action": "execute", "command": "head -100 data.csv", "reason": "Show file contents", "updates_context": false}}
+"hello" → {{"action": "none", "reason": "Conversational greeting, no command needed"}}
+"test" → {{"action": "none", "reason": "Ambiguous query, needs clarification"}}
+"thanks" → {{"action": "none", "reason": "Conversational acknowledgment"}}
+"Tesla revenue" → {{"action": "none", "reason": "Finance query, will use FinSight API not shell"}}
+"what does the error mean?" → {{"action": "none", "reason": "Explanation request, no command needed"}}
 
 JSON:"""
 
@@ -2715,17 +2829,82 @@ JSON:"""
                     
                     plan = json.loads(plan_text)
                     shell_action = plan.get("action", "none")
+                    command = plan.get("command", "")
+                    reason = plan.get("reason", "")
+                    updates_context = plan.get("updates_context", False)
                     
                     if debug_mode:
                         print(f"🔍 SHELL PLAN: {plan}")
                     
-                    # Execute shell command based on plan
-                    if shell_action == "pwd":
-                        pwd_output = self.execute_command("pwd")
-                        api_results["shell_info"] = {"current_directory": pwd_output.strip()}
-                        tools_used.append("shell_execution")
+                    # GENERIC COMMAND EXECUTION - No more hardcoded actions!
+                    if shell_action == "execute" and command:
+                        # Check command safety
+                        safety_level = self._classify_command_safety(command)
+                        
+                        if debug_mode:
+                            print(f"🔍 Command: {command}")
+                            print(f"🔍 Safety: {safety_level}")
+                        
+                        if safety_level == 'BLOCKED':
+                            api_results["shell_info"] = {
+                                "error": f"Command blocked for safety: {command}",
+                                "reason": "This command could cause system damage"
+                            }
+                        else:
+                            # Execute the command
+                            output = self.execute_command(command)
+                            
+                            if not output.startswith("ERROR"):
+                                # Success - store results
+                                api_results["shell_info"] = {
+                                    "command": command,
+                                    "output": output,
+                                    "reason": reason,
+                                    "safety_level": safety_level
+                                }
+                                tools_used.append("shell_execution")
+                                
+                                # Update file context if needed
+                                if updates_context:
+                                    import re
+                                    # Extract file paths from command
+                                    file_patterns = r'([a-zA-Z0-9_\-./]+\.(py|r|csv|txt|json|md|ipynb|rmd))'
+                                    files_mentioned = re.findall(file_patterns, command, re.IGNORECASE)
+                                    if files_mentioned:
+                                        file_path = files_mentioned[0][0]
+                                        self.file_context['last_file'] = file_path
+                                        if file_path not in self.file_context['recent_files']:
+                                            self.file_context['recent_files'].append(file_path)
+                                            self.file_context['recent_files'] = self.file_context['recent_files'][-5:]  # Keep last 5
+                                    
+                                    # Extract directory paths
+                                    dir_patterns = r'cd\s+([^\s&|;]+)|mkdir\s+([^\s&|;]+)'
+                                    dirs_mentioned = re.findall(dir_patterns, command)
+                                    if dirs_mentioned:
+                                        for dir_tuple in dirs_mentioned:
+                                            dir_path = dir_tuple[0] or dir_tuple[1]
+                                            if dir_path:
+                                                self.file_context['last_directory'] = dir_path
+                                                if dir_path not in self.file_context['recent_dirs']:
+                                                    self.file_context['recent_dirs'].append(dir_path)
+                                                    self.file_context['recent_dirs'] = self.file_context['recent_dirs'][-5:]  # Keep last 5
+                                    
+                                    # If cd command, update current_cwd
+                                    if command.startswith('cd '):
+                                        try:
+                                            new_cwd = self.execute_command("pwd").strip()
+                                            self.file_context['current_cwd'] = new_cwd
+                                        except:
+                                            pass
+                            else:
+                                # Command failed
+                                api_results["shell_info"] = {
+                                    "error": output,
+                                    "command": command
+                                }
                     
-                    elif shell_action == "ls":
+                    # Backwards compatibility: support old hardcoded actions if LLM still returns them
+                    elif shell_action == "pwd":
                         target = plan.get("target_path")
                         if target:
                             ls_output = self.execute_command(f"ls -lah {target}")
@@ -2756,6 +2935,32 @@ JSON:"""
                                     "search_results": f"No directories matching '{search_target}' found in {search_path}"
                                 }
                             tools_used.append("shell_execution")
+                    
+                    elif shell_action == "cd":
+                        # NEW: Change directory
+                        target = plan.get("target_path")
+                        if target:
+                            # Expand ~ to home directory
+                            if target.startswith("~"):
+                                home = os.path.expanduser("~")
+                                target = target.replace("~", home, 1)
+                            
+                            # Execute cd command
+                            cd_cmd = f"cd {target} && pwd"
+                            cd_output = self.execute_command(cd_cmd)
+                            
+                            if not cd_output.startswith("ERROR"):
+                                api_results["shell_info"] = {
+                                    "directory_changed": True,
+                                    "new_directory": cd_output.strip(),
+                                    "target_path": target
+                                }
+                                tools_used.append("shell_execution")
+                            else:
+                                api_results["shell_info"] = {
+                                    "directory_changed": False,
+                                    "error": f"Failed to change to {target}: {cd_output}"
+                                }
                     
                     elif shell_action == "read_file":
                         # NEW: Read and inspect file (R, Python, CSV, etc.)
@@ -2836,6 +3041,14 @@ JSON:"""
             if debug_mode and is_vague:
                 print(f"🔍 Query is VAGUE - skipping expensive APIs")
             
+            # If query is vague, hint to backend LLM to ask clarifying questions
+            if is_vague:
+                api_results["query_analysis"] = {
+                    "is_vague": True,
+                    "suggestion": "Ask clarifying questions instead of guessing",
+                    "reason": "Query needs more specificity to provide accurate answer"
+                }
+            
             # Skip Archive/FinSight if query is too vague, but still allow web search later
             if not is_vague:
                 # Archive API for research
@@ -2914,31 +3127,77 @@ JSON:"""
             # - Shell said "none" (not a directory/file operation)
             # - We don't have enough data from Archive/FinSight
             
-            if self.web_search and shell_action == "none":
+            # First check: Is this a conversational query that doesn't need web search?
+            def is_conversational_query(query: str) -> bool:
+                """Detect if query is conversational (greeting, thanks, testing, etc.)"""
+                query_lower = query.lower().strip()
+                
+                # Single word queries that are conversational
+                conversational_words = {
+                    'hello', 'hi', 'hey', 'thanks', 'thank', 'ok', 'okay', 'yes', 'no',
+                    'test', 'testing', 'cool', 'nice', 'great', 'awesome', 'perfect',
+                    'bye', 'goodbye', 'quit', 'exit', 'help'
+                }
+                
+                # Short conversational phrases
+                conversational_phrases = [
+                    'how are you', 'thank you', 'thanks!', 'ok', 'got it', 'i see',
+                    'makes sense', 'sounds good', 'that works', 'no problem'
+                ]
+                
+                words = query_lower.split()
+                
+                # Single word check
+                if len(words) == 1 and words[0] in conversational_words:
+                    return True
+                
+                # Short phrase check
+                if len(words) <= 3 and any(phrase in query_lower for phrase in conversational_phrases):
+                    return True
+                
+                # Question marks with no content words (just pronouns)
+                if '?' in query_lower and len(words) <= 2:
+                    return True
+                
+                return False
+            
+            skip_web_search = is_conversational_query(request.question)
+            
+            if self.web_search and shell_action == "none" and not skip_web_search:
                 # Ask LLM: Should we web search for this?
-                web_decision_prompt = f"""Should we use web search for this query?
+                web_decision_prompt = f"""You are a tool selection expert. Decide if web search is needed.
 
 User query: "{request.question}"
 Data already available: {list(api_results.keys())}
-Shell action: {shell_action}
+Tools already used: {tools_used}
+
+AVAILABLE TOOLS YOU SHOULD KNOW:
+1. FinSight API: Company financial data (revenue, income, margins, ratios, cash flow, balance sheet, SEC filings)
+   - Covers: All US public companies (~8,000)
+   - Data: SEC EDGAR + Yahoo Finance
+   - Metrics: 50+ financial KPIs
+   
+2. Archive API: Academic research papers
+   - Covers: Semantic Scholar, OpenAlex, PubMed
+   - Data: Papers, citations, abstracts
+   
+3. Web Search: General information, current events
+   - Covers: Anything on the internet
+   - Use for: Market share, industry news, non-financial company info
+
+DECISION RULES:
+- If query is about company financials (revenue, profit, margins, etc.) → Check if FinSight already provided data
+- If FinSight has data in api_results → Web search is NOT needed
+- If FinSight was called but no data → Web search as fallback is OK
+- If query is about market share, industry size, trends → Web search (FinSight doesn't have this)
+- If query is about research papers → Archive handles it, not web
+- If query is conversational → Already filtered, you won't see these
 
 Respond with JSON:
 {{
   "use_web_search": true/false,
-  "reason": "why or why not"
+  "reason": "explain why based on tools available and data already fetched"
 }}
-
-Use web search for:
-- Market share/size (not in SEC filings)
-- Current prices (Bitcoin, commodities, real-time data)
-- Industry data, statistics
-- Recent events, news
-- Questions not answered by existing data
-
-Don't use if:
-- Shell already handled it (pwd/ls/find)
-- Question answered by research/financial APIs
-- Pure opinion question
 
 JSON:"""
 

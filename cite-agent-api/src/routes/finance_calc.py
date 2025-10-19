@@ -3,7 +3,7 @@ Finance Calculations API Routes
 Endpoints for metric calculations, explanations, and verification
 """
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import structlog
@@ -13,6 +13,7 @@ from src.calc.registry import KPIRegistry
 from src.calc.facts_store import get_facts_store
 from src.facts.store import FactsStore
 from src.utils.error_handling import create_problem_response, get_error_type
+from src.utils.product_access import check_finsight_access
 from datetime import datetime
 
 logger = structlog.get_logger(__name__)
@@ -54,7 +55,8 @@ async def calculate_metric(
     ttm: bool = Query(False, description="Calculate trailing twelve months"),
     segment: Optional[str] = Query(None, description="Business segment filter"),
     validate: bool = Query(False, description="Cross-check metric across external providers"),
-    request: Request = None
+    request: Request = None,
+    access: dict = Depends(check_finsight_access)
 ):
     """
     Calculate a specific metric for a company

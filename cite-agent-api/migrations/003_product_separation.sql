@@ -51,16 +51,30 @@ SELECT
 FROM api_usage
 GROUP BY api_key_id, EXTRACT(YEAR FROM timestamp), EXTRACT(MONTH FROM timestamp);
 
--- Add constraint to validate key_type values
-ALTER TABLE api_keys
-ADD CONSTRAINT check_key_type CHECK (
-    key_type IN ('cite_agent', 'finsight', 'admin')
-);
+-- Add constraint to validate key_type values (skip if exists)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'check_key_type'
+    ) THEN
+        ALTER TABLE api_keys
+        ADD CONSTRAINT check_key_type CHECK (
+            key_type IN ('cite_agent', 'finsight', 'admin')
+        );
+    END IF;
+END$$;
 
--- Add constraint to validate tier values
-ALTER TABLE api_keys
-ADD CONSTRAINT check_tier CHECK (
-    tier IN ('student', 'cite_pro', 'free', 'starter', 'finsight_pro', 'enterprise', 'admin')
-);
+-- Add constraint to validate tier values (skip if exists)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'check_tier'
+    ) THEN
+        ALTER TABLE api_keys
+        ADD CONSTRAINT check_tier CHECK (
+            tier IN ('student', 'cite_pro', 'free', 'starter', 'finsight_pro', 'enterprise', 'admin')
+        );
+    END IF;
+END$$;
 
 COMMIT;

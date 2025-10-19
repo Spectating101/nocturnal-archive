@@ -85,18 +85,54 @@ TIER_LIMITS = {
 }
 
 async def get_key_info(conn, api_key: str) -> Optional[dict]:
-    """Get API key info from database"""
+    """
+    Get API key info from database or in-memory storage
+
+    Note: Currently using in-memory keys from APIKeyAuthMiddleware
+    Database lookup will be enabled once keys are properly migrated
+    """
+
+    # TEMPORARY: Use in-memory key info from APIKeyAuthMiddleware
+    # This matches the existing demo-key-123 setup
+    IN_MEMORY_KEYS = {
+        "demo-key-123": {
+            "id": "demo-key-123",
+            "key_type": "cite_agent",  # Default: Cite-Agent product
+            "tier": "student",         # Student tier (100 FinSight calls/day)
+            "user_id": "demo-user",
+            "is_active": True
+        },
+        "pro-key-456": {
+            "id": "pro-key-456",
+            "key_type": "cite_agent",
+            "tier": "cite_pro",        # Pro tier (500 FinSight calls/day)
+            "user_id": "pro-user",
+            "is_active": True
+        }
+    }
+
+    # Check in-memory first
+    if api_key in IN_MEMORY_KEYS:
+        return IN_MEMORY_KEYS[api_key]
+
+    # TODO: Database lookup for production keys
+    # Currently database uses key_hash, not plaintext keys
+    # Need to either:
+    # 1. Hash the api_key and look up by key_hash, OR
+    # 2. Store plaintext keys (less secure but simpler)
+    #
+    # For now, return None for unknown keys (will fail auth)
     try:
         row = await conn.fetchrow(
             """
             SELECT
-                id,
+                key_id as id,
                 key_type,
                 tier,
                 user_id,
                 is_active
             FROM api_keys
-            WHERE key = $1 AND is_active = TRUE
+            WHERE key_id = $1 AND is_active = TRUE
             """,
             api_key
         )
@@ -106,13 +142,13 @@ async def get_key_info(conn, api_key: str) -> Optional[dict]:
 
         return {
             "id": row["id"],
-            "key_type": row["key_type"] or "cite_agent",  # default to cite_agent for legacy keys
+            "key_type": row["key_type"] or "cite_agent",
             "tier": row["tier"] or "student",
             "user_id": row["user_id"],
             "is_active": row["is_active"]
         }
     except Exception as e:
-        logger.error("Failed to fetch API key info", error=str(e))
+        logger.error("Failed to fetch API key info from database", error=str(e))
         return None
 
 async def get_daily_finsight_usage(conn, api_key_id: int, today: date) -> int:

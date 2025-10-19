@@ -72,8 +72,16 @@ def fetch_symbol_map() -> pd.DataFrame:
     df["cik"] = df["cik"].astype(int).astype(str).str.zfill(10)
 
     SYMBOL_MAP_PARQUET.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(SYMBOL_MAP_PARQUET, index=False)
-    logger.info("Stored SEC symbol map", rows=len(df), path=str(SYMBOL_MAP_PARQUET))
+
+    # Try parquet first (production), fall back to CSV if pyarrow unavailable (local dev)
+    try:
+        df.to_parquet(SYMBOL_MAP_PARQUET, index=False)
+        logger.info("Stored SEC symbol map (parquet)", rows=len(df), path=str(SYMBOL_MAP_PARQUET))
+    except Exception as e:
+        logger.warning("Parquet failed, falling back to CSV", error=str(e))
+        csv_path = SYMBOL_MAP_PARQUET.with_suffix('.csv')
+        df.to_csv(csv_path, index=False)
+        logger.info("Stored SEC symbol map (CSV)", rows=len(df), path=str(csv_path))
 
     return df
 
@@ -94,10 +102,12 @@ def load_symbol_map(force_refresh: bool = False) -> pd.DataFrame:
 
     need_refresh = force_refresh or _should_refresh_file(SYMBOL_MAP_PARQUET)
 
-    if SYMBOL_MAP_PARQUET.exists() and not need_refresh:
+    # Try loading from parquet first, fall back to CSV, then JSON
+    if not need_refresh:
         try:
-            _SYMBOL_CACHE = pd.read_parquet(SYMBOL_MAP_PARQUET)
-            _CACHE_TIMESTAMP = time.time()
+            if SYMBOL_MAP_PARQUET.exists():
+                _SYMBOL_CACHE = pd.read_parquet(SYMBOL_MAP_PARQUET)
+                _CACHE_TIMESTAMP = time.time()
             return _SYMBOL_CACHE
         except Exception as exc:  # pragma: no cover - parquet read edge cases
             logger.warning("Failed to load cached symbol map", error=str(exc))

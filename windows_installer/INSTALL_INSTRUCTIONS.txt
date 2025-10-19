@@ -1,0 +1,290 @@
+================================================================================
+                    CITE AGENT v1.3.6 - INSTALLATION GUIDE
+================================================================================
+
+Welcome! This guide will walk you through installing Cite Agent on Windows.
+
+================================================================================
+WHAT IS CITE AGENT?
+================================================================================
+
+Cite Agent is an AI-powered research assistant that helps you:
+  • Find academic papers and research data
+  • Analyze financial information (SEC filings, stock data)
+  • Read and understand your code/data files
+  • Execute shell commands safely
+  • Track context across multi-turn conversations
+
+Think of it as "Cursor for research" - it's smart, context-aware, and runs
+entirely in your terminal.
+
+================================================================================
+SYSTEM REQUIREMENTS
+================================================================================
+
+  ✓ Windows 10 or Windows 11 (64-bit)
+  ✓ 200 MB free disk space
+  ✓ Internet connection (for setup and queries)
+  ✓ Academic email address (.edu, .ac.uk, etc.)
+
+You do NOT need:
+  ✗ Python installed
+  ✗ Any programming knowledge
+  ✗ Administrator password (for usage - only for installation)
+
+================================================================================
+INSTALLATION STEPS
+================================================================================
+
+STEP 1: Download
+----------------
+You should have this file:
+  📦 CiteAgent-Setup-v1.3.6.exe
+
+If you don't have it, get it from your course instructor or research advisor.
+
+
+STEP 2: Handle Windows SmartScreen Warning (if unsigned)
+--------------------------------------------------------
+When you double-click the installer, Windows might show:
+
+  ┌─────────────────────────────────────────┐
+  │  Windows protected your PC              │
+  │  Windows Defender SmartScreen           │
+  │  prevented an unrecognized app          │
+  │  from starting.                         │
+  │                                          │
+  │  [More info]  [Don't run]               │
+  └─────────────────────────────────────────┘
+
+This is NORMAL for beta software. Here's why:
+  • Cite Agent is open-source research software
+  • The developer hasn't purchased a $200/year signing certificate (yet)
+  • Windows doesn't recognize the publisher
+
+To continue:
+  1. Click [More info]
+  2. Click [Run anyway]
+
+That's it! You'll only see this warning ONCE.
+
+
+STEP 3: Run the Installer
+--------------------------
+The installer will:
+  • Extract Python 3.13 (no conflicts with your existing Python)
+  • Install Cite Agent v1.3.6
+  • Create a desktop shortcut
+  • Add Start Menu entry
+
+Click through the installation wizard:
+  1. Welcome screen → [Next]
+  2. Choose install location → [Next] (default is fine)
+  3. Select components → [Next] (keep defaults)
+  4. Create desktop icon? → ✓ Yes (recommended)
+  5. Ready to install → [Install]
+  6. Wait 30-60 seconds...
+  7. Finish → ✓ Launch Cite Agent → [Finish]
+
+
+STEP 4: First Launch - Account Setup
+-------------------------------------
+When Cite Agent launches, you'll see a terminal window with:
+
+  👋 Hey there, looks like this machine hasn't been set up yet.
+  Let's get you signed in — this only takes a minute.
+
+  Academic email address: _
+
+Enter your details:
+  1. Email: your.name@university.edu
+  2. Password: (create a password)
+  3. Confirm password: (same password)
+  4. Accept terms: Y
+  5. Acknowledge beta limits: Y
+
+Setup takes ~10 seconds. You'll see:
+
+  ✅ Configuration saved successfully!
+  🎉 You're ready to use Cite Agent!
+
+
+STEP 5: Start Using It!
+------------------------
+Once you see the prompt:
+
+  👤 You: _
+
+Try these queries:
+
+  • "Tesla revenue"           → Gets latest quarterly revenue
+  • "find papers on BERT"     → Searches academic papers
+  • "show me data.csv"        → Reads your CSV file
+  • "where am i?"             → Shows current directory
+  • "help"                    → Shows all commands
+  • "quit"                    → Exits
+
+That's it! You're ready to go.
+
+================================================================================
+DAILY USAGE
+================================================================================
+
+After installation, just:
+
+  1. Double-click the desktop shortcut "Cite Agent"
+     OR
+  2. Search Windows Start Menu for "Cite Agent"
+
+The terminal will open automatically and you can start asking questions.
+
+================================================================================
+AUTO-UPDATES
+================================================================================
+
+Cite Agent checks for updates automatically (once per day).
+
+If an update is available, you'll see:
+
+  🔄 Updating Cite Agent: v1.3.6 → v1.3.7...
+  ✅ Updated to v1.3.7
+  🔄 Restart cite-agent to use the new version
+
+Just close the terminal and reopen Cite Agent. No need to reinstall!
+
+================================================================================
+UNINSTALLATION
+================================================================================
+
+If you need to uninstall:
+
+  1. Open Windows Settings
+  2. Go to Apps → Installed apps
+  3. Find "Cite Agent"
+  4. Click [...] → Uninstall
+  5. Follow the uninstaller
+
+Your configuration and session data is stored separately in:
+  C:\Users\YourName\.nocturnal_archive\
+
+Delete this folder manually if you want to completely remove everything.
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Problem: "Cite Agent won't launch after installation"
+Solution:
+  1. Check if Python is working:
+     Open Command Prompt (Win+R → cmd)
+     Run: "C:\Program Files\CiteAgent\python\python.exe" --version
+     Should show: Python 3.13.1
+
+  2. Try launching manually:
+     cd "C:\Program Files\CiteAgent"
+     CiteAgent.bat
+
+
+Problem: "I get 'Unknown Publisher' warning every time"
+Solution:
+  The installer should only show this warning ONCE. If you see it repeatedly,
+  the installer wasn't fully executed. Try running as administrator:
+    Right-click CiteAgent-Setup-v1.3.6.exe → "Run as administrator"
+
+
+Problem: "Setup asks for email but rejects my university email"
+Solution:
+  Cite Agent requires an academic email (.edu, .ac.uk, .edu.tw, etc.)
+  If your email is rejected:
+    • Double-check spelling
+    • Try your official university email (not personal Gmail/Yahoo)
+    • Contact your course instructor for help
+
+
+Problem: "Queries are slow or fail"
+Solution:
+  1. Check your internet connection
+  2. The backend API might be under heavy load
+  3. Wait 30 seconds and try again
+  4. If persistent, report to: s1133958@mail.yzu.edu.tw
+
+
+Problem: "Antivirus blocks the installer"
+Solution:
+  Some antivirus software (Norton, McAfee) may flag unsigned software.
+
+  Option 1 (Recommended):
+    • Add CiteAgent-Setup-v1.3.6.exe to your antivirus exceptions
+    • Then run the installer
+
+  Option 2:
+    • Temporarily disable antivirus
+    • Run installer
+    • Re-enable antivirus
+    • Add C:\Program Files\CiteAgent\ to exceptions
+
+  The software is open-source and safe. See:
+  https://github.com/yourusername/Cite-Agent
+
+================================================================================
+BETA LIMITATIONS
+================================================================================
+
+You're using beta software. Current limits:
+  • 25 queries per day per user
+  • Complex shell commands are sandboxed
+  • Research API may rate-limit during peak hours
+  • Telemetry is always on (for debugging)
+  • Beta builds auto-update
+
+These limits will be relaxed in the production release.
+
+================================================================================
+GETTING HELP
+================================================================================
+
+If you encounter issues:
+
+  1. Check this guide first (you're reading it!)
+  2. Ask your course instructor or research group
+  3. Email the developer: s1133958@mail.yzu.edu.tw
+  4. Check GitHub issues: https://github.com/yourusername/Cite-Agent/issues
+
+When reporting bugs, include:
+  • Your Windows version (Win+R → winver)
+  • Cite Agent version (type "version" in the agent)
+  • What you typed and what happened
+  • Any error messages (screenshot or copy-paste)
+
+================================================================================
+PRIVACY & DATA
+================================================================================
+
+What Cite Agent stores:
+  • Your email and session token (locally)
+  • Query history (for context tracking)
+  • Telemetry data (usage patterns, errors)
+
+What Cite Agent does NOT store:
+  • Your passwords (hashed server-side)
+  • Your research data or files (stays on your machine)
+  • Personal information beyond email
+
+Data location: C:\Users\YourName\.nocturnal_archive\
+
+You can delete this folder anytime to clear all local data.
+
+================================================================================
+ENJOY!
+================================================================================
+
+You're all set! Cite Agent is ready to help with your research.
+
+Questions? Ask the agent itself:
+  "how do I close you?"
+  "what commands can I use?"
+  "help"
+
+Happy researching! 🎓🔬📚
+
+================================================================================

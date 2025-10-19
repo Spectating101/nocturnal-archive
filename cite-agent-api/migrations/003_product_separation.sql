@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS api_usage (
 CREATE INDEX IF NOT EXISTS idx_api_usage_api_key_id ON api_usage(api_key_id);
 CREATE INDEX IF NOT EXISTS idx_api_usage_timestamp ON api_usage(timestamp);
 CREATE INDEX IF NOT EXISTS idx_api_usage_endpoint ON api_usage(endpoint);
-CREATE INDEX IF NOT EXISTS idx_api_usage_key_date ON api_usage(api_key_id, DATE(timestamp));
+-- Note: Can't create function-based index on DATE(timestamp) without IMMUTABLE function
+-- The views below will handle date-based queries efficiently enough
 
 -- Create view for daily FinSight usage (for Cite-Agent rate limiting)
 CREATE OR REPLACE VIEW daily_finsight_usage AS

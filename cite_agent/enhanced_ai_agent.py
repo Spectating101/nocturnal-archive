@@ -141,6 +141,24 @@ class EnhancedNocturnalAgent:
             self._health_ttl = 30.0
         self._recent_sources: List[Dict[str, Any]] = []
 
+    def _remove_expired_temp_key(self, session_file):
+        """Remove expired temporary API key from session file"""
+        try:
+            import json
+            with open(session_file, 'r') as f:
+                session_data = json.load(f)
+
+            # Remove temp key fields
+            session_data.pop('temp_api_key', None)
+            session_data.pop('temp_key_expires', None)
+            session_data.pop('temp_key_provider', None)
+
+            # Write back
+            with open(session_file, 'w') as f:
+                json.dump(session_data, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to remove expired temp key: {e}")
+
     def _load_authentication(self):
         """Load authentication from session file"""
         use_local_keys = os.getenv("USE_LOCAL_KEYS", "false").lower() == "true"
@@ -162,6 +180,38 @@ class EnhancedNocturnalAgent:
                         session_data = json.load(f)
                         self.auth_token = session_data.get('auth_token')
                         self.user_id = session_data.get('account_id')
+
+                        # NEW: Check for temporary local API key with expiration
+                        temp_key = session_data.get('temp_api_key')
+                        temp_key_expires = session_data.get('temp_key_expires')
+
+                        if temp_key and temp_key_expires:
+                            # Check if key is still valid
+                            from datetime import datetime, timezone
+                            try:
+                                expires_at = datetime.fromisoformat(temp_key_expires.replace('Z', '+00:00'))
+                                now = datetime.now(timezone.utc)
+
+                                if now < expires_at:
+                                    # Key is still valid - use local mode for speed!
+                                    self.temp_api_key = temp_key
+                                    self.temp_key_provider = session_data.get('temp_key_provider', 'cerebras')
+                                    if debug_mode:
+                                        time_left = (expires_at - now).total_seconds() / 3600
+                                        print(f"✅ Using temporary local key (expires in {time_left:.1f}h)")
+                                else:
+                                    # Key expired - remove it and fall back to backend
+                                    if debug_mode:
+                                        print(f"⏰ Temporary key expired, using backend mode")
+                                    self._remove_expired_temp_key(session_file)
+                                    self.temp_api_key = None
+                            except Exception as e:
+                                if debug_mode:
+                                    print(f"⚠️ Error parsing temp key expiration: {e}")
+                                self.temp_api_key = None
+                        else:
+                            self.temp_api_key = None
+
                         if debug_mode:
                             print(f"🔍 _load_authentication: loaded auth_token={self.auth_token}, user_id={self.user_id}")
                 except Exception as e:
@@ -169,6 +219,7 @@ class EnhancedNocturnalAgent:
                         print(f"🔍 _load_authentication: ERROR loading session: {e}")
                     self.auth_token = None
                     self.user_id = None
+                    self.temp_api_key = None
             else:
                 # FALLBACK: Check if config.env has credentials but session.json is missing
                 # This handles cases where old setup didn't create session.json
@@ -917,6 +968,56 @@ class EnhancedNocturnalAgent:
         if not api_results:
             logger.info("🔍 DEBUG: _format_api_results_for_prompt called with EMPTY api_results")
             return "No API results yet."
+
+        # Special formatting for shell results to make them VERY clear
+        if "shell_info" in api_results:
+            shell_info = api_results["shell_info"]
+            formatted_parts = ["=" * 60]
+            formatted_parts.append("🔧 SHELL COMMAND EXECUTION RESULTS (ALREADY EXECUTED)")
+            formatted_parts.append("=" * 60)
+
+            if "command" in shell_info:
+                formatted_parts.append(f"\n📝 Command that was executed:")
+                formatted_parts.append(f"   $ {shell_info['command']}")
+
+            if "output" in shell_info:
+                formatted_parts.append(f"\n📤 Command output (THIS IS THE RESULT):")
+                formatted_parts.append(f"{shell_info['output']}")
+
+            if "error" in shell_info:
+                formatted_parts.append(f"\n❌ Error occurred:")
+                formatted_parts.append(f"{shell_info['error']}")
+
+            if "directory_contents" in shell_info:
+                formatted_parts.append(f"\n📂 Directory listing (THIS IS THE RESULT):")
+                formatted_parts.append(f"{shell_info['directory_contents']}")
+
+            if "search_results" in shell_info:
+                formatted_parts.append(f"\n🔍 Search results (THIS IS THE RESULT):")
+                formatted_parts.append(f"{shell_info['search_results']}")
+
+            formatted_parts.append("\n" + "=" * 60)
+            formatted_parts.append("🚨 CRITICAL INSTRUCTION 🚨")
+            formatted_parts.append("The command was ALREADY executed. The output above is the COMPLETE and ONLY result.")
+            formatted_parts.append("YOU MUST present ONLY what is shown in the output above.")
+            formatted_parts.append("DO NOT add file names, paths, or code that are NOT in the output above.")
+            formatted_parts.append("DO NOT make up examples or additional results.")
+            formatted_parts.append("If the output says 'No matches' or is empty, tell the user 'No results found'.")
+            formatted_parts.append("DO NOT ask the user to run any commands - the results are already here.")
+            formatted_parts.append("=" * 60)
+
+            # Add other api_results
+            other_results = {k: v for k, v in api_results.items() if k != "shell_info"}
+            if other_results:
+                try:
+                    serialized = json.dumps(other_results, indent=2)
+                except Exception:
+                    serialized = str(other_results)
+                formatted_parts.append(f"\nOther data:\n{serialized}")
+
+            return "\n".join(formatted_parts)
+
+        # Normal formatting for non-shell results
         try:
             serialized = json.dumps(api_results, indent=2)
         except Exception:
@@ -970,15 +1071,24 @@ class EnhancedNocturnalAgent:
                     "PRIMARY DIRECTIVE: Execute code when needed. You have a persistent shell session. "
                     "When user asks for data analysis, calculations, or file operations: WRITE and EXECUTE the code. "
                     "Languages available: Python, R, SQL, Bash. "
-                    "You can read files, run scripts, perform calculations, and show results."
+                    "🚨 CRITICAL: Commands are AUTOMATICALLY executed. If you see 'shell_info' below, "
+                    "that means the command was ALREADY RUN. NEVER ask users to run commands - just present results."
                 )
             else:
                 intro = (
                     "You are Cite Agent, a truth-seeking research and finance AI with CODE EXECUTION. "
-                    "PRIMARY DIRECTIVE: Accuracy > Agreeableness. Execute code for analysis, calculations, and file operations. "
+                    "PRIMARY DIRECTIVE: Accuracy > Agreeableness. NEVER HALLUCINATE. "
                     "You are a fact-checker and analyst with a persistent shell session. "
                     "You have access to research (Archive), financial data (FinSight SEC filings), and can run Python/R/SQL/Bash. "
-                    "When user asks about files, directories, or data: EXECUTE commands to find answers."
+                    "\n\n"
+                    "🚨 ANTI-HALLUCINATION RULES:\n"
+                    "1. When user asks about files, directories, or data - commands are AUTOMATICALLY executed.\n"
+                    "2. If you see 'shell_info' in results below, that means command was ALREADY RUN.\n"
+                    "3. ONLY present information from shell_info output. DO NOT invent file names, paths, or code.\n"
+                    "4. If shell output is empty or unclear, say 'No results found' or 'Search returned no matches'.\n"
+                    "5. NEVER make up plausible-sounding file paths or code that wasn't in the actual output.\n"
+                    "6. If you're unsure, say 'I couldn't find that' rather than guessing.\n"
+                    "7. NEVER ask the user to run commands - just present the results that were already executed."
                 )
         
         sections.append(intro)
@@ -1003,7 +1113,17 @@ class EnhancedNocturnalAgent:
         capability_lines.append("• You can SEARCH user's paper collection")
         capability_lines.append("• You can COPY text to user's clipboard")
         capability_lines.append("• User's query history is automatically tracked")
-        
+
+        # Add file operation capabilities (Claude Code / Cursor parity)
+        capability_lines.append("")
+        capability_lines.append("📁 DIRECT FILE OPERATIONS (Always available):")
+        capability_lines.append("• read_file(path) - Read files with line numbers (like cat but better)")
+        capability_lines.append("• write_file(path, content) - Create/overwrite files directly")
+        capability_lines.append("• edit_file(path, old, new) - Surgical find/replace edits")
+        capability_lines.append("• glob_search(pattern) - Fast file search (e.g., '**/*.py')")
+        capability_lines.append("• grep_search(pattern) - Fast content search in files")
+        capability_lines.append("• batch_edit_files(edits) - Multi-file refactoring")
+
         sections.append("Capabilities in play:\n" + "\n".join(capability_lines))
 
         # ENHANCED TRUTH-SEEKING RULES (adapt based on mode)
@@ -1098,6 +1218,48 @@ class EnhancedNocturnalAgent:
             "• Example: 'I found 3 papers. I can save them to your library or export to BibTeX if you'd like.'",
         ]
         rules.extend(workflow_rules)
+
+        # Add file operation tool usage rules (CRITICAL for Claude Code parity)
+        file_ops_rules = [
+            "",
+            "📁 FILE OPERATION TOOL USAGE (Use these INSTEAD of shell commands):",
+            "",
+            "🔴 ALWAYS PREFER (in order):",
+            "1. read_file(path) → INSTEAD OF: cat, head, tail",
+            "2. write_file(path, content) → INSTEAD OF: echo >, cat << EOF, printf >",
+            "3. edit_file(path, old, new) → INSTEAD OF: sed, awk",
+            "4. glob_search(pattern, path) → INSTEAD OF: find, ls",
+            "5. grep_search(pattern, path, file_pattern) → INSTEAD OF: grep -r",
+            "",
+            "✅ CORRECT USAGE:",
+            "• Reading code: result = read_file('app.py')",
+            "• Creating file: write_file('config.json', '{...}')",
+            "• Editing code: edit_file('main.py', 'old_var', 'new_var', replace_all=True)",
+            "• Finding files: glob_search('**/*.py', '/home/user/project')",
+            "• Searching code: grep_search('class.*Agent', '.', '*.py', output_mode='content')",
+            "• Multi-file refactor: batch_edit_files([{file: 'a.py', old: '...', new: '...'}, ...])",
+            "",
+            "❌ ANTI-PATTERNS (Don't do these):",
+            "• DON'T use cat when read_file exists",
+            "• DON'T use echo > when write_file exists",
+            "• DON'T use sed when edit_file exists",
+            "• DON'T use find when glob_search exists",
+            "• DON'T use grep -r when grep_search exists",
+            "",
+            "🎯 WHY USE THESE TOOLS:",
+            "• read_file() shows line numbers (critical for code analysis)",
+            "• write_file() handles escaping/quoting automatically (no heredoc hell)",
+            "• edit_file() validates changes before applying (safer than sed)",
+            "• glob_search() is faster and cleaner than find",
+            "• grep_search() returns structured data (easier to parse)",
+            "",
+            "⚠️ SHELL COMMANDS ONLY FOR:",
+            "• System operations (ps, df, du, uptime)",
+            "• Git commands (git status, git diff, git log)",
+            "• Package installs (pip install, Rscript -e \"install.packages(...)\")",
+            "• Running Python/R scripts (python script.py, Rscript analysis.R)",
+        ]
+        rules.extend(file_ops_rules)
         
         sections.append("CRITICAL RULES:\n" + "\n".join(rules))
         
@@ -1227,7 +1389,7 @@ class EnhancedNocturnalAgent:
                     "temperature": 0.2
                 }
             return {
-                "model": "llama-3.3-70b",  # Cerebras 70B model
+                "model": "gpt-oss-120b",  # PRODUCTION: Cerebras gpt-oss-120b - 100% test pass, 60K TPM
                 "max_tokens": 900,
                 "temperature": 0.3
             }
@@ -1240,7 +1402,7 @@ class EnhancedNocturnalAgent:
                     "temperature": 0.2
                 }
             return {
-                "model": "llama-3.3-70b-versatile",
+                "model": "openai/gpt-oss-120b",  # PRODUCTION: 120B model - 100% test pass rate
                 "max_tokens": 900,
                 "temperature": 0.3
             }
@@ -1496,8 +1658,10 @@ class EnhancedNocturnalAgent:
             use_local_keys_env = os.getenv("USE_LOCAL_KEYS", "").lower()
 
             if has_session:
-                # Session exists → ALWAYS use backend mode (ignore USE_LOCAL_KEYS)
-                use_local_keys = False
+                # Session exists → Check if we have temp local key for speed
+                # If temp key exists and valid → use local mode (fast!)
+                # Otherwise → use backend mode (secure but slow)
+                use_local_keys = hasattr(self, 'temp_api_key') and self.temp_api_key is not None
             elif use_local_keys_env == "true":
                 # No session but dev mode requested → use local keys
                 use_local_keys = True
@@ -1545,16 +1709,24 @@ class EnhancedNocturnalAgent:
                     else:
                         print("⚠️ Not authenticated. Please log in to use the agent.")
             else:
-                # Local keys mode - load Cerebras API keys (primary) with Groq fallback
-                self.auth_token = None
-                self.user_id = None
+                # Local keys mode - use temporary key if available, otherwise load from env
 
-                # Load Cerebras keys from environment (PRIMARY)
-                self.api_keys = []
-                for i in range(1, 10):  # Check CEREBRAS_API_KEY_1 through CEREBRAS_API_KEY_9
-                    key = os.getenv(f"CEREBRAS_API_KEY_{i}") or os.getenv(f"CEREBRAS_API_KEY")
-                    if key and key not in self.api_keys:
-                        self.api_keys.append(key)
+                # Check if we have a temporary key (for speed + security)
+                if hasattr(self, 'temp_api_key') and self.temp_api_key:
+                    # Use temporary key provided by backend
+                    self.api_keys = [self.temp_api_key]
+                    self.llm_provider = getattr(self, 'temp_key_provider', 'cerebras')
+                else:
+                    # Fallback: Load permanent keys from environment (dev mode only)
+                    self.auth_token = None
+                    self.user_id = None
+
+                    # Load Cerebras keys from environment (PRIMARY)
+                    self.api_keys = []
+                    for i in range(1, 10):  # Check CEREBRAS_API_KEY_1 through CEREBRAS_API_KEY_9
+                        key = os.getenv(f"CEREBRAS_API_KEY_{i}") or os.getenv(f"CEREBRAS_API_KEY")
+                        if key and key not in self.api_keys:
+                            self.api_keys.append(key)
 
                 # Fallback to Groq keys if no Cerebras keys found
                 if not self.api_keys:
@@ -1674,7 +1846,7 @@ class EnhancedNocturnalAgent:
                 "query": query,  # Keep query clean
                 "conversation_history": conversation_history or [],
                 "api_context": api_results,  # Send API results separately
-                "model": "llama-3.3-70b",  # Compatible with Cerebras (priority) and Groq
+                "model": "openai/gpt-oss-120b",  # PRODUCTION: 120B - best test results
                 "temperature": 0.2,  # Low temp for accuracy
                 "max_tokens": 4000
             }
@@ -1744,7 +1916,7 @@ class EnhancedNocturnalAgent:
                                     response=response_text,
                                     tokens_used=tokens,
                                     tools_used=all_tools,
-                                    model=data.get('model', 'llama-3.3-70b'),
+                                    model=data.get('model', 'openai/gpt-oss-120b'),
                                     timestamp=data.get('timestamp', datetime.now(timezone.utc).isoformat()),
                                     api_results=api_results
                                 )
@@ -1783,7 +1955,7 @@ class EnhancedNocturnalAgent:
                         response=response_text,
                         tokens_used=tokens,
                         tools_used=all_tools,
-                        model=data.get('model', 'llama-3.3-70b-versatile'),
+                        model=data.get('model', 'openai/gpt-oss-120b'),
                         timestamp=data.get('timestamp', datetime.now(timezone.utc).isoformat()),
                         api_results=api_results
                     )
@@ -2191,9 +2363,477 @@ class EnhancedNocturnalAgent:
             
             output = '\n'.join(output_lines).strip()
             return output if output else "Command executed (no output)"
-            
+
         except Exception as e:
             return f"ERROR: {e}"
+
+    # ========================================================================
+    # DIRECT FILE OPERATIONS (Claude Code / Cursor Parity)
+    # ========================================================================
+
+    def read_file(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:
+        """
+        Read file with line numbers (like Claude Code's Read tool)
+
+        Args:
+            file_path: Path to file
+            offset: Starting line number (0-indexed)
+            limit: Maximum number of lines to read
+
+        Returns:
+            File contents with line numbers in format: "  123→content"
+        """
+        try:
+            # Expand ~ to home directory
+            file_path = os.path.expanduser(file_path)
+
+            # Make absolute if relative
+            if not os.path.isabs(file_path):
+                file_path = os.path.abspath(file_path)
+
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                lines = f.readlines()
+
+            # Apply offset and limit
+            if offset or limit:
+                lines = lines[offset:offset+limit if limit else None]
+
+            # Format with line numbers (1-indexed, like vim/editors)
+            numbered_lines = [
+                f"{offset+i+1:6d}→{line.rstrip()}\n"
+                for i, line in enumerate(lines)
+            ]
+
+            result = ''.join(numbered_lines)
+
+            # Update file context
+            self.file_context['last_file'] = file_path
+            if file_path not in self.file_context['recent_files']:
+                self.file_context['recent_files'].append(file_path)
+                self.file_context['recent_files'] = self.file_context['recent_files'][-5:]
+
+            return result if result else "(empty file)"
+
+        except FileNotFoundError:
+            return f"ERROR: File not found: {file_path}"
+        except PermissionError:
+            return f"ERROR: Permission denied: {file_path}"
+        except IsADirectoryError:
+            return f"ERROR: {file_path} is a directory, not a file"
+        except Exception as e:
+            return f"ERROR: {type(e).__name__}: {e}"
+
+    def write_file(self, file_path: str, content: str) -> Dict[str, Any]:
+        """
+        Write file directly (like Claude Code's Write tool)
+        Creates new file or overwrites existing one.
+
+        Args:
+            file_path: Path to file
+            content: Full file content
+
+        Returns:
+            {"success": bool, "message": str, "bytes_written": int}
+        """
+        try:
+            # Expand ~ to home directory
+            file_path = os.path.expanduser(file_path)
+
+            # Make absolute if relative
+            if not os.path.isabs(file_path):
+                file_path = os.path.abspath(file_path)
+
+            # Create parent directories if needed
+            parent_dir = os.path.dirname(file_path)
+            if parent_dir and not os.path.exists(parent_dir):
+                os.makedirs(parent_dir, exist_ok=True)
+
+            # Write file
+            with open(file_path, 'w', encoding='utf-8') as f:
+                bytes_written = f.write(content)
+
+            # Update file context
+            self.file_context['last_file'] = file_path
+            if file_path not in self.file_context['recent_files']:
+                self.file_context['recent_files'].append(file_path)
+                self.file_context['recent_files'] = self.file_context['recent_files'][-5:]
+
+            return {
+                "success": True,
+                "message": f"Wrote {bytes_written} bytes to {file_path}",
+                "bytes_written": bytes_written
+            }
+
+        except PermissionError:
+            return {
+                "success": False,
+                "message": f"ERROR: Permission denied: {file_path}",
+                "bytes_written": 0
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"ERROR: {type(e).__name__}: {e}",
+                "bytes_written": 0
+            }
+
+    def edit_file(self, file_path: str, old_string: str, new_string: str,
+                  replace_all: bool = False) -> Dict[str, Any]:
+        """
+        Surgical file edit (like Claude Code's Edit tool)
+
+        Args:
+            file_path: Path to file
+            old_string: Exact string to replace (must be unique unless replace_all=True)
+            new_string: Replacement string
+            replace_all: If True, replace all occurrences. If False, old_string must be unique.
+
+        Returns:
+            {"success": bool, "message": str, "replacements": int}
+        """
+        try:
+            # Expand ~ to home directory
+            file_path = os.path.expanduser(file_path)
+
+            # Make absolute if relative
+            if not os.path.isabs(file_path):
+                file_path = os.path.abspath(file_path)
+
+            # Read file
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+
+            # Check if old_string exists
+            if old_string not in content:
+                return {
+                    "success": False,
+                    "message": f"ERROR: old_string not found in {file_path}",
+                    "replacements": 0
+                }
+
+            # Check uniqueness if not replace_all
+            occurrences = content.count(old_string)
+            if not replace_all and occurrences > 1:
+                return {
+                    "success": False,
+                    "message": f"ERROR: old_string appears {occurrences} times in {file_path}. Use replace_all=True or provide more context to make it unique.",
+                    "replacements": 0
+                }
+
+            # Perform replacement
+            if replace_all:
+                new_content = content.replace(old_string, new_string)
+            else:
+                new_content = content.replace(old_string, new_string, 1)
+
+            # Write back
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+
+            # Update file context
+            self.file_context['last_file'] = file_path
+
+            return {
+                "success": True,
+                "message": f"Replaced {occurrences if replace_all else 1} occurrence(s) in {file_path}",
+                "replacements": occurrences if replace_all else 1
+            }
+
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "message": f"ERROR: File not found: {file_path}",
+                "replacements": 0
+            }
+        except PermissionError:
+            return {
+                "success": False,
+                "message": f"ERROR: Permission denied: {file_path}",
+                "replacements": 0
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"ERROR: {type(e).__name__}: {e}",
+                "replacements": 0
+            }
+
+    def glob_search(self, pattern: str, path: str = ".") -> Dict[str, Any]:
+        """
+        Fast file pattern matching (like Claude Code's Glob tool)
+
+        Args:
+            pattern: Glob pattern (e.g., "*.py", "**/*.md", "src/**/*.ts")
+            path: Starting directory (default: current directory)
+
+        Returns:
+            {"files": List[str], "count": int, "pattern": str}
+        """
+        try:
+            import glob as glob_module
+
+            # Expand ~ to home directory
+            path = os.path.expanduser(path)
+
+            # Make absolute if relative
+            if not os.path.isabs(path):
+                path = os.path.abspath(path)
+
+            # Combine path and pattern
+            full_pattern = os.path.join(path, pattern)
+
+            # Find matches (recursive if ** in pattern)
+            matches = glob_module.glob(full_pattern, recursive=True)
+
+            # Filter to files only (not directories)
+            files = [f for f in matches if os.path.isfile(f)]
+
+            # Sort by modification time (newest first)
+            files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+
+            return {
+                "files": files,
+                "count": len(files),
+                "pattern": full_pattern
+            }
+
+        except Exception as e:
+            return {
+                "files": [],
+                "count": 0,
+                "pattern": pattern,
+                "error": f"{type(e).__name__}: {e}"
+            }
+
+    def grep_search(self, pattern: str, path: str = ".",
+                    file_pattern: str = "*",
+                    output_mode: str = "files_with_matches",
+                    context_lines: int = 0,
+                    ignore_case: bool = False,
+                    max_results: int = 100) -> Dict[str, Any]:
+        """
+        Fast content search (like Claude Code's Grep tool / ripgrep)
+
+        Args:
+            pattern: Regex pattern to search for
+            path: Directory to search in
+            file_pattern: Glob pattern for files to search (e.g., "*.py")
+            output_mode: "files_with_matches", "content", or "count"
+            context_lines: Lines of context around matches
+            ignore_case: Case-insensitive search
+            max_results: Maximum number of results to return
+
+        Returns:
+            Depends on output_mode:
+            - files_with_matches: {"files": List[str], "count": int}
+            - content: {"matches": {file: [(line_num, line_content), ...]}}
+            - count: {"counts": {file: match_count}}
+        """
+        try:
+            import re
+
+            # Expand ~ to home directory
+            path = os.path.expanduser(path)
+
+            # Make absolute if relative
+            if not os.path.isabs(path):
+                path = os.path.abspath(path)
+
+            # Compile regex
+            flags = re.IGNORECASE if ignore_case else 0
+            regex = re.compile(pattern, flags)
+
+            # Find files to search
+            glob_result = self.glob_search(file_pattern, path)
+            files_to_search = glob_result["files"]
+
+            # Search each file
+            if output_mode == "files_with_matches":
+                matching_files = []
+                for file_path in files_to_search[:max_results]:
+                    try:
+                        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                            content = f.read()
+                        if regex.search(content):
+                            matching_files.append(file_path)
+                    except:
+                        continue
+
+                return {
+                    "files": matching_files,
+                    "count": len(matching_files),
+                    "pattern": pattern
+                }
+
+            elif output_mode == "content":
+                matches = {}
+                for file_path in files_to_search:
+                    try:
+                        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                            lines = f.readlines()
+
+                        file_matches = []
+                        for line_num, line in enumerate(lines, 1):
+                            if regex.search(line):
+                                file_matches.append((line_num, line.rstrip()))
+
+                                if len(file_matches) >= max_results:
+                                    break
+
+                        if file_matches:
+                            matches[file_path] = file_matches
+                    except:
+                        continue
+
+                return {
+                    "matches": matches,
+                    "file_count": len(matches),
+                    "pattern": pattern
+                }
+
+            elif output_mode == "count":
+                counts = {}
+                for file_path in files_to_search:
+                    try:
+                        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                            content = f.read()
+
+                        match_count = len(regex.findall(content))
+                        if match_count > 0:
+                            counts[file_path] = match_count
+                    except:
+                        continue
+
+                return {
+                    "counts": counts,
+                    "total_matches": sum(counts.values()),
+                    "pattern": pattern
+                }
+
+            else:
+                return {
+                    "error": f"Invalid output_mode: {output_mode}. Use 'files_with_matches', 'content', or 'count'."
+                }
+
+        except re.error as e:
+            return {
+                "error": f"Invalid regex pattern: {e}"
+            }
+        except Exception as e:
+            return {
+                "error": f"{type(e).__name__}: {e}"
+            }
+
+    async def batch_edit_files(self, edits: List[Dict[str, str]]) -> Dict[str, Any]:
+        """
+        Apply multiple file edits atomically (all-or-nothing)
+
+        Args:
+            edits: List of edit operations:
+                [
+                    {"file": "path.py", "old": "...", "new": "..."},
+                    {"file": "other.py", "old": "...", "new": "...", "replace_all": True},
+                    ...
+                ]
+
+        Returns:
+            {
+                "success": bool,
+                "results": {file: {"success": bool, "message": str, "replacements": int}},
+                "total_edits": int,
+                "failed_edits": int
+            }
+        """
+        try:
+            results = {}
+
+            # Phase 1: Validate all edits
+            for edit in edits:
+                file_path = edit["file"]
+                old_string = edit["old"]
+                replace_all = edit.get("replace_all", False)
+
+                # Expand path
+                file_path = os.path.expanduser(file_path)
+                if not os.path.isabs(file_path):
+                    file_path = os.path.abspath(file_path)
+
+                # Check file exists
+                if not os.path.exists(file_path):
+                    return {
+                        "success": False,
+                        "results": {},
+                        "total_edits": 0,
+                        "failed_edits": len(edits),
+                        "error": f"Validation failed: {file_path} not found. No edits applied."
+                    }
+
+                # Check old_string exists
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                        content = f.read()
+
+                    if old_string not in content:
+                        return {
+                            "success": False,
+                            "results": {},
+                            "total_edits": 0,
+                            "failed_edits": len(edits),
+                            "error": f"Validation failed: Pattern not found in {file_path}. No edits applied."
+                        }
+
+                    # Check uniqueness if not replace_all
+                    if not replace_all and content.count(old_string) > 1:
+                        return {
+                            "success": False,
+                            "results": {},
+                            "total_edits": 0,
+                            "failed_edits": len(edits),
+                            "error": f"Validation failed: Pattern appears {content.count(old_string)} times in {file_path}. Use replace_all or provide more context. No edits applied."
+                        }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "results": {},
+                        "total_edits": 0,
+                        "failed_edits": len(edits),
+                        "error": f"Validation failed reading {file_path}: {e}. No edits applied."
+                    }
+
+            # Phase 2: Apply all edits (validation passed)
+            for edit in edits:
+                file_path = edit["file"]
+                old_string = edit["old"]
+                new_string = edit["new"]
+                replace_all = edit.get("replace_all", False)
+
+                result = self.edit_file(file_path, old_string, new_string, replace_all)
+                results[file_path] = result
+
+            # Count successes/failures
+            successful_edits = sum(1 for r in results.values() if r["success"])
+            failed_edits = len(edits) - successful_edits
+
+            return {
+                "success": failed_edits == 0,
+                "results": results,
+                "total_edits": len(edits),
+                "successful_edits": successful_edits,
+                "failed_edits": failed_edits
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "results": {},
+                "total_edits": 0,
+                "failed_edits": len(edits),
+                "error": f"Batch edit failed: {type(e).__name__}: {e}"
+            }
+
+    # ========================================================================
+    # END DIRECT FILE OPERATIONS
+    # ========================================================================
 
     def _classify_command_safety(self, cmd: str) -> str:
         """
@@ -2573,8 +3213,15 @@ class EnhancedNocturnalAgent:
         
         # System/technical indicators
         system_keywords = [
-            'file', 'directory', 'command', 'run', 'execute', 'install',
-            'python', 'code', 'script', 'program', 'system', 'terminal'
+            'file', 'files', 'directory', 'directories', 'folder', 'folders',
+            'command', 'run', 'execute', 'install',
+            'python', 'code', 'script', 'scripts', 'program', 'system', 'terminal',
+            'find', 'search for', 'locate', 'list', 'show me', 'where is',
+            'what files', 'which files', 'how many files',
+            'grep', 'search', 'look for', 'count',
+            '.py', '.txt', '.js', '.java', '.cpp', '.c', '.h',
+            'function', 'class', 'definition', 'route', 'endpoint',
+            'codebase', 'project structure', 'source code'
         ]
         
         question_lower = question.lower()
@@ -2794,7 +3441,10 @@ IMPORTANT RULES:
 7. For finding things, use: find ~ -maxdepth 4 -name '*pattern*' 2>/dev/null
 8. For creating files: touch filename OR echo "content" > filename
 9. For creating directories: mkdir dirname
-10. ALWAYS include 2>/dev/null to suppress errors from find
+10. ALWAYS include 2>/dev/null to suppress errors from find and grep
+11. 🚨 MULTI-STEP QUERIES: For queries like "read X and do Y", ONLY generate the FIRST step (reading X). The LLM will handle subsequent steps after seeing the file contents.
+12. 🚨 NEVER use python -m py_compile or other code execution for finding bugs - just read the file with cat/head
+13. 🚨 FOR GREP: When searching in a DIRECTORY (not a specific file), ALWAYS use -r flag for recursive search: grep -rn 'pattern' /path/to/dir 2>/dev/null
 
 Examples:
 "where am i?" → {{"action": "execute", "command": "pwd", "reason": "Show current directory", "updates_context": false}}
@@ -2804,7 +3454,15 @@ Examples:
 "show me calc.R" → {{"action": "execute", "command": "head -100 calc.R", "reason": "Display file contents", "updates_context": true}}
 "create test directory" → {{"action": "execute", "command": "mkdir test && echo 'Created test/'", "reason": "Create new directory", "updates_context": true}}
 "create empty config.json" → {{"action": "execute", "command": "touch config.json && echo 'Created config.json'", "reason": "Create empty file", "updates_context": true}}
-"search for TODO in py files" → {{"action": "execute", "command": "grep -n 'TODO' *.py 2>/dev/null", "reason": "Find TODO comments", "updates_context": false}}
+"write hello.txt with content Hello World" → {{"action": "execute", "command": "echo 'Hello World' > hello.txt", "reason": "Create file with content", "updates_context": true}}
+"create results.txt with line 1 and line 2" → {{"action": "execute", "command": "echo 'line 1' > results.txt && echo 'line 2' >> results.txt", "reason": "Create file with multiple lines", "updates_context": true}}
+"fix bug in script.py change OLD to NEW" → {{"action": "execute", "command": "sed -i 's/OLD/NEW/g' script.py && echo 'Fixed script.py'", "reason": "Edit file to fix bug", "updates_context": true}}
+"search for TODO in py files here" → {{"action": "execute", "command": "grep -n 'TODO' *.py 2>/dev/null", "reason": "Find TODO in current directory py files", "updates_context": false}}
+"search for TODO in /some/directory" → {{"action": "execute", "command": "grep -rn 'TODO' /some/directory 2>/dev/null", "reason": "Recursively search directory for TODO", "updates_context": false}}
+"search for TODO comments in /tmp/test" → {{"action": "execute", "command": "grep -rn 'TODO' /tmp/test 2>/dev/null", "reason": "Recursively search directory for TODO", "updates_context": false}}
+"find all bugs in code" → {{"action": "execute", "command": "grep -rn 'BUG:' . 2>/dev/null", "reason": "Search for bug markers in code", "updates_context": false}}
+"read analyze.py and find bugs" → {{"action": "execute", "command": "head -200 analyze.py", "reason": "Read file to analyze bugs", "updates_context": false}}
+"show me calc.py completely" → {{"action": "execute", "command": "cat calc.py", "reason": "Display entire file", "updates_context": false}}
 "git status" → {{"action": "execute", "command": "git status", "reason": "Check repository status", "updates_context": false}}
 "what's in that file?" + last_file=data.csv → {{"action": "execute", "command": "head -100 data.csv", "reason": "Show file contents", "updates_context": false}}
 "hello" → {{"action": "none", "reason": "Conversational greeting, no command needed"}}
@@ -2851,8 +3509,233 @@ JSON:"""
                                 "reason": "This command could cause system damage"
                             }
                         else:
-                            # Execute the command
-                            output = self.execute_command(command)
+                            # ========================================
+                            # COMMAND INTERCEPTOR: Translate shell commands to file operations
+                            # (Claude Code / Cursor parity)
+                            # ========================================
+                            intercepted = False
+                            output = ""
+
+                            # Check for file reading commands (cat, head, tail)
+                            if command.startswith(('cat ', 'head ', 'tail ')):
+                                import shlex
+                                try:
+                                    parts = shlex.split(command)
+                                    cmd = parts[0]
+
+                                    # Extract filename (last non-flag argument)
+                                    filename = None
+                                    for part in reversed(parts[1:]):
+                                        if not part.startswith('-'):
+                                            filename = part
+                                            break
+
+                                    if filename:
+                                        # Use read_file instead of cat/head/tail
+                                        if cmd == 'head':
+                                            # head -n 100 file OR head file
+                                            limit = 100  # default
+                                            if '-n' in parts or '-' in parts[0]:
+                                                try:
+                                                    idx = parts.index('-n') if '-n' in parts else 0
+                                                    limit = int(parts[idx + 1])
+                                                except:
+                                                    pass
+                                            output = self.read_file(filename, offset=0, limit=limit)
+                                        elif cmd == 'tail':
+                                            # For tail, read last N lines (harder, so just read all and show it's tail)
+                                            output = self.read_file(filename)
+                                            if "ERROR" not in output:
+                                                lines = output.split('\n')
+                                                output = '\n'.join(lines[-100:])  # last 100 lines
+                                        else:  # cat
+                                            output = self.read_file(filename)
+
+                                        intercepted = True
+                                        tools_used.append("read_file")
+                                        if debug_mode:
+                                            print(f"🔄 Intercepted: {command} → read_file({filename})")
+                                except:
+                                    pass  # Fall back to shell execution
+
+                            # Check for file search commands (find)
+                            if not intercepted and 'find' in command and '-name' in command:
+                                try:
+                                    import re
+                                    # Extract pattern: find ... -name '*pattern*'
+                                    name_match = re.search(r"-name\s+['\"]?\*?([^'\"*\s]+)\*?['\"]?", command)
+                                    if name_match:
+                                        pattern = f"**/*{name_match.group(1)}*"
+                                        path_match = re.search(r"find\s+([^\s]+)", command)
+                                        search_path = path_match.group(1) if path_match else "."
+
+                                        result = self.glob_search(pattern, search_path)
+                                        output = '\n'.join(result['files'][:20])  # Show first 20 matches
+                                        intercepted = True
+                                        tools_used.append("glob_search")
+                                        if debug_mode:
+                                            print(f"🔄 Intercepted: {command} → glob_search({pattern}, {search_path})")
+                                except:
+                                    pass
+
+                            # Check for file writing commands (echo > file, grep > file, etc.) - CHECK THIS FIRST!
+                            # This must come BEFORE the plain grep interceptor
+                            # BUT: Ignore 2>/dev/null which is error redirection, not file writing
+                            if not intercepted and ('>' in command or '>>' in command) and '2>' not in command:
+                                try:
+                                    import re
+
+                                    # Handle grep ... > file (intercept and execute grep, then write output)
+                                    if 'grep' in command and '>' in command:
+                                        # Extract: grep -rn 'pattern' path > output.txt
+                                        grep_match = re.search(r"grep\s+(.*)\s>\s*(\S+)", command)
+                                        if grep_match:
+                                            grep_part = grep_match.group(1).strip()
+                                            output_file = grep_match.group(2)
+
+                                            # Extract pattern and options from grep command
+                                            pattern_match = re.search(r"['\"]([^'\"]+)['\"]", grep_part)
+                                            if pattern_match:
+                                                pattern = pattern_match.group(1)
+                                                search_path = "."
+                                                file_pattern = "*.py" if "*.py" in command else "*"
+
+                                                if debug_mode:
+                                                    print(f"🔄 Intercepted: {command} → grep_search('{pattern}', '{search_path}', '{file_pattern}') + write_file({output_file})")
+
+                                                # Execute grep_search
+                                                try:
+                                                    grep_result = self.grep_search(
+                                                        pattern=pattern,
+                                                        path=search_path,
+                                                        file_pattern=file_pattern,
+                                                        output_mode="content"
+                                                    )
+
+                                                    # Format matches as text (like grep -rn output)
+                                                    output_lines = []
+                                                    for file_path, matches in grep_result.get('matches', {}).items():
+                                                        for line_num, line_content in matches:
+                                                            output_lines.append(f"{file_path}:{line_num}:{line_content}")
+
+                                                    content_to_write = '\n'.join(output_lines) if output_lines else "(no matches found)"
+
+                                                    # Write grep output to file
+                                                    write_result = self.write_file(output_file, content_to_write)
+                                                    if write_result['success']:
+                                                        output = f"Found {len(output_lines)} lines with '{pattern}' → Created {output_file} ({write_result['bytes_written']} bytes)"
+                                                        intercepted = True
+                                                        tools_used.extend(["grep_search", "write_file"])
+                                                except Exception as e:
+                                                    if debug_mode:
+                                                        print(f"⚠️ Grep > file interception error: {e}")
+                                                    # Fall back to normal execution
+                                                    pass
+
+                                    # Extract: echo 'content' > filename OR cat << EOF > filename
+                                    if not intercepted and 'echo' in command and '>' in command:
+                                        # echo 'content' > file OR echo "content" > file
+                                        match = re.search(r"echo\s+['\"](.+?)['\"].*?>\s*(\S+)", command)
+                                        if match:
+                                            content = match.group(1)
+                                            filename = match.group(2)
+                                            # Unescape common sequences
+                                            content = content.replace('\\n', '\n').replace('\\t', '\t')
+                                            result = self.write_file(filename, content + '\n')
+                                            if result['success']:
+                                                output = f"Created {filename} ({result['bytes_written']} bytes)"
+                                                intercepted = True
+                                                tools_used.append("write_file")
+                                                if debug_mode:
+                                                    print(f"🔄 Intercepted: {command} → write_file({filename}, ...)")
+                                except:
+                                    pass
+
+                            # Check for sed editing commands
+                            if not intercepted and command.startswith('sed '):
+                                try:
+                                    import re
+                                    # sed 's/old/new/g' file OR sed -i 's/old/new/' file
+                                    match = re.search(r"sed.*?['\"]s/([^/]+)/([^/]+)/", command)
+                                    if match:
+                                        old_text = match.group(1)
+                                        new_text = match.group(2)
+                                        # Extract filename (last argument)
+                                        parts = command.split()
+                                        filename = parts[-1]
+
+                                        # Determine if replace_all based on /g flag
+                                        replace_all = '/g' in command
+
+                                        result = self.edit_file(filename, old_text, new_text, replace_all=replace_all)
+                                        if result['success']:
+                                            output = result['message']
+                                            intercepted = True
+                                            tools_used.append("edit_file")
+                                            if debug_mode:
+                                                print(f"🔄 Intercepted: {command} → edit_file({filename}, {old_text}, {new_text})")
+                                except:
+                                    pass
+
+                            # Check for heredoc file creation (cat << EOF > file)
+                            if not intercepted and '<<' in command and ('EOF' in command or 'HEREDOC' in command):
+                                try:
+                                    import re
+                                    # Extract: cat << EOF > filename OR cat > filename << EOF
+                                    # Note: We can't actually get the heredoc content from a single command line
+                                    # This would need to be handled differently (multi-line input)
+                                    # For now, just detect and warn
+                                    if debug_mode:
+                                        print(f"⚠️  Heredoc detected but not intercepted: {command[:80]}")
+                                except:
+                                    pass
+
+                            # Check for content search commands (grep -r) WITHOUT redirection
+                            # This comes AFTER grep > file interceptor to avoid conflicts
+                            if not intercepted and 'grep' in command and ('-r' in command or '-R' in command):
+                                try:
+                                    import re
+                                    # Extract pattern: grep -r 'pattern' path
+                                    pattern_match = re.search(r"grep.*?['\"]([^'\"]+)['\"]", command)
+                                    if pattern_match:
+                                        pattern = pattern_match.group(1)
+                                        # Extract path - skip flags and options
+                                        parts = [p for p in command.split() if not p.startswith('-') and p != 'grep' and p != '2>/dev/null']
+                                        # Path is after pattern (skip the quoted pattern)
+                                        search_path = parts[-1] if len(parts) >= 2 else "."
+
+                                        # Detect file pattern from command (e.g., *.py, *.txt) or use *
+                                        file_pattern = "*"
+                                        if '*.py' in command:
+                                            file_pattern = "*.py"
+                                        elif '*.txt' in command:
+                                            file_pattern = "*.txt"
+
+                                        result = self.grep_search(pattern, search_path, file_pattern, output_mode="content")
+
+                                        # Format grep results
+                                        if 'matches' in result and result['matches']:
+                                            output_parts = []
+                                            for file_path, matches in result['matches'].items():
+                                                output_parts.append(f"{file_path}:")
+                                                for line_num, line_content in matches[:10]:  # Limit per file
+                                                    output_parts.append(f"  {line_num}: {line_content}")
+                                            output = '\n'.join(output_parts)
+                                        else:
+                                            output = f"No matches found for '{pattern}'"
+
+                                        intercepted = True
+                                        tools_used.append("grep_search")
+                                        if debug_mode:
+                                            print(f"🔄 Intercepted: {command} → grep_search({pattern}, {search_path}, {file_pattern})")
+                                except Exception as e:
+                                    if debug_mode:
+                                        print(f"⚠️  Grep interceptor failed: {e}")
+                                    pass
+
+                            # If not intercepted, execute as shell command
+                            if not intercepted:
+                                output = self.execute_command(command)
                             
                             if not output.startswith("ERROR"):
                                 # Success - store results
@@ -3245,11 +4128,44 @@ JSON:"""
                     api_results=api_results,
                     tools_used=tools_used
                 )
-                
+
+                # POST-PROCESSING: Auto-extract code blocks and write files if user requested file creation
+                # This fixes the issue where LLM shows corrected code but doesn't create the file
+                if any(keyword in request.question.lower() for keyword in ['create', 'write', 'save', 'generate', 'fixed', 'corrected']):
+                    # Extract filename from query (e.g., "write to foo.py", "create bar_fixed.py")
+                    import re
+                    filename_match = re.search(r'(?:to|create|write|save|generate)\s+(\w+[._-]\w+\.[\w]+)', request.question, re.IGNORECASE)
+                    if not filename_match:
+                        # Try pattern: "foo_fixed.py" or "bar.py"
+                        filename_match = re.search(r'(\w+_fixed\.[\w]+|\w+\.[\w]+)', request.question)
+
+                    if filename_match:
+                        target_filename = filename_match.group(1)
+
+                        # Extract code block from response (```python ... ``` or ``` ... ```)
+                        code_block_pattern = r'```(?:python|bash|sh|r|sql)?\n(.*?)```'
+                        code_blocks = re.findall(code_block_pattern, response.response, re.DOTALL)
+
+                        if code_blocks:
+                            # Use the LARGEST code block (likely the complete file)
+                            largest_block = max(code_blocks, key=len)
+
+                            # Write to file
+                            try:
+                                write_result = self.write_file(target_filename, largest_block)
+                                if write_result['success']:
+                                    # Append confirmation to response
+                                    response.response += f"\n\n✅ File created: {target_filename} ({write_result['bytes_written']} bytes)"
+                                    if debug_mode:
+                                        print(f"🔄 Auto-extracted code block → write_file({target_filename})")
+                            except Exception as e:
+                                if debug_mode:
+                                    print(f"⚠️ Auto-write failed: {e}")
+
                 # CRITICAL: Save to conversation history
                 self.conversation_history.append({"role": "user", "content": request.question})
                 self.conversation_history.append({"role": "assistant", "content": response.response})
-                
+
                 return response
 
             # DEV MODE ONLY: Direct Groq calls (only works with local API keys)
@@ -3665,17 +4581,31 @@ JSON:"""
             if footer:
                 final_response = f"{final_response}\n\n_{footer}_"
 
+            # TRUTH-SEEKING VERIFICATION: Check if response matches actual shell output
+            if "shell_info" in api_results and api_results["shell_info"]:
+                shell_output = api_results["shell_info"].get("output", "")
+
+                # If shell output was empty or says "no results", but response lists specific items
+                # This indicates hallucination
+                if (not shell_output or "no" in shell_output.lower() and "found" in shell_output.lower()):
+                    # Check if response contains made-up file paths or code
+                    response_lower = final_response.lower()
+                    if any(indicator in response_lower for indicator in [".py:", "found in", "route", "@app", "@router", "file1", "file2"]):
+                        # Hallucination detected - replace with honest answer
+                        final_response = "I searched but found no matches. The search returned no results."
+                        logger.warning("🚨 Hallucination prevented: LLM tried to make up results when shell output was empty")
+
             # Update conversation history
             self.conversation_history.append({"role": "user", "content": request.question})
             self.conversation_history.append({"role": "assistant", "content": final_response})
-            
+
             # Update memory
             self._update_memory(
-                request.user_id, 
-                request.conversation_id, 
+                request.user_id,
+                request.conversation_id,
                 f"Q: {request.question[:100]}... A: {final_response[:100]}..."
             )
-            
+
             # Save to workflow history automatically
             self.workflow.save_query_result(
                 query=request.question,

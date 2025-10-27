@@ -1,0 +1,93 @@
+========================================
+ CITE-AGENT QUICK START GUIDE
+========================================
+
+STEP 1: INSTALL
+---------------
+Run install.bat as administrator
+
+STEP 2: LOGIN (First Time Only)
+-------------------------------
+Open Command Prompt and run:
+  python -m cite_agent.cli login
+
+NOTE: If "cite-agent" command doesn't work on Windows,
+always use "python -m cite_agent.cli" instead.
+
+Enter your email to create a free account.
+(Demo mode works without login, but with rate limits)
+
+STEP 3: TRY IT OUT
+------------------
+Research Papers:
+  python -m cite_agent.cli "Find papers on deep learning attention mechanisms"
+
+Financial Data:
+  python -m cite_agent.cli "Show me Amazon's latest quarterly revenue"
+
+Data Analysis:
+  python -m cite_agent.cli "Analyze sales_data.csv and show summary stats"
+
+Code Analysis:
+  python -m cite_agent.cli "Read script.py and find all TODO comments"
+
+STEP 4: COMMON WORKFLOWS
+------------------------
+
+1. RESEARCH WORKFLOW
+   python -m cite_agent.cli "Find papers on causal inference in economics"
+   python -m cite_agent.cli "Save the first 3 papers to my library"
+   python -m cite_agent.cli "Export citations in BibTeX format"
+
+2. DATA ANALYSIS WORKFLOW
+   python -m cite_agent.cli "Read data.csv completely"
+   python -m cite_agent.cli "Calculate mean, median, std for sales column"
+   python -m cite_agent.cli "Create a plot showing trends over time"
+
+3. CODE DEBUGGING WORKFLOW
+   python -m cite_agent.cli "Show me analyze.py with line numbers"
+   python -m cite_agent.cli "Find all bugs marked with # BUG:"
+   python -m cite_agent.cli "Create analyze_fixed.py with corrections"
+
+4. FINANCIAL ANALYSIS WORKFLOW
+   python -m cite_agent.cli "Get Tesla's revenue for 2021-2023"
+   python -m cite_agent.cli "Compare with Ford's revenue"
+   python -m cite_agent.cli "Calculate year-over-year growth rates"
+
+TIPS:
+-----
+✓ Be specific: "Find papers on X from 2020-2024"
+✓ Multi-step: "Read file.py, find bugs, create fixed version"
+✓ Save results: "Search for TODO in all files, write to report.txt"
+✓ Use natural language: Just ask what you want!
+
+FEATURES YOU SHOULD KNOW:
+-------------------------
+✓ Auto-installs R/Python packages when needed
+✓ Saves papers to ~/Cite_Agent_Library/
+✓ Exports citations automatically
+✓ Works offline for local file operations
+✓ Free tier: 25 queries/day
+✓ Handles large files (paginated reading)
+✓ Multi-file refactoring support
+
+EXAMPLE SESSION:
+---------------
+> python -m cite_agent.cli "Find papers on BERT from 2019"
+  [Shows 3 papers with titles, authors, abstracts]
+
+> python -m cite_agent.cli "Save the first paper to my library"
+  [Saves to ~/Cite_Agent_Library/]
+
+> python -m cite_agent.cli "Export that citation in APA format"
+  [Generates formatted citation]
+
+> python -m cite_agent.cli "What's the main contribution of this paper?"
+  [Analyzes and summarizes key findings]
+
+HELP:
+-----
+python -m cite_agent.cli --help
+python -m cite_agent.cli --version
+
+For full documentation: README.txt

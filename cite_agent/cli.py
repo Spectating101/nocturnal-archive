@@ -309,20 +309,45 @@ class NocturnalCLI:
                 try:
                     from rich.spinner import Spinner
                     from rich.live import Live
-                    
-                    # Show loading indicator while processing
-                    with Live(Spinner("dots", text="[dim]Thinking...[/dim]"), console=self.console, transient=True):
+
+                    # Show detailed progress indicator
+                    spinner = Spinner("dots", text="[dim]Processing query...[/dim]")
+                    live = Live(spinner, console=self.console, transient=True)
+                    live.start()
+
+                    try:
                         request = ChatRequest(
                             question=user_input,
                             user_id="cli_user",
                             conversation_id=self.session_id
                         )
-                        
-                        response = await self.agent.process_request(request)
 
-                    # Print response with proper formatting
+                        # Update spinner based on query type
+                        if any(kw in user_input.lower() for kw in ['read', 'show', 'file', 'cat']):
+                            spinner.update(text="[cyan]📄 Reading file...[/cyan]")
+                        elif any(kw in user_input.lower() for kw in ['list', 'ls', 'find', 'search']):
+                            spinner.update(text="[cyan]🔍 Searching files...[/cyan]")
+                        elif any(kw in user_input.lower() for kw in ['python', 'calculate', 'run', 'execute']):
+                            spinner.update(text="[cyan]⚙️  Executing code...[/cyan]")
+                        elif any(kw in user_input.lower() for kw in ['research', 'paper', 'find', 'archive']):
+                            spinner.update(text="[cyan]🔬 Searching research database...[/cyan]")
+                        else:
+                            spinner.update(text="[cyan]🤖 Thinking...[/cyan]")
+
+                        response = await self.agent.process_request(request)
+                    finally:
+                        live.stop()
+
+                    # Print response with typing effect for natural feel
                     self.console.print("[bold violet]🤖 Agent[/]: ", end="", highlight=False)
-                    self.console.print(response.response)
+                    
+                    # Character-by-character streaming (like ChatGPT) - faster for long responses
+                    import time
+                    for char in response.response:
+                        self.console.print(char, end="", style="white")
+                        time.sleep(0.003)  # 3ms per character (~333 chars/sec) - faster than before
+                    
+                    self.console.print()  # Newline after response
 
                     # Save to history automatically
                     self.workflow.save_query_result(

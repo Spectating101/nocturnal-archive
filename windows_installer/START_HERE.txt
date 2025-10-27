@@ -1,0 +1,137 @@
+╔════════════════════════════════════════════════════════════╗
+║                                                            ║
+║   CITE-AGENT - AI 學術研究助手                              ║
+║   AI RESEARCH ASSISTANT FOR WINDOWS                        ║
+║   Version 1.3.8 (Installer v2.0 GUI)                       ║
+║                                                            ║
+╚════════════════════════════════════════════════════════════╝
+
+👋 歡迎！WELCOME!
+
+感謝您下載 Cite-Agent！這是最簡單的安裝過程。
+Thank you for downloading Cite-Agent! This is the easiest
+installation you'll ever do.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 步驟 1: 安裝 (2分鐘) / STEP 1: INSTALL (2 MINUTES)
+
+1. 右鍵點擊 "INSTALL.bat" / Right-click "INSTALL.bat"
+2. 選擇 "以管理員身份運行" / Select "Run as administrator"
+3. 安裝程序會自動開始 / Installation starts automatically
+4. 等待安裝完成！ / Wait for installation to complete!
+
+安裝程式會自動完成所有操作：
+The installer does everything automatically:
+  ✓ 安裝 Python (如果沒有的話) / Installs Python (if needed)
+  ✓ 安裝 Cite-Agent / Installs Cite-Agent
+  ✓ 添加到系統路徑 / Adds to PATH
+  ✓ 創建桌面圖標 / Creates desktop icon
+  ✓ 創建開始菜單項 / Creates Start Menu entry
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 步驟 2: 啟動 / STEP 2: LAUNCH
+
+選擇任一方式 / Choose ANY method:
+
+  方式 1 / METHOD 1:
+    雙擊桌面上的 "Cite-Agent" 圖標
+    Double-click "Cite-Agent" on Desktop
+    (最簡單！推薦！/ Easiest - recommended!)
+
+  方式 2 / METHOD 2:
+    開始菜單 → 搜索 "Cite-Agent"
+    Start Menu → Search "Cite-Agent"
+
+  方式 3 / METHOD 3:
+    打開任何終端，輸入: cite-agent
+    Open any terminal, type: cite-agent
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔐 步驟 3: 首次登入 / STEP 3: FIRST TIME LOGIN
+
+首次啟動時，會看到登入界面。
+When you first launch, you'll see a login screen.
+
+輸入您的學術郵箱：
+Enter your academic email:
+  範例 / Example: john.smith@stanford.edu
+  範例 / Example: student@mail.yzu.edu.tw
+
+創建密碼，完成！
+Create a password, and you're done!
+
+(也可使用演示模式，無需登入)
+(Demo mode available without login if preferred)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 給 R STUDIO / STATA 用戶 / FOR R STUDIO / STATA USERS
+
+完美整合到您的工作流程！
+Perfect integration with your workflow!
+
+1. 打開 R Studio 或 Stata / Open R Studio or Stata
+2. 找到終端窗格 (通常在底部) / Find Terminal pane (usually at bottom)
+3. 輸入: cite-agent / Type: cite-agent
+4. 按回車 / Press Enter
+
+現在您的數據分析環境中就有了 AI 研究助手！
+Now you have an AI research assistant right inside
+your data analysis environment!
+
+重要: 如果 R Studio 在安裝時已經打開，請關閉並重新打開。
+IMPORTANT: If R Studio was open during install, close and reopen it.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✨ WHAT CAN CITE-AGENT DO?
+
+📚 Academic Research
+  • Search 200M+ research papers
+  • Get citations in any format (BibTeX, APA, etc.)
+  • Build your personal library
+
+💰 Financial Data
+  • Real-time stock data
+  • SEC filings
+  • Company metrics
+
+🤖 Smart Assistant
+  • Answer research questions
+  • Explain complex topics
+  • Multi-language support
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+❓ NEED HELP?
+
+Read "README.txt" for full documentation
+Read "QUICKSTART.txt" for usage examples
+
+Questions? Issues?
+GitHub: https://github.com/your-repo/Cite-Agent/issues
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 TROUBLESHOOTING
+
+If installer fails:
+  1. Check internet connection
+  2. Make sure you ran as administrator
+  3. Try again - close all terminals first
+
+If cite-agent command not found after install:
+  1. Restart your terminal/R Studio
+  2. Or restart computer (PATH updates need restart)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ready to get started?
+
+👉 Right-click "INSTALL_CITE_AGENT.bat" → Run as administrator
+
+See you on the other side! 🚀

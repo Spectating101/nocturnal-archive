@@ -62,6 +62,9 @@ class AuthResponse(BaseModel):
     token_type: str = "bearer"
     expires_at: str
     daily_token_limit: int = 25000
+    temp_api_key: Optional[str] = None
+    temp_key_expires: Optional[str] = None
+    temp_key_provider: Optional[str] = None
 
 class RefreshRequest(BaseModel):
     refresh_token: str
@@ -234,13 +237,20 @@ async def login(request: LoginRequest):
         )
         
         logger.info("User logged in", user_id=user['user_id'], email=user['email'])
-        
+
+        # Generate temporary API key (2 weeks)
+        temp_key = os.getenv("CEREBRAS_API_KEY")  # Use shared key for now
+        temp_key_expires = datetime.now(timezone.utc) + timedelta(days=14)
+
         return AuthResponse(
             user_id=user['user_id'],
             email=user['email'],
             access_token=access_token,
             expires_at=expires_at.isoformat(),
-            daily_token_limit=25000
+            daily_token_limit=25000,
+            temp_api_key=temp_key,
+            temp_key_expires=temp_key_expires.isoformat(),
+            temp_key_provider="cerebras"
         )
         
     finally:

@@ -238,14 +238,25 @@ async def login(request: LoginRequest):
         
         logger.info("User logged in", user_id=user['user_id'], email=user['email'])
 
-        # Generate temporary API key (2 weeks)
-        temp_key = (
-            os.getenv("CEREBRAS_API_KEY") or
-            os.getenv("CEREBRAS_API_KEY_1") or
-            os.getenv("CEREBRAS_API_KEY_2") or
-            os.getenv("CEREBRAS_API_KEY_3")
-        )
+        # Generate temporary API key (2 weeks) with round-robin load balancing
+        # Rotate keys to distribute load evenly
+        import hashlib
+        user_hash = int(hashlib.md5(user['user_id'].encode()).hexdigest(), 16)
+        key_index = (user_hash % 3) + 1  # 1, 2, or 3
+
+        temp_key = os.getenv(f"CEREBRAS_API_KEY_{key_index}")
+        if not temp_key:
+            # Fallback to any available key
+            temp_key = (
+                os.getenv("CEREBRAS_API_KEY_1") or
+                os.getenv("CEREBRAS_API_KEY_2") or
+                os.getenv("CEREBRAS_API_KEY_3") or
+                os.getenv("CEREBRAS_API_KEY")
+            )
+
         temp_key_expires = datetime.now(timezone.utc) + timedelta(days=14)
+
+        logger.info("Assigned temp key", user_id=user['user_id'], key_index=key_index if temp_key else "fallback")
 
         return AuthResponse(
             user_id=user['user_id'],

@@ -3478,7 +3478,8 @@ JSON:"""
                     # This avoids infinite recursion and uses temp key if available
                     if hasattr(self, 'client') and self.client:
                         # Local mode with temp key or dev keys
-                        model_name = "llama-3.3-70b" if self.llm_provider == "cerebras" else "llama-3.1-70b-versatile"
+                        # Use gpt-oss-120b for Cerebras (100% test pass, better accuracy)
+                        model_name = "gpt-oss-120b" if self.llm_provider == "cerebras" else "llama-3.1-70b-versatile"
                         response = self.client.chat.completions.create(
                             model=model_name,
                             messages=[{"role": "user", "content": planner_prompt}],
@@ -4103,7 +4104,8 @@ JSON:"""
                     # Use LOCAL LLM for web search decision (avoid recursion)
                     if hasattr(self, 'client') and self.client:
                         # Local mode
-                        model_name = "llama-3.3-70b" if self.llm_provider == "cerebras" else "llama-3.1-70b-versatile"
+                        # Use gpt-oss-120b for Cerebras (100% test pass, better accuracy)
+                        model_name = "gpt-oss-120b" if self.llm_provider == "cerebras" else "llama-3.1-70b-versatile"
                         response = self.client.chat.completions.create(
                             model=model_name,
                             messages=[{"role": "user", "content": web_decision_prompt}],

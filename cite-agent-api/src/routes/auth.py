@@ -239,7 +239,12 @@ async def login(request: LoginRequest):
         logger.info("User logged in", user_id=user['user_id'], email=user['email'])
 
         # Generate temporary API key (2 weeks)
-        temp_key = os.getenv("CEREBRAS_API_KEY")  # Use shared key for now
+        temp_key = (
+            os.getenv("CEREBRAS_API_KEY") or
+            os.getenv("CEREBRAS_API_KEY_1") or
+            os.getenv("CEREBRAS_API_KEY_2") or
+            os.getenv("CEREBRAS_API_KEY_3")
+        )
         temp_key_expires = datetime.now(timezone.utc) + timedelta(days=14)
 
         return AuthResponse(

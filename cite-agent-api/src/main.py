@@ -237,6 +237,7 @@ _routers = {
         "finance_status",
         "admin",
         "admin_stats",
+        "admin_revoke",
         "jobs",
         "ops",
         "quota",

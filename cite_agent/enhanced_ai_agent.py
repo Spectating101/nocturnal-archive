@@ -2630,7 +2630,7 @@ class EnhancedNocturnalAgent:
             - count: {"counts": {file: match_count}}
         """
         try:
-            import re
+            # import re removed - using module-level import
 
             # Expand ~ to home directory
             path = os.path.expanduser(path)
@@ -3339,7 +3339,7 @@ class EnhancedNocturnalAgent:
         question_lower = question.lower()
         
         # Pattern 1: Multiple years without SPECIFIC topic (e.g., "2008, 2015, 2019")
-        import re
+        # import re removed - using module-level import
         years_pattern = r'\b(19\d{2}|20\d{2})\b'
         years = re.findall(years_pattern, question)
         if len(years) >= 2:
@@ -3474,12 +3474,27 @@ Examples:
 JSON:"""
 
                 try:
-                    plan_response = await self.call_backend_query(
-                        query=planner_prompt,
-                        conversation_history=[],
-                        api_results={},
-                        tools_used=[]
-                    )
+                    # Use LOCAL LLM for planning (don't recurse into call_backend_query)
+                    # This avoids infinite recursion and uses temp key if available
+                    if hasattr(self, 'client') and self.client:
+                        # Local mode with temp key or dev keys
+                        model_name = "llama-3.3-70b" if self.llm_provider == "cerebras" else "llama-3.1-70b-versatile"
+                        response = self.client.chat.completions.create(
+                            model=model_name,
+                            messages=[{"role": "user", "content": planner_prompt}],
+                            max_tokens=500,
+                            temperature=0.3
+                        )
+                        plan_text = response.choices[0].message.content.strip()
+                        plan_response = ChatResponse(response=plan_text)
+                    else:
+                        # Backend mode - make a simplified backend call
+                        plan_response = await self.call_backend_query(
+                            query=planner_prompt,
+                            conversation_history=[],
+                            api_results={},
+                            tools_used=[]
+                        )
                     
                     plan_text = plan_response.response.strip()
                     if '```' in plan_text:
@@ -3561,7 +3576,7 @@ JSON:"""
                             # Check for file search commands (find)
                             if not intercepted and 'find' in command and '-name' in command:
                                 try:
-                                    import re
+                                    # import re removed - using module-level import
                                     # Extract pattern: find ... -name '*pattern*'
                                     name_match = re.search(r"-name\s+['\"]?\*?([^'\"*\s]+)\*?['\"]?", command)
                                     if name_match:
@@ -3583,7 +3598,7 @@ JSON:"""
                             # BUT: Ignore 2>/dev/null which is error redirection, not file writing
                             if not intercepted and ('>' in command or '>>' in command) and '2>' not in command:
                                 try:
-                                    import re
+                                    # import re removed - using module-level import
 
                                     # Handle grep ... > file (intercept and execute grep, then write output)
                                     if 'grep' in command and '>' in command:
@@ -3654,7 +3669,7 @@ JSON:"""
                             # Check for sed editing commands
                             if not intercepted and command.startswith('sed '):
                                 try:
-                                    import re
+                                    # import re removed - using module-level import
                                     # sed 's/old/new/g' file OR sed -i 's/old/new/' file
                                     match = re.search(r"sed.*?['\"]s/([^/]+)/([^/]+)/", command)
                                     if match:
@@ -3680,7 +3695,7 @@ JSON:"""
                             # Check for heredoc file creation (cat << EOF > file)
                             if not intercepted and '<<' in command and ('EOF' in command or 'HEREDOC' in command):
                                 try:
-                                    import re
+                                    # import re removed - using module-level import
                                     # Extract: cat << EOF > filename OR cat > filename << EOF
                                     # Note: We can't actually get the heredoc content from a single command line
                                     # This would need to be handled differently (multi-line input)
@@ -3694,7 +3709,7 @@ JSON:"""
                             # This comes AFTER grep > file interceptor to avoid conflicts
                             if not intercepted and 'grep' in command and ('-r' in command or '-R' in command):
                                 try:
-                                    import re
+                                    # import re removed - using module-level import
                                     # Extract pattern: grep -r 'pattern' path
                                     pattern_match = re.search(r"grep.*?['\"]([^'\"]+)['\"]", command)
                                     if pattern_match:
@@ -3749,7 +3764,7 @@ JSON:"""
                                 
                                 # Update file context if needed
                                 if updates_context:
-                                    import re
+                                    # import re removed - using module-level import
                                     # Extract file paths from command
                                     file_patterns = r'([a-zA-Z0-9_\-./]+\.(py|r|csv|txt|json|md|ipynb|rmd))'
                                     files_mentioned = re.findall(file_patterns, command, re.IGNORECASE)
@@ -3847,7 +3862,7 @@ JSON:"""
                     
                     elif shell_action == "read_file":
                         # NEW: Read and inspect file (R, Python, CSV, etc.)
-                        import re  # Import at function level
+                        # import re removed - using module-level import
                         
                         file_path = plan.get("file_path", "")
                         if not file_path and might_need_shell:
@@ -4085,12 +4100,26 @@ Respond with JSON:
 JSON:"""
 
                 try:
-                    web_decision_response = await self.call_backend_query(
-                        query=web_decision_prompt,
-                        conversation_history=[],
-                        api_results={},
-                        tools_used=[]
-                    )
+                    # Use LOCAL LLM for web search decision (avoid recursion)
+                    if hasattr(self, 'client') and self.client:
+                        # Local mode
+                        model_name = "llama-3.3-70b" if self.llm_provider == "cerebras" else "llama-3.1-70b-versatile"
+                        response = self.client.chat.completions.create(
+                            model=model_name,
+                            messages=[{"role": "user", "content": web_decision_prompt}],
+                            max_tokens=300,
+                            temperature=0.2
+                        )
+                        decision_text = response.choices[0].message.content.strip()
+                        web_decision_response = ChatResponse(response=decision_text)
+                    else:
+                        # Backend mode
+                        web_decision_response = await self.call_backend_query(
+                            query=web_decision_prompt,
+                            conversation_history=[],
+                            api_results={},
+                            tools_used=[]
+                        )
                     
                     import json as json_module
                     decision_text = web_decision_response.response.strip()
@@ -4133,7 +4162,7 @@ JSON:"""
                 # This fixes the issue where LLM shows corrected code but doesn't create the file
                 if any(keyword in request.question.lower() for keyword in ['create', 'write', 'save', 'generate', 'fixed', 'corrected']):
                     # Extract filename from query (e.g., "write to foo.py", "create bar_fixed.py")
-                    import re
+                    # Note: re is already imported at module level (line 12)
                     filename_match = re.search(r'(?:to|create|write|save|generate)\s+(\w+[._-]\w+\.[\w]+)', request.question, re.IGNORECASE)
                     if not filename_match:
                         # Try pattern: "foo_fixed.py" or "bar.py"
@@ -4629,7 +4658,12 @@ JSON:"""
             )
             
         except Exception as e:
+            import traceback
             details = str(e)
+            debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+            if debug_mode:
+                print("🔴 FULL TRACEBACK:")
+                traceback.print_exc()
             message = (
                 "⚠️ Something went wrong while orchestrating your request, but no actions were performed. "
                 "Please retry, and if the issue persists share this detail with the team: {details}."

@@ -6,10 +6,12 @@
 
 #define MyAppName "Cite-Agent"
 #define MyAppNameChinese "學術研究助手"
-#define MyAppVersion "1.3.8"
+#define MyAppVersion "1.3.9"
 #define MyAppPublisher "Cite-Agent Team"
-#define MyAppURL "https://github.com/your-repo/Cite-Agent"
+#define MyAppURL "https://github.com/Spectating101/cite-agent"
 #define MyAppExeName "python.exe"
+#define PythonVersion "3.11.9"
+#define PythonDownloadUrl "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
 
 [Setup]
 ; App Information (Bilingual)
@@ -76,20 +78,20 @@ Source: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; Desktop Shortcut (launches cite-agent directly)
-Name: "{autodesktop}\{#MyAppName}"; Filename: "cmd.exe"; Parameters: "/k python -m cite_agent.cli"; WorkingDir: "{userdocs}"; Comment: "Cite-Agent AI Research Assistant 學術研究助手"; IconFilename: "{sys}\cmd.exe"; IconIndex: 0
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\cite-agent.bat"; WorkingDir: "{userprofile}"; Comment: "Cite-Agent AI Research Assistant 學術研究助手"; IconFilename: "{sys}\cmd.exe"; IconIndex: 0
 
 ; Start Menu Shortcuts
-Name: "{group}\{#MyAppName}"; Filename: "cmd.exe"; Parameters: "/k python -m cite_agent.cli"; WorkingDir: "{userdocs}"; Comment: "Launch Cite-Agent 啟動 Cite-Agent"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\cite-agent.bat"; WorkingDir: "{userprofile}"; Comment: "Launch Cite-Agent 啟動 Cite-Agent"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{group}\Documentation 文檔"; Filename: "{app}\README.txt"
 Name: "{group}\Quick Start 快速開始"; Filename: "{app}\QUICKSTART.txt"
 
 [Run]
 ; Run the PowerShell installer after file extraction
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\Install-CiteAgent.ps1"""; StatusMsg: "Installing Cite-Agent components... 正在安裝 Cite-Agent 組件..."; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\Install-CiteAgent.ps1"" -DefaultVersion ""{#MyAppVersion}"" -PythonVersion ""{#PythonVersion}"" -PythonDownloadUrl ""{#PythonDownloadUrl}"" -LaunchFromInstaller"; StatusMsg: "Installing Cite-Agent components... 正在安裝 Cite-Agent 組件..."; Flags: runhidden waituntilterminated
 
 ; Optional: Launch Cite-Agent after installation
-Filename: "cmd.exe"; Parameters: "/k python -m cite_agent.cli"; Description: "Launch Cite-Agent now 立即啟動 Cite-Agent"; Flags: postinstall nowait skipifsilent shellexec; Check: PythonInstalled
+Filename: "{app}\cite-agent.bat"; Description: "Launch Cite-Agent now 立即啟動 Cite-Agent"; Flags: postinstall nowait skipifsilent shellexec; Check: PythonInstalled
 
 [Code]
 var
@@ -99,8 +101,10 @@ function PythonInstalled: Boolean;
 var
   ResultCode: Integer;
 begin
-  // Check if Python is available after installation
-  Result := (Exec('cmd.exe', '/c python --version', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0));
+  // Check if Python launcher or python.exe are available
+  Result := Exec('cmd.exe', '/c py --version', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  if not Result then
+    Result := Exec('cmd.exe', '/c python --version', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
 procedure InitializeWizard;

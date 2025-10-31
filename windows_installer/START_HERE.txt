@@ -132,6 +132,7 @@ If cite-agent command not found after install:
 
 Ready to get started?
 
-👉 Right-click "INSTALL_CITE_AGENT.bat" → Run as administrator
+👉 Double-click `Cite-Agent-Installer-v2.0.exe`
+   (or right-click → Run as administrator)
 
 See you on the other side! 🚀

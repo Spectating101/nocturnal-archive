@@ -17,13 +17,15 @@ from importlib import resources
 
 import aiohttp
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Set
 from urllib.parse import urlparse
 from dataclasses import dataclass, field
 from pathlib import Path
+import platform
 
 from .telemetry import TelemetryManager
 from .setup_config import DEFAULT_QUERY_LIMIT
+from .conversation_archive import ConversationArchive
 
 # Suppress noise
 logging.basicConfig(level=logging.ERROR)
@@ -89,6 +91,7 @@ class EnhancedNocturnalAgent:
         from .workflow import WorkflowManager
         self.workflow = WorkflowManager()
         self.last_paper_result = None  # Track last paper mentioned for "save that"
+        self.archive = ConversationArchive()
         
         # File context tracking (for pronoun resolution and multi-turn)
         self.file_context = {
@@ -98,6 +101,7 @@ class EnhancedNocturnalAgent:
             'recent_dirs': [],           # Last 5 directories
             'current_cwd': None,         # Track shell's current directory
         }
+        self._is_windows = os.name == "nt"
         try:
             self.per_user_token_limit = int(os.getenv("GROQ_PER_USER_TOKENS", 50000))
         except (TypeError, ValueError):
@@ -1624,6 +1628,49 @@ class EnhancedNocturnalAgent:
                 seen.add(t)
                 ordered.append(t)
         return ordered[:4]
+
+    def _plan_financial_request(self, question: str, session_key: Optional[str] = None) -> Tuple[List[str], List[str]]:
+        """Derive ticker and metric targets for a financial query."""
+        tickers = list(self._extract_tickers_from_text(question))
+        question_lower = question.lower()
+
+        if not tickers:
+            if "apple" in question_lower:
+                tickers.append("AAPL")
+            if "microsoft" in question_lower:
+                tickers.append("MSFT" if "AAPL" not in tickers else "MSFT")
+
+        metrics_to_fetch: List[str] = []
+        keyword_map = [
+            ("revenue", ["revenue", "sales", "top line"]),
+            ("grossProfit", ["gross profit", "gross margin", "margin"]),
+            ("operatingIncome", ["operating income", "operating profit", "ebit"]),
+            ("netIncome", ["net income", "profit", "earnings", "bottom line"]),
+        ]
+
+        for metric, keywords in keyword_map:
+            if any(kw in question_lower for kw in keywords):
+                metrics_to_fetch.append(metric)
+
+        if session_key:
+            last_topic = self._session_topics.get(session_key)
+        else:
+            last_topic = None
+
+        if not metrics_to_fetch and last_topic and last_topic.get("metrics"):
+            metrics_to_fetch = list(last_topic["metrics"])
+
+        if not metrics_to_fetch:
+            metrics_to_fetch = ["revenue", "grossProfit"]
+
+        deduped: List[str] = []
+        seen: Set[str] = set()
+        for symbol in tickers:
+            if symbol and symbol not in seen:
+                seen.add(symbol)
+                deduped.append(symbol)
+
+        return deduped[:2], metrics_to_fetch
     
     async def initialize(self, force_reload: bool = False):
         """Initialize the agent with API keys and shell session."""
@@ -1770,8 +1817,12 @@ class EnhancedNocturnalAgent:
 
             if self.shell_session is None:
                 try:
+                    if self._is_windows:
+                        command = ['powershell', '-NoLogo', '-NoProfile']
+                    else:
+                        command = ['bash']
                     self.shell_session = subprocess.Popen(
-                        ['bash'],
+                        command,
                         stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
@@ -2306,7 +2357,30 @@ class EnhancedNocturnalAgent:
             results.update(payload)
 
         return results
-    
+
+    def _looks_like_user_prompt(self, command: str) -> bool:
+        command_lower = command.strip().lower()
+        if not command_lower:
+            return True
+        phrases = [
+            "ask the user",
+            "can you run",
+            "please run",
+            "tell the user",
+            "ask them",
+        ]
+        return any(phrase in command_lower for phrase in phrases)
+
+    def _infer_shell_command(self, question: str) -> str:
+        question_lower = question.lower()
+        if any(word in question_lower for word in ["list", "show", "files", "directory", "folder", "ls"]):
+            return "ls -lah"
+        if any(word in question_lower for word in ["where", "pwd", "current directory", "location"]):
+            return "pwd"
+        if "read" in question_lower and any(ext in question_lower for ext in [".py", ".txt", ".csv", "file"]):
+            return "ls -lah"
+        return "pwd"
+
     def execute_command(self, command: str) -> str:
         """Execute command and return output - improved with echo markers"""
         try:
@@ -2336,10 +2410,14 @@ class EnhancedNocturnalAgent:
             marker = f"CMD_DONE_{uuid.uuid4().hex[:8]}"
             
             # Send command with marker
-            full_command = f"{command}; echo '{marker}'\n"
+            terminator = "\r\n" if self._is_windows else "\n"
+            if self._is_windows:
+                full_command = f"{command}; echo '{marker}'{terminator}"
+            else:
+                full_command = f"{command}; echo '{marker}'{terminator}"
             self.shell_session.stdin.write(full_command)
             self.shell_session.stdin.flush()
-            
+
             # Read until we see the marker
             output_lines = []
             start_time = time.time()
@@ -2901,7 +2979,39 @@ class EnhancedNocturnalAgent:
         
         # Default: Treat unknown commands as requiring user awareness
         return 'WRITE'
-    
+
+    def _format_archive_summary(
+        self,
+        question: str,
+        response: str,
+        api_results: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Prepare compact summary payload for the conversation archive."""
+        clean_question = question.strip().replace("\n", " ")
+        summary_text = response.strip().replace("\n", " ")
+        if len(summary_text) > 320:
+            summary_text = summary_text[:317].rstrip() + "..."
+
+        citations: List[str] = []
+        research = api_results.get("research")
+        if isinstance(research, dict):
+            for item in research.get("results", [])[:3]:
+                title = item.get("title") or item.get("paperTitle")
+                if title:
+                    citations.append(title)
+
+        financial = api_results.get("financial")
+        if isinstance(financial, dict):
+            tickers = ", ".join(sorted(financial.keys()))
+            if tickers:
+                citations.append(f"Financial data: {tickers}")
+
+        return {
+            "question": clean_question,
+            "summary": summary_text,
+            "citations": citations,
+        }
+
     def _is_safe_shell_command(self, cmd: str) -> bool:
         """
         Compatibility wrapper for old safety check.
@@ -2960,6 +3070,71 @@ class EnhancedNocturnalAgent:
         self.daily_token_usage += tokens
         if user_id:
             self.user_token_usage[user_id] = self.user_token_usage.get(user_id, 0) + tokens
+
+    def _finalize_interaction(
+        self,
+        request: ChatRequest,
+        response: ChatResponse,
+        tools_used: Optional[List[str]],
+        api_results: Optional[Dict[str, Any]],
+        request_analysis: Optional[Dict[str, Any]],
+        *,
+        log_workflow: bool = True,
+    ) -> ChatResponse:
+        """Common tail logic: history, memory, workflow logging, archive save."""
+        merged_tools: List[str] = []
+        seen: Set[str] = set()
+        for tool in (tools_used or []) + (response.tools_used or []):
+            if tool and tool not in seen:
+                merged_tools.append(tool)
+                seen.add(tool)
+        response.tools_used = merged_tools
+
+        if request_analysis and not response.confidence_score:
+            response.confidence_score = request_analysis.get("confidence", response.confidence_score) or 0.0
+
+        self.conversation_history.append({"role": "user", "content": request.question})
+        self.conversation_history.append({"role": "assistant", "content": response.response})
+
+        self._update_memory(
+            request.user_id,
+            request.conversation_id,
+            f"Q: {request.question[:100]}... A: {response.response[:100]}...",
+        )
+
+        if log_workflow:
+            try:
+                self.workflow.save_query_result(
+                    query=request.question,
+                    response=response.response,
+                    metadata={
+                        "tools_used": response.tools_used,
+                        "tokens_used": response.tokens_used,
+                        "confidence_score": response.confidence_score,
+                    },
+                )
+            except Exception:
+                logger.debug("Workflow logging failed", exc_info=True)
+
+        if getattr(self, "archive", None):
+            try:
+                archive_payload = self._format_archive_summary(
+                    request.question,
+                    response.response,
+                    api_results or {},
+                )
+                self.archive.record_entry(
+                    request.user_id,
+                    request.conversation_id,
+                    archive_payload["question"],
+                    archive_payload["summary"],
+                    response.tools_used,
+                    archive_payload["citations"],
+                )
+            except Exception as archive_error:
+                logger.debug("Archive write failed", error=str(archive_error))
+
+        return response
     
     def _get_memory_context(self, user_id: str, conversation_id: str) -> str:
         """Get relevant memory context for the conversation"""
@@ -3509,9 +3684,27 @@ JSON:"""
                     
                     if debug_mode:
                         print(f"🔍 SHELL PLAN: {plan}")
-                    
+
                     # GENERIC COMMAND EXECUTION - No more hardcoded actions!
+                    if shell_action != "execute" and might_need_shell:
+                        command = self._infer_shell_command(request.question)
+                        shell_action = "execute"
+                        updates_context = False
+                        if debug_mode:
+                            print(f"🔄 Planner opted out; inferred fallback command: {command}")
+
+                    if shell_action == "execute" and not command:
+                        command = self._infer_shell_command(request.question)
+                        plan["command"] = command
+                        if debug_mode:
+                            print(f"🔄 Planner omitted command, inferred {command}")
+
                     if shell_action == "execute" and command:
+                        if self._looks_like_user_prompt(command):
+                            command = self._infer_shell_command(request.question)
+                            plan["command"] = command
+                            if debug_mode:
+                                print(f"🔄 Replacing delegating plan with command: {command}")
                         # Check command safety
                         safety_level = self._classify_command_safety(command)
                         
@@ -3967,58 +4160,22 @@ JSON:"""
                 
                 # FinSight API for financial data - Use LLM for ticker/metric extraction
                 if "finsight" in request_analysis.get("apis", []):
-                    # LLM extracts ticker + metric (more accurate than regex)
-                    finance_prompt = f"""Extract financial query details from user's question.
+                    session_key = f"{request.user_id}:{request.conversation_id}"
+                    tickers, metrics_to_fetch = self._plan_financial_request(request.question, session_key)
+                    financial_payload: Dict[str, Any] = {}
 
-User query: "{request.question}"
+                    for ticker in tickers:
+                        result = await self.get_financial_metrics(ticker, metrics_to_fetch)
+                        financial_payload[ticker] = result
 
-Respond with JSON:
-{{
-  "tickers": ["AAPL", "TSLA"] (stock symbols - infer from company names if needed),
-  "metric": "revenue|marketCap|price|netIncome|eps|freeCashFlow|grossProfit"
-}}
+                    if financial_payload:
+                        self._session_topics[session_key] = {
+                            "tickers": tickers,
+                            "metrics": metrics_to_fetch,
+                        }
+                        api_results["financial"] = financial_payload
+                        tools_used.append("finsight_api")
 
-Examples:
-- "Tesla revenue" → {{"tickers": ["TSLA"], "metric": "revenue"}}
-- "What's Apple worth?" → {{"tickers": ["AAPL"], "metric": "marketCap"}}
-- "tsla stock price" → {{"tickers": ["TSLA"], "metric": "price"}}
-- "Microsoft profit" → {{"tickers": ["MSFT"], "metric": "netIncome"}}
-
-JSON:"""
-
-                    try:
-                        finance_response = await self.call_backend_query(
-                            query=finance_prompt,
-                            conversation_history=[],
-                            api_results={},
-                            tools_used=[]
-                        )
-                        
-                        import json as json_module
-                        finance_text = finance_response.response.strip()
-                        if '```' in finance_text:
-                            finance_text = finance_text.split('```')[1].replace('json', '').strip()
-                        
-                        finance_plan = json_module.loads(finance_text)
-                        tickers = finance_plan.get("tickers", [])
-                        metric = finance_plan.get("metric", "revenue")
-                        
-                        if debug_mode:
-                            print(f"🔍 LLM FINANCE PLAN: tickers={tickers}, metric={metric}")
-                        
-                        if tickers:
-                            # Call FinSight with extracted ticker + metric
-                            financial_data = await self._call_finsight_api(f"calc/{tickers[0]}/{metric}")
-                            if debug_mode:
-                                print(f"🔍 FinSight returned: {list(financial_data.keys()) if financial_data else None}")
-                            if financial_data and "error" not in financial_data:
-                                api_results["financial"] = financial_data
-                                tools_used.append("finsight_api")
-                    
-                    except Exception as e:
-                        if debug_mode:
-                            print(f"🔍 Finance LLM extraction failed: {e}")
-            
             # ========================================================================
             # PRIORITY 3: WEB SEARCH (Fallback - only if shell didn't handle AND no data yet)
             # ========================================================================
@@ -4193,11 +4350,14 @@ JSON:"""
                                 if debug_mode:
                                     print(f"⚠️ Auto-write failed: {e}")
 
-                # CRITICAL: Save to conversation history
-                self.conversation_history.append({"role": "user", "content": request.question})
-                self.conversation_history.append({"role": "assistant", "content": response.response})
-
-                return response
+                return self._finalize_interaction(
+                    request,
+                    response,
+                    tools_used,
+                    api_results,
+                    request_analysis,
+                    log_workflow=False,
+                )
 
             # DEV MODE ONLY: Direct Groq calls (only works with local API keys)
             # This code path won't execute in production since self.client = None
@@ -4232,6 +4392,26 @@ JSON:"""
 
             # Get memory context
             memory_context = self._get_memory_context(request.user_id, request.conversation_id)
+            archive_context = self.archive.get_recent_context(
+                request.user_id,
+                request.conversation_id,
+                limit=3,
+            ) if getattr(self, "archive", None) else ""
+            if archive_context:
+                if memory_context:
+                    memory_context = f"{memory_context}\n\n{archive_context}"
+                else:
+                    memory_context = archive_context
+            archive_context = self.archive.get_recent_context(
+                request.user_id,
+                request.conversation_id,
+                limit=3,
+            ) if getattr(self, "archive", None) else ""
+            if archive_context:
+                if memory_context:
+                    memory_context = f"{memory_context}\n\n{archive_context}"
+                else:
+                    memory_context = archive_context
 
             # Ultra-light handling for small talk to save tokens entirely
             if self._is_simple_greeting(request.question):
@@ -4337,44 +4517,17 @@ JSON:"""
                 return self._respond_with_workspace_listing(request, workspace_listing)
             
             if "finsight" in request_analysis["apis"]:
-                # Extract tickers from symbols or company names
-                tickers = self._extract_tickers_from_text(request.question)
-                financial_payload = {}
                 session_key = f"{request.user_id}:{request.conversation_id}"
-                last_topic = self._session_topics.get(session_key)
-                if not tickers:
-                    # Heuristic defaults for common requests
-                    if "apple" in request.question.lower():
-                        tickers = ["AAPL"]
-                    if "microsoft" in request.question.lower():
-                        tickers = tickers + ["MSFT"] if "AAPL" in tickers else ["MSFT"]
+                tickers, metrics_to_fetch = self._plan_financial_request(request.question, session_key)
+                financial_payload: Dict[str, Any] = {}
 
-                # Determine which metrics to fetch based on query keywords
-                metrics_to_fetch = []
-                if any(kw in question_lower for kw in ["revenue", "sales", "top line"]):
-                    metrics_to_fetch.append("revenue")
-                if any(kw in question_lower for kw in ["gross profit", "gross margin", "margin"]):
-                    metrics_to_fetch.append("grossProfit")
-                if any(kw in question_lower for kw in ["operating income", "operating profit", "ebit"]):
-                    metrics_to_fetch.append("operatingIncome")
-                if any(kw in question_lower for kw in ["net income", "profit", "earnings", "bottom line"]):
-                    metrics_to_fetch.append("netIncome")
-
-                # Default to key metrics if no specific request
-                if not metrics_to_fetch and last_topic and last_topic.get("metrics"):
-                    metrics_to_fetch = list(last_topic["metrics"])
-
-                if not metrics_to_fetch:
-                    metrics_to_fetch = ["revenue", "grossProfit"]
-
-                # Fetch metrics for each ticker (cap 2 tickers)
-                for t in tickers[:2]:
-                    result = await self.get_financial_metrics(t, metrics_to_fetch)
-                    financial_payload[t] = result
+                for ticker in tickers:
+                    result = await self.get_financial_metrics(ticker, metrics_to_fetch)
+                    financial_payload[ticker] = result
 
                 if financial_payload:
                     self._session_topics[session_key] = {
-                        "tickers": tickers[:2],
+                        "tickers": tickers,
                         "metrics": metrics_to_fetch,
                     }
                     direct_finance = (
@@ -4448,7 +4601,18 @@ JSON:"""
                             summary_tokens = summary_response.usage.total_tokens
                             self._charge_tokens(request.user_id, summary_tokens)
                             self.total_cost += (summary_tokens / 1000) * self.cost_per_1k_tokens
+                        else:
+                            summary_tokens = 0
                         messages.append({"role": "system", "content": f"Previous conversation summary: {conversation_summary}"})
+                        self._emit_telemetry(
+                            "history_summarized",
+                            request,
+                            success=True,
+                            extra={
+                                "history_length": len(self.conversation_history),
+                                "summary_tokens": summary_tokens,
+                            },
+                        )
                 except:
                     # If summary fails, just use recent history
                     pass
@@ -4626,29 +4790,21 @@ JSON:"""
                         final_response = "I searched but found no matches. The search returned no results."
                         logger.warning("🚨 Hallucination prevented: LLM tried to make up results when shell output was empty")
 
-            # Update conversation history
-            self.conversation_history.append({"role": "user", "content": request.question})
-            self.conversation_history.append({"role": "assistant", "content": final_response})
+            expected_tools: Set[str] = set()
+            if "finsight" in request_analysis.get("apis", []):
+                expected_tools.add("finsight_api")
+            if "archive" in request_analysis.get("apis", []):
+                expected_tools.add("archive_api")
+            for expected in expected_tools:
+                if expected not in tools_used:
+                    self._emit_telemetry(
+                        "tool_missing",
+                        request,
+                        success=False,
+                        extra={"expected": expected},
+                    )
 
-            # Update memory
-            self._update_memory(
-                request.user_id,
-                request.conversation_id,
-                f"Q: {request.question[:100]}... A: {final_response[:100]}..."
-            )
-
-            # Save to workflow history automatically
-            self.workflow.save_query_result(
-                query=request.question,
-                response=final_response,
-                metadata={
-                    "tools_used": tools_used,
-                    "tokens_used": tokens_used,
-                    "confidence_score": request_analysis['confidence']
-                }
-            )
-            
-            return ChatResponse(
+            response_obj = ChatResponse(
                 response=final_response,
                 tools_used=tools_used,
                 reasoning_steps=[f"Request type: {request_analysis['type']}", f"APIs used: {request_analysis['apis']}"],
@@ -4657,6 +4813,14 @@ JSON:"""
                 confidence_score=request_analysis['confidence'],
                 execution_results=execution_results,
                 api_results=api_results
+            )
+            return self._finalize_interaction(
+                request,
+                response_obj,
+                tools_used,
+                api_results,
+                request_analysis,
+                log_workflow=True,
             )
             
         except Exception as e:
@@ -4808,24 +4972,13 @@ JSON:"""
             
             # FinSight API (abbreviated)
             if "finsight" in request_analysis["apis"]:
-                tickers = self._extract_tickers_from_text(request.question)
+                session_key = f"{request.user_id}:{request.conversation_id}"
+                tickers, metrics_to_fetch = self._plan_financial_request(request.question, session_key)
                 financial_payload = {}
-                
-                if not tickers:
-                    if "apple" in question_lower:
-                        tickers = ["AAPL"]
-                    if "microsoft" in question_lower:
-                        tickers = ["MSFT"] if not tickers else tickers + ["MSFT"]
 
-                metrics_to_fetch = ["revenue", "grossProfit"]
-                if any(kw in question_lower for kw in ["revenue", "sales"]):
-                    metrics_to_fetch = ["revenue"]
-                if any(kw in question_lower for kw in ["profit", "margin"]):
-                    metrics_to_fetch.append("grossProfit")
-
-                for t in tickers[:2]:
-                    result = await self.get_financial_metrics(t, metrics_to_fetch)
-                    financial_payload[t] = result
+                for ticker in tickers:
+                    result = await self.get_financial_metrics(ticker, metrics_to_fetch)
+                    financial_payload[ticker] = result
 
                 if financial_payload:
                     api_results["financial"] = financial_payload

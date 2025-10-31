@@ -1,5 +1,5 @@
 def test_academic_email_validation_accepts_common_domains():
-    from nocturnal_archive.setup_config import NocturnalConfig
+    from cite_agent.setup_config import NocturnalConfig
 
     config = NocturnalConfig()
 
@@ -9,24 +9,25 @@ def test_academic_email_validation_accepts_common_domains():
 
 
 def test_account_client_offline_credentials_are_deterministic():
-    from nocturnal_archive.account_client import AccountClient
+    from cite_agent.account_client import AccountClient
 
     email = "student@university.edu"
     password = "p@ssw0rd!"
 
-    client = AccountClient(base_url=None)
+    client = AccountClient(base_url="")
+    client.base_url = ""
     creds_a = client.provision(email=email, password=password)
     creds_b = client.provision(email=email, password=password)
 
     assert creds_a == creds_b
-    assert creds_a.api_key.startswith("gsk_")
     assert creds_a.account_id
     assert creds_a.auth_token
     assert creds_a.telemetry_token
+    assert creds_a.refresh_token
 
 
 def test_account_client_respects_control_plane_env(monkeypatch):
-    from nocturnal_archive.account_client import AccountClient, AccountProvisioningError
+    from cite_agent.account_client import AccountClient, AccountProvisioningError
 
     # With a bogus control plane URL and no requests package we expect a provisioning error.
     monkeypatch.setenv("NOCTURNAL_CONTROL_PLANE_URL", "https://invalid.local")

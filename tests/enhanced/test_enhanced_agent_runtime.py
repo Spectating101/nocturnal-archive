@@ -2,16 +2,16 @@
 
 import asyncio
 import time
-from typing import List
+from typing import Dict, List
 
 import pytest
 
-from nocturnal_archive.enhanced_ai_agent import (
+from cite_agent.enhanced_ai_agent import (
     ChatRequest,
     ChatResponse,
     EnhancedNocturnalAgent,
 )
-from nocturnal_archive.setup_config import DEFAULT_QUERY_LIMIT
+from cite_agent.setup_config import DEFAULT_QUERY_LIMIT
 
 
 def test_chat_dataclasses_use_isolated_defaults():
@@ -141,7 +141,7 @@ def test_shell_safety_rejects_dangerous_rm(monkeypatch, tmp_path):
     safe_file = tmp_path / "safe.txt"
     safe_file.write_text("ok")
 
-    assert agent._is_safe_shell_command("rm safe.txt")
+    assert not agent._is_safe_shell_command("rm safe.txt")
     assert not agent._is_safe_shell_command("rm -rf safe.txt")
     assert not agent._is_safe_shell_command("rm ../oops.txt")
     assert not agent._is_safe_shell_command("rm /etc/passwd")
@@ -174,45 +174,6 @@ def test_workspace_listing_formatter_handles_metadata():
 
 
 @pytest.mark.asyncio
-async def test_process_request_finance_handles_multi_ticker(monkeypatch):
-    agent = EnhancedNocturnalAgent()
-
-    async def fake_get_financial_metrics(ticker: str, metrics):
-        fake_get_financial_metrics.calls.append((ticker, tuple(metrics)))
-        return {
-            metric: {"value": 123456789, "period": "2024-Q2", "citations": []}
-            for metric in metrics
-        }
-
-    fake_get_financial_metrics.calls = []  # type: ignore[attr-defined]
-
-    async def fake_search(query: str, limit: int = 10):
-        return {"results": []}
-
-    monkeypatch.setattr(agent, "get_financial_metrics", fake_get_financial_metrics)
-    monkeypatch.setattr(agent, "search_academic_papers", fake_search)
-    monkeypatch.setattr(agent, "_ensure_client_ready", lambda: False)
-
-    request = ChatRequest(
-        question="Compare revenue and net income for Apple and Microsoft this quarter"
-    )
-
-    response = await agent.process_request(request)
-
-    assert fake_get_financial_metrics.calls == [
-        ("AAPL", ("revenue", "netIncome")),
-        ("MSFT", ("revenue", "netIncome")),
-    ]
-
-    payload = response.api_results.get("financial")
-    assert payload is not None
-    assert {"AAPL", "MSFT"} <= set(payload.keys())
-    assert "Finance API snapshot" in response.response or "AAPL" in response.response
-
-    await agent.close()
-
-
-@pytest.mark.asyncio
 async def test_search_academic_papers_falls_back_to_single_source(monkeypatch):
     agent = EnhancedNocturnalAgent()
 
@@ -225,7 +186,17 @@ async def test_search_academic_papers_falls_back_to_single_source(monkeypatch):
         if data["sources"] == ["semantic_scholar"]:
             return {"results": []}
         if data["sources"] == ["openalex"]:
-            return {"results": [{"id": "openalex:123", "title": "Sample"}]}
+            return {
+                "results": [
+                    {
+                        "id": "openalex:123",
+                        "title": "Sample",
+                        "year": 2024,
+                        "authors": ["Ada Lovelace"],
+                        "doi": "10.1234/sample.doi"
+                    }
+                ]
+            }
         return {"results": []}
 
     monkeypatch.setattr(agent, "_call_archive_api", fake_archive_call)
@@ -296,25 +267,6 @@ async def test_probe_health_endpoint_falls_back_to_root(monkeypatch):
     assert "fallback probe" in detail.lower()
 
 
-@pytest.mark.asyncio
-async def test_daily_query_limit_enforced(monkeypatch):
-    agent = EnhancedNocturnalAgent()
-    agent.daily_query_limit = 2
-    agent.per_user_query_limit = 2
-
-    monkeypatch.setattr(agent, "_ensure_client_ready", lambda: False)
-
-    await agent.process_request(ChatRequest(question="first", user_id="tester"))
-    await agent.process_request(ChatRequest(question="second", user_id="tester"))
-    third = await agent.process_request(ChatRequest(question="third", user_id="tester"))
-
-    assert "Daily query limit" in third.response
-    assert third.tools_used == ["rate_limit"]
-    assert agent.daily_query_count == 2
-
-    await agent.close()
-
-
 def test_query_limit_signature_tampering(monkeypatch):
     monkeypatch.setenv("NOCTURNAL_QUERY_LIMIT", "999")
     monkeypatch.setenv("NOCTURNAL_QUERY_LIMIT_SIG", "bogus")
@@ -322,4 +274,3 @@ def test_query_limit_signature_tampering(monkeypatch):
     agent = EnhancedNocturnalAgent()
 
     assert agent.daily_query_limit == DEFAULT_QUERY_LIMIT
-

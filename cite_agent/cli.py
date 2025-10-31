@@ -6,13 +6,15 @@ Provides a terminal interface similar to cursor-agent
 
 import argparse
 import asyncio
+import json
 import os
 import random
 import sys
 import time
+import hashlib
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 from rich import box
 from rich.console import Console
@@ -27,6 +29,26 @@ from .updater import NocturnalUpdater
 from .cli_workflow import WorkflowCLI
 from .workflow import WorkflowManager, Paper, parse_paper_from_response
 from .session_manager import SessionManager
+
+PRESET_SCENARIOS: Dict[str, Dict[str, str]] = {
+    "Research sprint": {
+        "prompt": "Run a literature review on retrieval-augmented generation, summarise three key papers and cite sources.",
+        "highlight": "Archive API + guardrails"
+    },
+    "Data audit": {
+        "prompt": "Inspect sales_data.csv, perform exploratory stats, and flag any anomalies worth investigating.",
+        "highlight": "Shell analytics + guardrails"
+    },
+    "Financial briefing": {
+        "prompt": "Compare NVDA and AMD revenue and margin trends for the last 4 quarters using FinSight.",
+        "highlight": "FinSight multi-ticker"
+    },
+    "Team handoff": {
+        "prompt": "Summarise our last session and note any follow-up tasks saved in the archive for project alpha.",
+        "highlight": "Archive memory"
+    },
+}
+
 
 class NocturnalCLI:
     """Command Line Interface for Cite Agent"""
@@ -53,6 +75,18 @@ class NocturnalCLI:
             "Remember the sandbox: prefix shell commands with [bold]![/] to execute safe utilities only.",
             "If you see an auto-update notice, the CLI will restart itself to load the latest build.",
         ]
+        self._default_artifacts = Path("artifacts_autonomy.json")
+
+    def _record_session_event(self, success: bool) -> None:
+        try:
+            manager = TelemetryManager.get()
+            email = os.getenv("NOCTURNAL_ACCOUNT_EMAIL", "")
+            payload = {"success": bool(success)}
+            if email:
+                payload["user"] = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
+            manager.record("session_login", payload)
+        except Exception:
+            pass
     
     def handle_user_friendly_session(self):
         """Handle session management with user-friendly interface"""
@@ -78,7 +112,9 @@ class NocturnalCLI:
         # Handle user-friendly session management (skip prompts in non-interactive mode)
         if not non_interactive:
             if not self.handle_user_friendly_session():
+                self._record_session_event(False)
                 return False
+            self._record_session_event(True)
         
         self._show_intro_panel()
 
@@ -196,6 +232,92 @@ class NocturnalCLI:
             box=box.ROUNDED,
         )
         self.console.print(panel)
+
+    def show_presets(self) -> None:
+        table = Table(title="🚀 Beta Showcase Presets", box=box.ROUNDED, show_edge=True)
+        table.add_column("Scenario", style="bold cyan")
+        table.add_column("Prompt", style="white")
+        table.add_column("Highlights", style="magenta")
+        for name, payload in PRESET_SCENARIOS.items():
+            table.add_row(name, payload["prompt"], payload["highlight"])
+        self.console.print(table)
+        self.console.print("[dim]Tip: run [/dim][bold]nocturnal \"<prompt>\"[/bold][dim] to execute a preset immediately.[/dim]")
+
+    def show_metrics(self, artifacts: Optional[Path] = None) -> None:
+        artifacts_path = artifacts or self._default_artifacts
+        if not artifacts_path.exists():
+            self.console.print(
+                "[warning]No metrics file found.[/warning] Run [bold]python3 scripts/run_beta_showcase.py[/bold] first."
+            )
+            return
+
+        try:
+            payload = json.loads(artifacts_path.read_text())
+        except Exception as exc:
+            self.console.print(f"[error]Failed to parse {artifacts_path}: {exc}[/error]")
+            return
+
+        metrics = payload.get("_metrics")
+        if not metrics:
+            self.console.print(
+                "[warning]Metrics summary missing. Regenerate the file with [/warning]"
+                "[bold]python3 scripts/run_beta_showcase.py[/bold]."
+            )
+            return
+
+        table = Table(title="📊 Beta Harness Summary", box=box.ROUNDED)
+        table.add_column("Metric", style="bold green")
+        table.add_column("Value", style="white")
+        table.add_row("Scenarios", str(metrics.get("scenario_count", "-")))
+        elapsed = metrics.get("total_elapsed", 0.0)
+        table.add_row("Total elapsed", f"{elapsed:.2f}s")
+        guard = metrics.get("guardrail_pass_rate", 0.0)
+        table.add_row("Guardrail pass rate", f"{guard:.1%}")
+
+        tool_usage = metrics.get("tool_usage", {})
+        if tool_usage:
+            usage_lines = [f"{tool}: {count}" for tool, count in tool_usage.items()]
+            table.add_row("Tool invocations", "\n".join(usage_lines))
+
+        self.console.print(table)
+
+        guardrail_findings = []
+        for name, scenario in payload.items():
+            if not isinstance(scenario, dict) or name.startswith("_"):
+                continue
+            quality = scenario.get("quality_checks")
+            if not quality:
+                continue
+            if not all(quality.values()):
+                guardrail_findings.append((name, quality))
+
+        if guardrail_findings:
+            warn_table = Table(title="⚠️ Guardrails needing attention", box=box.ROUNDED, style="yellow")
+            warn_table.add_column("Scenario", style="bold")
+            warn_table.add_column("Checks", style="white")
+            for scenario, checks in guardrail_findings:
+                failed = [f"{key}={val}" for key, val in checks.items()]
+                warn_table.add_row(scenario, ", ".join(failed))
+            self.console.print(warn_table)
+        else:
+            self.console.print("[success]All guardrails passed.[/success]")
+
+    def show_token_report(self) -> None:
+        try:
+            from scripts.token_report import build_token_report
+        except Exception as exc:  # pragma: no cover - import convenience
+            self.console.print(f"[error]Failed to import token report tool: {exc}[/error]")
+            return
+
+        root = Path(os.getenv("NOCTURNAL_HOME", str(Path.home() / ".nocturnal_archive")))
+        report = build_token_report(root)
+        table = Table(title="🪙 Token Usage", box=box.ROUNDED)
+        table.add_column("User (hashed)", style="cyan")
+        table.add_column("Tokens", style="white", justify="right")
+        for user, tokens in report["per_user"].items():
+            table.add_row(user, f"{tokens:.0f}")
+        self.console.print(table)
+        self.console.print(f"[dim]Total tokens: {report['total_tokens']:.0f}[/dim]")
     
     def _enforce_latest_build(self):
         """Ensure the CLI is running the most recent published build."""
@@ -750,6 +872,24 @@ Examples:
         action='store_true',
         help='Show recent query history'
     )
+
+    parser.add_argument(
+        '--presets',
+        action='store_true',
+        help='Show curated beta showcase prompts'
+    )
+
+    parser.add_argument(
+        '--metrics',
+        action='store_true',
+        help='Display the latest autonomy harness metrics summary'
+    )
+
+    parser.add_argument(
+        '--token-report',
+        action='store_true',
+        help='Print aggregated token usage from telemetry logs'
+    )
     
     parser.add_argument(
         '--search-library',
@@ -788,6 +928,21 @@ Examples:
         from cite_agent.__version__ import __version__
         print(f"Cite Agent v{__version__}")
         print("AI Research Assistant with real data integration")
+        return
+
+    if args.presets:
+        cli = NocturnalCLI()
+        cli.show_presets()
+        return
+
+    if args.metrics:
+        cli = NocturnalCLI()
+        cli.show_metrics()
+        return
+
+    if args.token_report:
+        cli = NocturnalCLI()
+        cli.show_token_report()
         return
 
     if args.tips or (args.query and args.query.lower() == "tips" and not args.interactive):

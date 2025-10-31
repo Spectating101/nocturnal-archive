@@ -1,0 +1,64 @@
+[
+  {
+    "timestamp": "2025-10-30T10:46:26.956744+00:00",
+    "question": "Compare revenue and net income for Apple and Microsoft this quarter",
+    "summary": "FinSight comparison complete: - AAPL: revenue $123.46M, net income $123.46M (source: SEC 10-K) - MSFT: revenue $123.46M, net income $123.46M (source: SEC 10-K)",
+    "tools_used": [
+      "finsight_api"
+    ],
+    "citations": [
+      "Financial data: AAPL, MSFT"
+    ]
+  },
+  {
+    "timestamp": "2025-10-30T10:46:26.966446+00:00",
+    "question": "Read the contents of notes.txt and summarize it",
+    "summary": "I read notes.txt and found: first line second line third line",
+    "tools_used": [
+      "read_file",
+      "shell_execution"
+    ]
+  },
+  {
+    "timestamp": "2025-10-30T10:46:26.976232+00:00",
+    "question": "Summarize recent transformer research trends",
+    "summary": "I pulled 1 recent papers on \u201crecent transformer research trends\u201d: - Foundations of Transformer Models (2023) \u2014 Doe, Smith (doi: 10.1234/example)  These sources provide peer-reviewed grounding; let me know if you want deeper synthesis or specific metrics. Sources queried: semantic_scholar.",
+    "tools_used": [
+      "archive_api"
+    ],
+    "citations": [
+      "Foundations of Transformer Models"
+    ]
+  },
+  {
+    "timestamp": "2025-10-30T16:16:43.263365+00:00",
+    "question": "Compare revenue and net income for Apple and Microsoft this quarter",
+    "summary": "FinSight comparison complete: - AAPL: revenue $123.46M, net income $123.46M (source: SEC 10-K) - MSFT: revenue $123.46M, net income $123.46M (source: SEC 10-K)",
+    "tools_used": [
+      "finsight_api"
+    ],
+    "citations": [
+      "Financial data: AAPL, MSFT"
+    ]
+  },
+  {
+    "timestamp": "2025-10-30T16:16:43.273829+00:00",
+    "question": "Read the contents of notes.txt and summarize it",
+    "summary": "I read notes.txt and found: first line second line third line",
+    "tools_used": [
+      "read_file",
+      "shell_execution"
+    ]
+  },
+  {
+    "timestamp": "2025-10-30T16:16:43.283332+00:00",
+    "question": "Summarize recent transformer research trends",
+    "summary": "I pulled 1 recent papers on \u201crecent transformer research trends\u201d: - Foundations of Transformer Models (2023) \u2014 Doe, Smith (doi: 10.1234/example)  These sources provide peer-reviewed grounding; let me know if you want deeper synthesis or specific metrics. Sources queried: semantic_scholar.",
+    "tools_used": [
+      "archive_api"
+    ],
+    "citations": [
+      "Foundations of Transformer Models"
+    ]
+  }
+]

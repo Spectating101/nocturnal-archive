@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from nocturnal_archive.enhanced_ai_agent import EnhancedNocturnalAgent, ChatRequest
+from cite_agent.enhanced_ai_agent import EnhancedNocturnalAgent, ChatRequest
 
 class TestResults:
     def __init__(self):
@@ -396,4 +396,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

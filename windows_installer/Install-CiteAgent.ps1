@@ -4,8 +4,26 @@
 # Bilingual Support: English / 中文
 # ========================================
 
+param(
+    [string]$DefaultVersion = "1.3.9",
+    [string]$PythonVersion = "3.11.9",
+    [string]$PythonDownloadUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe",
+    [switch]$LaunchFromInstaller
+)
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+if (-not $LaunchFromInstaller.IsPresent) {
+    [System.Windows.Forms.MessageBox]::Show(
+        "Please run the official Cite-Agent Installer (.exe) instead of launching Install-CiteAgent.ps1 directly." + `
+        "`n`nDownload or rebuild `Cite-Agent-Installer-v2.0.exe` and double-click that file.",
+        "Cite-Agent Installer",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    ) | Out-Null
+    exit 1
+}
 
 # ========================================
 # GUI Setup
@@ -119,13 +137,12 @@ $installButton.Add_Click({
 
         $pythonCheck = Get-Command python -ErrorAction SilentlyContinue
         if (-not $pythonCheck) {
-            Write-Log "Python not found. Installing Python 3.11.9... / 未找到 Python，正在安裝..."
+            Write-Log "Python not found. Installing Python $PythonVersion... / 未找到 Python，正在安裝..."
             Update-Progress -Value 5 -Status "Downloading Python... / 下載 Python..."
 
-            $pythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
-            $pythonInstaller = "$env:TEMP\python-installer.exe"
+            $pythonInstaller = Join-Path $env:TEMP "python-$PythonVersion-installer.exe"
 
-            Invoke-WebRequest -Uri $pythonUrl -OutFile $pythonInstaller -UseBasicParsing
+            Invoke-WebRequest -Uri $PythonDownloadUrl -OutFile $pythonInstaller -UseBasicParsing
 
             Update-Progress -Value 10 -Status "Installing Python... / 安裝 Python..."
             Write-Log "Installing Python (this may take 1-2 minutes)... / 安裝中 (需要1-2分鐘)..."
@@ -151,7 +168,7 @@ $installButton.Add_Click({
             $version = $pypiData.info.version
             Write-Log "[OK] Latest version: $version / 最新版本: $version"
         } catch {
-            $version = "1.3.8"
+            $version = $DefaultVersion
             Write-Log "[WARNING] Could not fetch version, using default: $version / 使用預設版本"
         }
 

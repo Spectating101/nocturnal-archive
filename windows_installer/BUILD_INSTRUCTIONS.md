@@ -66,6 +66,8 @@ You need **Inno Setup 6.x** installed on a Windows machine.
 - [ ] Can type `cite-agent` in new terminal window
 - [ ] R Studio terminal integration works
 
+> ⚠️ `Install-CiteAgent.ps1` now exits with a helper message if you run it directly. Always launch the generated `.exe` so the wizard (and GUI progress window) are available.
+
 ## What the Installer Does
 
 The `.exe` installer performs these steps:
@@ -95,10 +97,12 @@ The `.exe` installer performs these steps:
 Edit `cite-agent-installer.iss`:
 
 ```iss
-#define MyAppVersion "1.3.8"
+#define MyAppVersion "1.3.9"
 ```
 
 Change to your new version, then recompile.
+
+> Tip: the PowerShell bootstrapper receives this value automatically, so pip installs the same release the UI shows.
 
 ### Change App Icon
 

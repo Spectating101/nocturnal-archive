@@ -14,6 +14,7 @@ This checklist captures everything required to execute the private beta and pave
 ## 2. Build Readiness
 - [x] Regression suite green (CI + manual smoke on macOS/Windows/Linux).
 - [x] TestPyPI package built and verified (`nocturnal-archive==0.9.0b1`).
+- [ ] Generate beta showcase metrics (`PYTHONPATH=. python3 -m scripts.run_beta_showcase`) and archive JSON artifact per release.
 - [ ] Production PyPI token ready (scoped per project for final release).
 - [ ] Auto-updater smoke-tested (macOS LaunchAgent, Windows Scheduled Task, Linux systemd timer).
 - [ ] Version pinning to prevent old clients from staying on unsupported builds.
@@ -61,6 +62,7 @@ This checklist captures everything required to execute the private beta and pave
 - [ ] Dashboard: installs, DAU, token usage per user, error rates, command mix.
 - [ ] Alerts for crash spikes, API failures, or rate limit breaches.
 - [ ] Monitor auto-update rollout success (percentage on latest build).
+- [ ] Provide manual token report script (`python3 scripts/token_report.py`) for ad-hoc audits.
 
 ## 8. Support & Feedback
 - [ ] Create dedicated support channel (Slack/Discord) with invite instructions.

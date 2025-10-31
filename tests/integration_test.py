@@ -14,10 +14,10 @@ import time
 # Add project to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from nocturnal_archive.ui import NocturnalUI, console
-from nocturnal_archive.auth import AuthManager
-from nocturnal_archive.dashboard import DashboardAnalytics
-from nocturnal_archive.updater import NocturnalUpdater
+from cite_agent.ui import NocturnalUI, console
+from cite_agent.auth import AuthManager
+from cite_agent.dashboard import DashboardAnalytics
+from cite_agent.updater import NocturnalUpdater
 
 class Colors:
     GREEN = "\033[92m"
@@ -47,7 +47,7 @@ class IntegrationTests:
         self.warnings = 0
         
         # Clean test environment
-        self.test_dir = Path.home() / ".nocturnal_archive_test"
+        self.test_dir = Path.home() / ".cite_agent_test"
         if self.test_dir.exists():
             import shutil
             shutil.rmtree(self.test_dir)
@@ -293,13 +293,13 @@ class IntegrationTests:
         print_test("File Structure")
         
         required_files = [
-            "nocturnal_archive/ui.py",
-            "nocturnal_archive/auth.py",
-            "nocturnal_archive/cli_enhanced.py",
-            "nocturnal_archive/dashboard.py",
-            "nocturnal_archive/updater.py",
-            "nocturnal_archive/enhanced_ai_agent.py",
-            "nocturnal_archive/templates/dashboard.html",
+            "cite_agent/ui.py",
+            "cite_agent/auth.py",
+            "cite_agent/cli_enhanced.py",
+            "cite_agent/dashboard.py",
+            "cite_agent/updater.py",
+            "cite_agent/enhanced_ai_agent.py",
+            "cite_agent/templates/dashboard.html",
             "requirements.txt",
             "setup.py",
             "README.md",

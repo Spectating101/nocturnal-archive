@@ -278,20 +278,22 @@ function Install-CiteAgent {
 
     # Upgrade pip first
     Write-Status "Upgrading pip..."
-    $process = Start-Process -FilePath $VenvPython -ArgumentList "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel" -Wait -PassThru -NoNewWindow
+    $pipOutput = & $VenvPython -m pip install --upgrade pip setuptools wheel 2>&1
+    Write-Log "Pip upgrade output: $pipOutput"
 
-    if ($process.ExitCode -ne 0) {
-        Write-Error-Custom "pip upgrade failed"
-        Write-Log "pip upgrade failed: exit code $($process.ExitCode)"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "pip upgrade failed: exit code $LASTEXITCODE"
     }
 
     # Install cite-agent
-    $process = Start-Process -FilePath $VenvPython -ArgumentList "-m", "pip", "install", "--no-cache-dir", "cite-agent==$Version" -Wait -PassThru -NoNewWindow
+    $installOutput = & $VenvPython -m pip install --no-cache-dir "cite-agent==$Version" 2>&1
+    Write-Log "Pip install output: $installOutput"
 
-    if ($process.ExitCode -ne 0) {
+    if ($LASTEXITCODE -ne 0) {
         Write-Error-Custom "Cite-Agent installation failed"
-        Write-Log "pip install cite-agent failed: exit code $($process.ExitCode)"
-        throw "Cite-Agent installation failed"
+        Write-Log "pip install cite-agent failed: exit code $LASTEXITCODE"
+        Write-Log "Full error: $installOutput"
+        throw "Cite-Agent installation failed. Error: $installOutput"
     }
 
     Write-Success "Cite-Agent installed successfully"

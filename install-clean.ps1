@@ -11,21 +11,7 @@ $PYTHON_DOWNLOAD_URL = "https://www.python.org/ftp/python/$PYTHON_VERSION/python
 $INSTALL_ROOT = "$env:LOCALAPPDATA\Cite-Agent"
 $LOG_FILE = "$INSTALL_ROOT\logs\install.log"
 
-# Auto-detect latest cite-agent version from PyPI
-function Get-LatestCiteAgentVersion {
-    try {
-        $response = Invoke-RestMethod -Uri "https://pypi.org/pypi/cite-agent/json" -TimeoutSec 10
-        return $response.info.version
-    } catch {
-        Write-Status "Failed to auto-detect version, using fallback: 1.3.9" -Color Yellow
-        return "1.3.9"
-    }
-}
-
-$CITE_AGENT_VERSION = Get-LatestCiteAgentVersion
-Write-Status "Installing cite-agent version: $CITE_AGENT_VERSION" -Color Green
-
-# Color output helpers
+# Color output helpers (define first before use)
 function Write-Status {
     param([string]$Message, [string]$Color = "Cyan")
     Write-Host "[*] $Message" -ForegroundColor $Color
@@ -40,6 +26,20 @@ function Write-Error-Custom {
     param([string]$Message)
     Write-Host "[✗] $Message" -ForegroundColor Red
 }
+
+# Auto-detect latest cite-agent version from PyPI
+function Get-LatestCiteAgentVersion {
+    try {
+        $response = Invoke-RestMethod -Uri "https://pypi.org/pypi/cite-agent/json" -TimeoutSec 10
+        return $response.info.version
+    } catch {
+        Write-Status "Failed to auto-detect version, using fallback: 1.3.9" -Color Yellow
+        return "1.3.9"
+    }
+}
+
+$CITE_AGENT_VERSION = Get-LatestCiteAgentVersion
+Write-Status "Installing cite-agent version: $CITE_AGENT_VERSION" -Color Green
 
 Write-Host ""
 Write-Host "╔════════════════════════════════════════════════════════╗" -ForegroundColor Cyan

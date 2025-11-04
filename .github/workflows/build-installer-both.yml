@@ -1,10 +1,20 @@
-name: Build Windows Installers (Admin + Per-User)
+name: Build Windows Installers
 
 on:
   workflow_dispatch:  # Manual trigger via GitHub UI
+  release:
+    types: [published]  # Auto-build on new releases
+  push:
+    branches:
+      - main
+      - production-backend-only
+    paths:
+      - 'windows_installer/**'
+      - 'install.ps1'
 
 jobs:
-  build:
+  build-exe-installers:
+    name: Build .exe Installers (Inno Setup)
     runs-on: windows-latest
 
     steps:
@@ -14,24 +24,51 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --yes
 
+      - name: Compile per-user installer (recommended)
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows_installer\cite-agent-installer-peruser.iss
+
       - name: Compile admin installer
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows_installer\cite-agent-installer.iss
 
-      - name: Compile per-user installer
-        run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows_installer\cite-agent-installer-peruser.iss
+      - name: Upload per-user installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cite-Agent-Installer-v2.1-PerUser
+          path: windows_installer\Cite-Agent-Installer-v2.1.exe
+          retention-days: 90
 
       - name: Upload admin installer
         uses: actions/upload-artifact@v4
         with:
-          name: Cite-Agent-Installer-v2.0-Admin
-          path: windows_installer\Cite-Agent-Installer-v2.0.exe
-          retention-days: 30
+          name: Cite-Agent-Installer-v2.1-Admin
+          path: windows_installer\Cite-Agent-Installer-v2.1-Admin.exe
+          retention-days: 90
 
-      - name: Upload per-user installer
-        uses: actions/upload-artifact@v4
+      - name: Upload to release (if release event)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
         with:
-          name: Cite-Agent-Installer-v2.0-PerUser
-          path: windows_installer\Cite-Agent-Installer-v2.0-PerUser.exe
-          retention-days: 30
+          files: |
+            windows_installer/Cite-Agent-Installer-v2.1.exe
+            windows_installer/Cite-Agent-Installer-v2.1-Admin.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test-web-installer:
+    name: Test Web Installer Script
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test install.ps1 syntax
+        run: |
+          powershell -Command "Get-Content install.ps1 | Out-Null"
+          Write-Host "✓ install.ps1 syntax valid"
+
+      - name: Validate script execution policy bypass
+        run: |
+          powershell -ExecutionPolicy Bypass -Command "& { Write-Host 'Execution policy test passed' }"

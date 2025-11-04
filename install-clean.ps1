@@ -138,8 +138,8 @@ function Get-ExistingPython {
     Write-Status "Checking for existing Python installation..."
     Write-Log "Searching for Python 3.10/3.11..."
 
-    # Try py launcher first
-    $pyTags = @("3.11-64", "3.11", "3.10-64", "3.10")
+    # Try py launcher first (check newer versions first)
+    $pyTags = @("3.12-64", "3.12", "3.11-64", "3.11", "3.10-64", "3.10", "3.9-64", "3.9")
     foreach ($tag in $pyTags) {
         try {
             $pythonPath = & py -$tag -c "import sys; print(sys.executable)" 2>$null
@@ -151,15 +151,17 @@ function Get-ExistingPython {
         } catch { }
     }
 
-    # Try system python
+    # Try system python (accept 3.9+)
     try {
         $pythonCmd = Get-Command python -ErrorAction Stop
         $versionOutput = & $pythonCmd.Source --version 2>&1
         Write-Log "System python version: $versionOutput"
 
-        if ($versionOutput -match "Python 3\.(1[01]|10)") {
+        if ($versionOutput -match "Python 3\.([9]|1[0-2])") {
             Write-Success "Found system Python: $($pythonCmd.Source)"
             return $pythonCmd.Source
+        } else {
+            Write-Log "Python version not supported: $versionOutput (need 3.9+)"
         }
     } catch {
         Write-Log "No system python found in PATH"

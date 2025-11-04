@@ -239,10 +239,10 @@ async def login(request: LoginRequest):
         logger.info("User logged in", user_id=user['user_id'], email=user['email'])
 
         # Generate temporary API key (2 weeks) with round-robin load balancing
-        # Rotate keys to distribute load evenly
+        # Rotate keys to distribute load evenly across 4 keys
         import hashlib
         user_hash = int(hashlib.md5(user['user_id'].encode()).hexdigest(), 16)
-        key_index = (user_hash % 3) + 1  # 1, 2, or 3
+        key_index = (user_hash % 4) + 1  # 1, 2, 3, or 4
 
         temp_key = os.getenv(f"CEREBRAS_API_KEY_{key_index}")
         if not temp_key:
@@ -251,6 +251,7 @@ async def login(request: LoginRequest):
                 os.getenv("CEREBRAS_API_KEY_1") or
                 os.getenv("CEREBRAS_API_KEY_2") or
                 os.getenv("CEREBRAS_API_KEY_3") or
+                os.getenv("CEREBRAS_API_KEY_4") or
                 os.getenv("CEREBRAS_API_KEY")
             )
 

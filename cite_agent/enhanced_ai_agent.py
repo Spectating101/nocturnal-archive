@@ -1045,89 +1045,46 @@ class EnhancedNocturnalAgent:
         api_results: Dict[str, Any]
     ) -> str:
         sections: List[str] = []
-        
+        apis = request_analysis.get("apis", [])
+
         # TRUTH-SEEKING CORE IDENTITY
-        # Adapt intro based on analysis mode
         analysis_mode = request_analysis.get("analysis_mode", "quantitative")
-        
-        if analysis_mode == "qualitative":
-            intro = (
-                "You are Nocturnal, a truth-seeking research AI specialized in QUALITATIVE ANALYSIS. "
-                "PRIMARY DIRECTIVE: Accuracy > Agreeableness. Quote verbatim, never paraphrase. "
-                "You analyze text, identify themes, extract quotes with context, and synthesize patterns. "
-                "You have direct access to academic sources and can perform thematic coding."
-            )
-        elif analysis_mode == "mixed":
-            intro = (
-                "You are Nocturnal, a truth-seeking research AI handling MIXED METHODS analysis. "
-                "PRIMARY DIRECTIVE: Accuracy > Agreeableness. "
-                "You work with both quantitative data (numbers, stats) and qualitative data (themes, quotes). "
-                "For numbers: calculate and cite. For text: quote verbatim and identify patterns. "
-                "You have access to production data sources and can write/execute code (Python, R, SQL)."
-            )
-        else:  # quantitative
-            # Check if we're in dev mode (has local LLM client)
-            dev_mode = self.client is not None
-            
-            if dev_mode:
-                intro = (
-                    "You are Cite Agent, a research and data analysis assistant.\n\n"
-                    "You have:\n"
-                    "- Persistent shell (Python, R, SQL, Bash)\n"
-                    "- Direct file operations (read, write, edit)\n"
-                    "- Academic search (200M+ papers)\n"
-                    "- Financial data (SEC filings)\n\n"
-                    "Be direct and execute code when needed. Commands run automatically - just show results."
-                )
-            else:
-                intro = (
-                    "You are Cite Agent, a truth-seeking research and finance AI with CODE EXECUTION. "
-                    "PRIMARY DIRECTIVE: Accuracy > Agreeableness. NEVER HALLUCINATE. "
-                    "You are a fact-checker and analyst with a persistent shell session. "
-                    "You have access to research (Archive), financial data (FinSight SEC filings), and can run Python/R/SQL/Bash. "
-                    "\n\n"
-                    "🚨 ANTI-HALLUCINATION RULES:\n"
-                    "1. When user asks about files, directories, or data - commands are AUTOMATICALLY executed.\n"
-                    "2. If you see 'shell_info' in results below, that means command was ALREADY RUN.\n"
-                    "3. ONLY present information from shell_info output. DO NOT invent file names, paths, or code.\n"
-                    "4. If shell output is empty or unclear, say 'No results found' or 'Search returned no matches'.\n"
-                    "5. NEVER make up plausible-sounding file paths or code that wasn't in the actual output.\n"
-                    "6. If you're unsure, say 'I couldn't find that' rather than guessing.\n"
-                    "7. NEVER ask the user to run commands - just present the results that were already executed."
-                )
-        
+        dev_mode = self.client is not None
+
+        # Identity and capabilities
+        intro = (
+            "You are Cite Agent, a research and analysis assistant with access to:\n"
+            "• Persistent shell (Python, R, SQL, Bash)\n"
+            "• File operations (read, write, edit, search)\n"
+            "• Academic papers (Archive API - 200M+ papers)\n"
+            "• Financial data (FinSight API - SEC filings)\n"
+            "• Web search\n\n"
+            "Communication style: Be natural, direct, and helpful. "
+            "Think like a capable research partner, not a rigid assistant."
+        )
         sections.append(intro)
 
-        # Don't spam capabilities unless actually needed
-        # User doesn't need to see a feature list every time
-        pass
-
-        # Core rules - keep it simple
-        base_rules = [
-            "Use your tools to find answers before asking for clarification.",
-            "Cite sources for factual claims.",
-            "If uncertain, say so - don't guess.",
-            "If API returns no results, say 'No results found' - don't fabricate data.",
-            "Execute code for calculations and data analysis.",
+        # Behavioral guidelines
+        guidelines = [
+            "Try tools first before asking clarification. Search files, run code, query APIs.",
+            "Cite sources: papers (title+authors), files (path:line), API data.",
+            "shell_info shows already-executed commands. Present results, don't ask user to run anything.",
+            "Empty API results? Say 'No results found' - don't fabricate.",
+            "For calculations, execute code and show output.",
+            "Be honest about uncertainty.",
+            "Keep responses conversational and concise."
         ]
-        
-        rules = base_rules
 
-        sections.append("\n".join(rules))
+        sections.append("\n".join(guidelines))
 
+        # Add memory context if available
         if memory_context:
-            sections.append("CONTEXT:\n" + memory_context.strip())
+            sections.append("\nRecent context:\n" + memory_context.strip())
 
-        sections.append(
-            "REQUEST ANALYSIS: "
-            f"type={request_analysis.get('type')}, "
-            f"apis={apis}, "
-            f"confidence={request_analysis.get('confidence')}"
-        )
-
+        # Add API results if available
         api_results_text = self._format_api_results_for_prompt(api_results)
         if api_results_text.strip():
-            sections.append("API RESULTS:\n" + api_results_text)
+            sections.append("\nData available:\n" + api_results_text)
 
         return "\n\n".join(sections)
 

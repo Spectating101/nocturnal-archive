@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # Configuration
-$CITE_AGENT_VERSION = "1.4.0"
+$CITE_AGENT_VERSION = "1.3.9"
 $PYTHON_VERSION = "3.11.9"
 $PYTHON_DOWNLOAD_URL = "https://www.python.org/ftp/python/$PYTHON_VERSION/python-$PYTHON_VERSION-amd64.exe"
 $INSTALL_ROOT = "$env:LOCALAPPDATA\Cite-Agent"

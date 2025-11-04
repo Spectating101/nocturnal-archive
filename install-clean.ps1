@@ -6,11 +6,24 @@ $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # Configuration
-$CITE_AGENT_VERSION = "1.3.9"
 $PYTHON_VERSION = "3.11.9"
 $PYTHON_DOWNLOAD_URL = "https://www.python.org/ftp/python/$PYTHON_VERSION/python-$PYTHON_VERSION-amd64.exe"
 $INSTALL_ROOT = "$env:LOCALAPPDATA\Cite-Agent"
 $LOG_FILE = "$INSTALL_ROOT\logs\install.log"
+
+# Auto-detect latest cite-agent version from PyPI
+function Get-LatestCiteAgentVersion {
+    try {
+        $response = Invoke-RestMethod -Uri "https://pypi.org/pypi/cite-agent/json" -TimeoutSec 10
+        return $response.info.version
+    } catch {
+        Write-Status "Failed to auto-detect version, using fallback: 1.3.9" -Color Yellow
+        return "1.3.9"
+    }
+}
+
+$CITE_AGENT_VERSION = Get-LatestCiteAgentVersion
+Write-Status "Installing cite-agent version: $CITE_AGENT_VERSION" -Color Green
 
 # Color output helpers
 function Write-Status {

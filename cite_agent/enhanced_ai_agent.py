@@ -968,6 +968,34 @@ class EnhancedNocturnalAgent:
         normalized = text.lower().strip()
         return any(normalized.startswith(ack) for ack in acknowledgments)
 
+    def _is_generic_test_prompt(self, text: str) -> bool:
+        """Detect simple 'test' style probes that don't need full analysis."""
+        normalized = re.sub(r"[^a-z0-9\s]", " ", text.lower())
+        words = [w for w in normalized.split() if w]
+        if not words or "test" not in words:
+            return False
+        if len(words) > 4:
+            return False
+        allowed = {"test", "testing", "just", "this", "is", "a", "only"}
+        return all(w in allowed for w in words)
+
+    def _is_location_query(self, text: str) -> bool:
+        """Detect requests asking for the current working directory."""
+        normalized = re.sub(r"[^a-z0-9/._\s-]", " ", text.lower())
+        normalized = " ".join(normalized.split())
+        location_phrases = [
+            "where are we",
+            "where am i",
+            "where are we right now",
+            "what directory",
+            "current directory",
+            "current folder",
+            "current path",
+        ]
+        if any(phrase in normalized for phrase in location_phrases):
+            return True
+        return normalized in {"pwd", "pwd?"}
+
     def _format_api_results_for_prompt(self, api_results: Dict[str, Any]) -> str:
         if not api_results:
             logger.info("🔍 DEBUG: _format_api_results_for_prompt called with EMPTY api_results")
@@ -1002,12 +1030,13 @@ class EnhancedNocturnalAgent:
 
             formatted_parts.append("\n" + "=" * 60)
             formatted_parts.append("🚨 CRITICAL INSTRUCTION 🚨")
-            formatted_parts.append("The command was ALREADY executed. The output above is the COMPLETE and ONLY result.")
-            formatted_parts.append("YOU MUST present ONLY what is shown in the output above.")
-            formatted_parts.append("DO NOT add file names, paths, or code that are NOT in the output above.")
-            formatted_parts.append("DO NOT make up examples or additional results.")
-            formatted_parts.append("If the output says 'No matches' or is empty, tell the user 'No results found'.")
-            formatted_parts.append("DO NOT ask the user to run any commands - the results are already here.")
+            formatted_parts.append("The command was ALREADY executed. The output above is the result.")
+            formatted_parts.append("Present the KEY information concisely - summarize, don't paste everything.")
+            formatted_parts.append("For file listings: list key files/directories, skip metadata unless asked.")
+            formatted_parts.append("For search results: answer directly, cite relevant findings.")
+            formatted_parts.append("For file content: show relevant sections only.")
+            formatted_parts.append("If output is empty: say 'No results found'.")
+            formatted_parts.append("DO NOT ask the user to run commands - results are already here.")
             formatted_parts.append("=" * 60)
 
             # Add other api_results
@@ -1066,13 +1095,30 @@ class EnhancedNocturnalAgent:
 
         # Behavioral guidelines
         guidelines = [
-            "Try tools first before asking clarification. Search files, run code, query APIs.",
+            "Use tools proactively - search files, run commands, query APIs when needed.",
             "Cite sources: papers (title+authors), files (path:line), API data.",
-            "shell_info shows already-executed commands. Present results, don't ask user to run anything.",
-            "Empty API results? Say 'No results found' - don't fabricate.",
-            "For calculations, execute code and show output.",
+            "shell_info shows already-executed commands. Present RESULTS concisely - no commands shown.",
+            "For follow-up questions with pronouns ('it', 'that'), infer from conversation context.",
+            "Ambiguous query? Ask clarification OR infer from context if reasonable.",
             "Be honest about uncertainty.",
-            "Keep responses conversational and concise."
+            "",
+            "CRITICAL - ANSWER WHAT WAS ASKED:",
+            "• When query asks for SPECIFIC file types:",
+            "  - Use shell_execution with 'find' or 'ls' filtered to match",
+            "  - Example: 'Python files' → run `find . -name '*.py'` or `ls **/*.py`",
+            "  - Example: 'test files' → run `find . -name '*test*.py'`",
+            "  - If files_listing used, extract ONLY matching files from result",
+            "• 'Find X' → Use tools to locate, return concise path",
+            "• 'Read X' → When context has partial info, use tools for full content (but summarize output)",
+            "• 'What does X do?' → Answer from visible code/context, no re-execution",
+            "• 'What version' → Include word 'version' in answer (e.g. 'Version is v1.4.0')",
+            "",
+            "CONCISE RESPONSE STYLE:",
+            "• Direct answers - state result, minimal elaboration",
+            "• NO code blocks showing bash/python commands unless explicitly asked",
+            "• NO 'Let me check...' preambles",
+            "• File listings: Max 5-10 items (filtered to query)",
+            "• Balance: complete but concise"
         ]
 
         sections.append("\n".join(guidelines))
@@ -1253,8 +1299,24 @@ class EnhancedNocturnalAgent:
         if len(self.api_keys) <= 1:
             return
         self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
-        self.current_api_key = None
-        self.client = None
+        new_key = self.api_keys[self.current_key_index]
+        self.current_api_key = new_key
+
+        # Reinitialize client with new key
+        try:
+            if self.llm_provider == "cerebras":
+                from openai import OpenAI
+                self.client = OpenAI(
+                    api_key=new_key,
+                    base_url="https://api.cerebras.ai/v1"
+                )
+            else:
+                from groq import Groq
+                self.client = Groq(api_key=new_key)
+        except Exception as e:
+            # If initialization fails, set to None to fallback to backend
+            self.client = None
+            self.current_api_key = None
 
     def _is_rate_limit_error(self, error: Exception) -> bool:
         message = str(error).lower()
@@ -1459,19 +1521,25 @@ class EnhancedNocturnalAgent:
             has_session = session_file.exists()
             use_local_keys_env = os.getenv("USE_LOCAL_KEYS", "").lower()
 
-            if has_session:
-                # Session exists → Check if we have temp local key for speed
-                # If temp key exists and valid → use local mode (fast!)
-                # Otherwise → use backend mode (secure but slow)
-                use_local_keys = hasattr(self, 'temp_api_key') and self.temp_api_key is not None
-            elif use_local_keys_env == "true":
-                # No session but dev mode requested → use local keys
+            # Priority order for key mode:
+            # 1. USE_LOCAL_KEYS env var (explicit override)
+            # 2. Temp API key from session (fast mode)
+            # 3. Default to backend if session exists
+
+            if use_local_keys_env == "true":
+                # Explicit local keys mode - always respect this
                 use_local_keys = True
             elif use_local_keys_env == "false":
                 # Explicit backend mode
                 use_local_keys = False
+            elif has_session and hasattr(self, 'temp_api_key') and self.temp_api_key:
+                # Session exists with temp key → use local mode (fast!)
+                use_local_keys = True
+            elif has_session:
+                # Session exists but no temp key → use backend mode
+                use_local_keys = False
             else:
-                # Default: Always use backend (for monetization)
+                # No session, no explicit setting → default to backend
                 use_local_keys = False
 
             if not use_local_keys:
@@ -1686,10 +1754,9 @@ class EnhancedNocturnalAgent:
                 elif response.status == 503:
                     # Backend AI service temporarily unavailable (Cerebras/Groq rate limited)
                     # Auto-retry silently with exponential backoff
-                    
+
                     print("\n💭 Thinking... (backend is busy, retrying automatically)")
-                    
-                    import asyncio
+
                     retry_delays = [5, 15, 30]  # Exponential backoff
                     
                     for retry_num, delay in enumerate(retry_delays):
@@ -3314,6 +3381,52 @@ class EnhancedNocturnalAgent:
             api_results = {}
             tools_used = []
             debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+
+            if self._is_generic_test_prompt(request.question):
+                return self._quick_reply(
+                    request,
+                    "Looks like you're just testing. Let me know what you'd like me to dig into and I'll jump on it.",
+                    tools_used=["quick_reply"],
+                    confidence=0.4,
+                )
+
+            if self._is_location_query(request.question):
+                cwd_line = ""
+                tools: List[str] = []
+
+                if self.shell_session:
+                    pwd_output = self.execute_command("pwd")
+                    if pwd_output and not pwd_output.startswith("ERROR"):
+                        cwd_line = pwd_output.strip().splitlines()[-1]
+                        tools.append("shell_execution")
+
+                if not cwd_line:
+                    try:
+                        cwd_line = os.getcwd()
+                    except Exception:
+                        cwd_line = ""
+
+                if cwd_line:
+                    self.file_context["current_cwd"] = cwd_line
+                    self.file_context["last_directory"] = cwd_line
+                    message = (
+                        f"We're in {cwd_line}."
+                        if "shell_execution" not in tools
+                        else f"We're in {cwd_line} (via `pwd`)."
+                    )
+                    return self._quick_reply(
+                        request,
+                        message,
+                        tools_used=tools or ["quick_reply"],
+                        confidence=0.85,
+                    )
+                else:
+                    return self._quick_reply(
+                        request,
+                        "I couldn't determine the working directory just now, but you can run `pwd` to double-check.",
+                        tools_used=tools or ["quick_reply"],
+                        confidence=0.3,
+                    )
             
             # ========================================================================
             # PRIORITY 1: SHELL PLANNING (Reasoning Layer - Runs FIRST for ALL modes)
@@ -3467,10 +3580,15 @@ JSON:"""
                             print(f"🔍 Command: {command}")
                             print(f"🔍 Safety: {safety_level}")
                         
-                        if safety_level == 'BLOCKED':
+                        if safety_level in ('BLOCKED', 'DANGEROUS'):
+                            reason = (
+                                "Command classified as destructive; requires manual confirmation"
+                                if safety_level == 'DANGEROUS'
+                                else "This command could cause system damage"
+                            )
                             api_results["shell_info"] = {
                                 "error": f"Command blocked for safety: {command}",
-                                "reason": "This command could cause system damage"
+                                "reason": reason
                             }
                         else:
                             # ========================================

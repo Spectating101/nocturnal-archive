@@ -320,37 +320,45 @@ function New-Shortcuts {
     Write-Status "Creating shortcuts..."
     Write-Log "Creating desktop and start menu shortcuts"
 
-    $WshShell = New-Object -ComObject WScript.Shell
+    try {
+        $WshShell = New-Object -ComObject WScript.Shell
 
-    # Desktop shortcut
-    $desktopPath = [Environment]::GetFolderPath("Desktop")
-    $desktopShortcut = $WshShell.CreateShortcut("$desktopPath\Cite-Agent.lnk")
-    $desktopShortcut.TargetPath = $VenvPython
-    $desktopShortcut.Arguments = "-m cite_agent.cli"
-    $desktopShortcut.WorkingDirectory = $InstallRoot
-    $desktopShortcut.Description = "Cite-Agent AI Research Assistant"
-    $desktopShortcut.IconLocation = "$env:SystemRoot\System32\cmd.exe,0"
-    $desktopShortcut.Save()
-    Write-Log "Desktop shortcut created"
+        # Desktop shortcut
+        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        $shortcutPath = Join-Path $desktopPath "Cite-Agent.lnk"
 
-    # Start Menu shortcut
-    $startMenuPath = [Environment]::GetFolderPath("Programs")
-    $startMenuFolder = Join-Path $startMenuPath "Cite-Agent"
+        $desktopShortcut = $WshShell.CreateShortcut($shortcutPath)
+        $desktopShortcut.TargetPath = "powershell.exe"
+        $desktopShortcut.Arguments = "-NoExit -Command `"& '$VenvPython' -m cite_agent.cli`""
+        $desktopShortcut.WorkingDirectory = $InstallRoot
+        $desktopShortcut.Description = "Cite-Agent AI Research Assistant"
+        $desktopShortcut.IconLocation = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe,0"
+        $desktopShortcut.Save()
+        Write-Log "Desktop shortcut created: $shortcutPath"
 
-    if (-not (Test-Path $startMenuFolder)) {
-        New-Item -ItemType Directory -Path $startMenuFolder -Force | Out-Null
+        # Start Menu shortcut
+        $startMenuPath = [Environment]::GetFolderPath("Programs")
+        $startMenuFolder = Join-Path $startMenuPath "Cite-Agent"
+
+        if (-not (Test-Path $startMenuFolder)) {
+            New-Item -ItemType Directory -Path $startMenuFolder -Force | Out-Null
+        }
+
+        $startShortcutPath = Join-Path $startMenuFolder "Cite-Agent.lnk"
+        $startShortcut = $WshShell.CreateShortcut($startShortcutPath)
+        $startShortcut.TargetPath = "powershell.exe"
+        $startShortcut.Arguments = "-NoExit -Command `"& '$VenvPython' -m cite_agent.cli`""
+        $startShortcut.WorkingDirectory = $InstallRoot
+        $startShortcut.Description = "Cite-Agent AI Research Assistant"
+        $startShortcut.IconLocation = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe,0"
+        $startShortcut.Save()
+        Write-Log "Start menu shortcut created: $startShortcutPath"
+
+        Write-Success "Shortcuts created (Desktop + Start Menu)"
+    } catch {
+        Write-Status "Shortcut creation skipped (non-critical): $_" -Color Yellow
+        Write-Log "Shortcut error (non-critical): $_"
     }
-
-    $startShortcut = $WshShell.CreateShortcut("$startMenuFolder\Cite-Agent.lnk")
-    $startShortcut.TargetPath = $VenvPython
-    $startShortcut.Arguments = "-m cite_agent.cli"
-    $startShortcut.WorkingDirectory = $InstallRoot
-    $startShortcut.Description = "Cite-Agent AI Research Assistant"
-    $startShortcut.IconLocation = "$env:SystemRoot\System32\cmd.exe,0"
-    $startShortcut.Save()
-    Write-Log "Start menu shortcut created"
-
-    Write-Success "Shortcuts created (Desktop + Start Menu)"
 }
 
 # Add to PATH
@@ -436,26 +444,18 @@ try {
         Write-Host "║                                                        ║" -ForegroundColor Green
         Write-Host "╚════════════════════════════════════════════════════════╝" -ForegroundColor Green
         Write-Host ""
-        Write-Host "🚀 Quick Start:" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "   1. Double-click 'Cite-Agent' on your Desktop" -ForegroundColor White
-        Write-Host "   2. Or search 'Cite-Agent' in Start Menu" -ForegroundColor White
-        Write-Host "   3. Or type 'cite-agent' in any terminal" -ForegroundColor White
-        Write-Host ""
-        Write-Host "📚 Features:" -ForegroundColor Yellow
-        Write-Host "   • Search 200M+ research papers" -ForegroundColor White
-        Write-Host "   • Get citations in any format" -ForegroundColor White
-        Write-Host "   • Real-time financial data" -ForegroundColor White
-        Write-Host "   • AI research assistant" -ForegroundColor White
-        Write-Host ""
-        Write-Host "💡 For R Studio users:" -ForegroundColor Yellow
-        Write-Host "   1. Restart R Studio if it's currently open" -ForegroundColor White
-        Write-Host "   2. Open Terminal pane (bottom)" -ForegroundColor White
-        Write-Host "   3. Type: cite-agent" -ForegroundColor White
-        Write-Host ""
-        Write-Host "📝 Installation log: $LOG_FILE" -ForegroundColor Gray
+        Write-Host "🚀 Starting Cite-Agent..." -ForegroundColor Yellow
         Write-Host ""
         Write-Log "Installation completed successfully"
+
+        # Launch cite-agent directly for immediate testing
+        $citeAgentExe = Join-Path $venvPath "Scripts\cite-agent.exe"
+        if (Test-Path $citeAgentExe) {
+            & $citeAgentExe
+        } else {
+            # Fallback: run via python module
+            & $venvPython -m cite_agent.cli
+        }
     } else {
         throw "Installation verification failed"
     }

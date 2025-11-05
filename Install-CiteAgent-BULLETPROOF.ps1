@@ -224,9 +224,10 @@ function Remove-OldInstallation {
     $pathCleaned = $false
     foreach ($pathToRemove in $pathsToRemove) {
         if ($newPath -like "*$pathToRemove*") {
-            $newPath = $newPath -replace [regex]::Escape(";$pathToRemove"), ""
-            $newPath = $newPath -replace [regex]::Escape("$pathToRemove;"), ""
-            $newPath = $newPath -replace [regex]::Escape("$pathToRemove"), ""
+            $escapedPath = [regex]::Escape($pathToRemove)
+            $newPath = $newPath -replace ";$escapedPath", ""
+            $newPath = $newPath -replace "$escapedPath;", ""
+            $newPath = $newPath -replace "$escapedPath", ""
             $pathCleaned = $true
         }
     }
@@ -357,7 +358,8 @@ function Install-Python {
         }
 
         $fileSize = (Get-Item $tempInstaller).Length / 1MB
-        Write-Log "Downloaded Python installer ($([math]::Round($fileSize, 2)) MB)" -Level "PROGRESS"
+        $fileSizeMB = [math]::Round($fileSize, 2)
+        Write-Log "Downloaded Python installer ($fileSizeMB MB)" -Level "PROGRESS"
     }
 
     Write-Log "Running Python installer (silent mode)..." -Level "INFO"

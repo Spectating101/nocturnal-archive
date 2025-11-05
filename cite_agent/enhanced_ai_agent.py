@@ -968,6 +968,29 @@ class EnhancedNocturnalAgent:
         normalized = text.lower().strip()
         return any(normalized.startswith(ack) for ack in acknowledgments)
 
+    def _detect_language_preference(self, text: str) -> None:
+        """
+        Detect and store user's language preference from input text.
+        Supports Traditional Chinese (繁體中文), English, and other languages.
+        """
+        text_lower = text.lower()
+        
+        # Check for Chinese characters (CJK)
+        has_chinese = any('\u4e00' <= char <= '\u9fff' for char in text)
+        
+        # Explicit language requests
+        if 'chinese' in text_lower or '中文' in text or 'traditional' in text_lower:
+            self.language_preference = 'zh-TW'
+        elif 'english' in text_lower:
+            self.language_preference = 'en'
+        elif has_chinese:
+            # Detected Chinese characters
+            self.language_preference = 'zh-TW'
+        else:
+            # Default to English if not specified
+            if not hasattr(self, 'language_preference'):
+                self.language_preference = 'en'
+
     def _is_generic_test_prompt(self, text: str) -> bool:
         """Detect simple 'test' style probes that don't need full analysis."""
         normalized = re.sub(r"[^a-z0-9\s]", " ", text.lower())
@@ -1715,6 +1738,14 @@ class EnhancedNocturnalAgent:
             )
         
         try:
+            # Detect language preference from stored state
+            language = getattr(self, 'language_preference', 'en')
+            
+            # Build system instruction for language enforcement
+            system_instruction = ""
+            if language == 'zh-TW':
+                system_instruction = "CRITICAL: You MUST respond entirely in Traditional Chinese (繁體中文). Use Chinese characters (漢字), NOT pinyin romanization. All explanations, descriptions, and responses must be in Chinese characters."
+            
             # Build request with API context as separate field
             payload = {
                 "query": query,  # Keep query clean
@@ -1722,7 +1753,9 @@ class EnhancedNocturnalAgent:
                 "api_context": api_results,  # Send API results separately
                 "model": "openai/gpt-oss-120b",  # PRODUCTION: 120B - best test results
                 "temperature": 0.2,  # Low temp for accuracy
-                "max_tokens": 4000
+                "max_tokens": 4000,
+                "language": language,  # Pass language preference
+                "system_instruction": system_instruction if system_instruction else None  # Only include if set
             }
             
             # Call backend
@@ -2262,10 +2295,63 @@ class EnhancedNocturnalAgent:
                     break
             
             output = '\n'.join(output_lines).strip()
+            debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+            
+            # Log execution details in debug mode
+            if debug_mode:
+                output_preview = output[:200] if output else "(no output)"
+                print(f"✅ Command executed: {command}")
+                print(f"📤 Output ({len(output)} chars): {output_preview}...")
+            
             return output if output else "Command executed (no output)"
 
         except Exception as e:
+            debug_mode = os.getenv("NOCTURNAL_DEBUG", "").lower() == "1"
+            if debug_mode:
+                print(f"❌ Command failed: {command}")
+                print(f"❌ Error: {e}")
             return f"ERROR: {e}"
+
+    def _format_shell_output(self, output: str, command: str) -> Dict[str, Any]:
+        """
+        Format shell command output for display.
+        Returns dictionary with formatted preview and full output.
+        """
+        lines = output.split('\n') if output else []
+        
+        # Detect output type based on command
+        command_lower = command.lower()
+        
+        formatted = {
+            "type": "shell_output",
+            "command": command,
+            "line_count": len(lines),
+            "byte_count": len(output),
+            "preview": '\n'.join(lines[:10]) if lines else "(no output)",
+            "full_output": output
+        }
+        
+        # Enhanced formatting based on command type
+        if any(cmd in command_lower for cmd in ['ls', 'dir']):
+            formatted["type"] = "directory_listing"
+            formatted["preview"] = f"📁 Found {len([l for l in lines if l.strip()])} items"
+        elif any(cmd in command_lower for cmd in ['find', 'locate', 'search']):
+            formatted["type"] = "search_results"
+            formatted["preview"] = f"🔍 Found {len([l for l in lines if l.strip()])} matches"
+        elif any(cmd in command_lower for cmd in ['grep', 'match']):
+            formatted["type"] = "search_results"
+            formatted["preview"] = f"🔍 Found {len([l for l in lines if l.strip()])} matching lines"
+        elif any(cmd in command_lower for cmd in ['cat', 'head', 'tail']):
+            formatted["type"] = "file_content"
+            formatted["preview"] = f"📄 {len(lines)} lines of content"
+        elif any(cmd in command_lower for cmd in ['pwd', 'cd']):
+            formatted["type"] = "directory_change"
+            formatted["preview"] = f"📍 {output.strip()}"
+        elif any(cmd in command_lower for cmd in ['mkdir', 'touch', 'create']):
+            formatted["type"] = "file_creation"
+            formatted["preview"] = f"✨ Created: {output.strip()}"
+        
+        return formatted
 
     # ========================================================================
     # DIRECT FILE OPERATIONS (Claude Code / Cursor Parity)
@@ -3377,6 +3463,9 @@ class EnhancedNocturnalAgent:
             if workflow_response:
                 return workflow_response
             
+            # Detect and store language preference from user input
+            self._detect_language_preference(request.question)
+            
             # Initialize
             api_results = {}
             tools_used = []
@@ -3550,7 +3639,9 @@ JSON:"""
                     reason = plan.get("reason", "")
                     updates_context = plan.get("updates_context", False)
                     
-                    if debug_mode:
+                    # Only show planning details with explicit verbose flag (don't leak to users)
+                    verbose_planning = debug_mode and os.getenv("NOCTURNAL_VERBOSE_PLANNING", "").lower() == "1"
+                    if verbose_planning:
                         print(f"🔍 SHELL PLAN: {plan}")
 
                     # GENERIC COMMAND EXECUTION - No more hardcoded actions!
@@ -3558,13 +3649,13 @@ JSON:"""
                         command = self._infer_shell_command(request.question)
                         shell_action = "execute"
                         updates_context = False
-                        if debug_mode:
+                        if verbose_planning:
                             print(f"🔄 Planner opted out; inferred fallback command: {command}")
 
                     if shell_action == "execute" and not command:
                         command = self._infer_shell_command(request.question)
                         plan["command"] = command
-                        if debug_mode:
+                        if verbose_planning:
                             print(f"🔄 Planner omitted command, inferred {command}")
 
                     if shell_action == "execute" and command:
@@ -3820,10 +3911,12 @@ JSON:"""
                                 output = self.execute_command(command)
                             
                             if not output.startswith("ERROR"):
-                                # Success - store results
+                                # Success - store results with formatted preview
+                                formatted_output = self._format_shell_output(output, command)
                                 api_results["shell_info"] = {
                                     "command": command,
                                     "output": output,
+                                    "formatted": formatted_output,  # Add formatted version
                                     "reason": reason,
                                     "safety_level": safety_level
                                 }
@@ -4189,6 +4282,40 @@ JSON:"""
                     api_results=api_results,
                     tools_used=tools_used
                 )
+                
+                # VALIDATION: Ensure we got a valid response (not planning JSON)
+                if not response or not hasattr(response, 'response'):
+                    # Backend failed - create friendly error with available data
+                    if debug_mode:
+                        print(f"⚠️ Backend response invalid or missing")
+                    return ChatResponse(
+                        response="I ran into a technical issue processing that. Let me try to help with what I found:",
+                        error_message="Backend response invalid",
+                        tools_used=tools_used,
+                        api_results=api_results
+                    )
+                
+                # Check if response contains planning JSON instead of final answer
+                response_text = response.response.strip()
+                if response_text.startswith('{') and '"action"' in response_text and '"command"' in response_text:
+                    # This is planning JSON, not a final response!
+                    if debug_mode:
+                        print(f"⚠️ Backend returned planning JSON instead of final response")
+                    
+                    # Extract real output from api_results and generate friendly response
+                    shell_output = api_results.get('shell_info', {}).get('output', '')
+                    if shell_output:
+                        return ChatResponse(
+                            response=f"I found what you were looking for:\n\n{shell_output}",
+                            tools_used=tools_used,
+                            api_results=api_results
+                        )
+                    else:
+                        return ChatResponse(
+                            response=f"I completed the action: {api_results.get('shell_info', {}).get('command', '')}",
+                            tools_used=tools_used,
+                            api_results=api_results
+                        )
 
                 # POST-PROCESSING: Auto-extract code blocks and write files if user requested file creation
                 # This fixes the issue where LLM shows corrected code but doesn't create the file

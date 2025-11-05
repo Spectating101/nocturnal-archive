@@ -225,7 +225,8 @@ class NocturnalCLI:
     def _show_ready_panel(self):
         panel = Panel(
             "Systems check complete.\n"
-            "Type [bold]help[/] for commands or [bold]tips[/] for power moves.",
+            "Type [bold]help[/] for commands or [bold]tips[/] for power moves.\n"
+            "[dim]Press Ctrl+C while the agent is thinking to interrupt and ask something else.[/dim]",
             title="✅ Cite Agent ready!",
             border_style="green",
             padding=(1, 2),
@@ -460,16 +461,9 @@ class NocturnalCLI:
                     finally:
                         live.stop()
 
-                    # Print response with typing effect for natural feel
+                    # Print response immediately (no artificial typing delay)
                     self.console.print("[bold violet]🤖 Agent[/]: ", end="", highlight=False)
-                    
-                    # Character-by-character streaming (like ChatGPT) - faster for long responses
-                    import time
-                    for char in response.response:
-                        self.console.print(char, end="", style="white")
-                        time.sleep(0.003)  # 3ms per character (~333 chars/sec) - faster than before
-                    
-                    self.console.print()  # Newline after response
+                    self.console.print(response.response)
 
                     # Save to history automatically
                     self.workflow.save_query_result(
@@ -482,12 +476,10 @@ class NocturnalCLI:
                         }
                     )
 
-                    # Show usage stats occasionally
-                    if hasattr(self.agent, 'daily_token_usage') and self.agent.daily_token_usage > 0:
-                        stats = self.agent.get_usage_stats()
-                        if stats['usage_percentage'] > 10:  # Show if >10% used
-                            self.console.print(f"\n📊 Usage: {stats['usage_percentage']:.1f}% of daily limit")
-                
+                except KeyboardInterrupt:
+                    live.stop()
+                    self.console.print("\n[dim]⏹️  Interrupted. Ask another question when ready.[/dim]")
+                    continue
                 except Exception as e:
                     self.console.print(f"\n[error]❌ Error: {e}[/error]")
         

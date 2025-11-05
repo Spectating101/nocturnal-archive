@@ -8,7 +8,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 # Add nocturnal_archive to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -93,6 +93,85 @@ Remember:
         
         # Store this for when we make requests
         self.jarvis_prompt = jarvis_system_prompt
+
+    async def _build_environment_snapshot(self, limit: int = 8) -> Optional[str]:
+        """Return a short summary of the current workspace."""
+        if not self.agent:
+            return None
+
+        try:
+            listing = await self.agent._get_workspace_listing(limit=limit)  # type: ignore[attr-defined]
+        except Exception:
+            listing = {"base": self.working_dir, "items": []}
+
+        base = listing.get("base") or self.working_dir
+        items = listing.get("items") or listing.get("entries") or []
+
+        lines: List[str] = [f"📂 Working directory: {base}"]
+
+        if items:
+            preview_count = min(len(items), 6)
+            preview_lines = [
+                f"  • {item.get('name')} ({item.get('type', 'item')})"
+                for item in items[:preview_count]
+            ]
+            if len(items) > preview_count:
+                preview_lines.append(f"  • … {len(items) - preview_count} more")
+            lines.append("Contents snapshot:\n" + "\n".join(preview_lines))
+
+        if listing.get("error"):
+            lines.append(f"⚠️ Workspace note: {listing['error']}")
+
+        note = listing.get("note")
+        if note:
+            lines.append(note)
+
+        return "\n\n".join(lines)
+
+    @staticmethod
+    def _looks_like_grounding_question(text: str) -> bool:
+        lowered = text.lower().strip()
+        if not lowered:
+            return False
+        grounding_phrases = [
+            "where are we",
+            "where am i",
+            "what directory",
+            "current directory",
+            "pwd",
+            "show files",
+            "list files",
+            "where is this",
+        ]
+        return any(phrase in lowered for phrase in grounding_phrases)
+
+    @staticmethod
+    def _is_small_talk_probe(text: str) -> bool:
+        lowered = text.lower().strip()
+        return lowered in {"test", "hi", "hello", "hey", "ping"}
+
+    async def _respond_with_grounding(self) -> None:
+        snapshot = await self._build_environment_snapshot()
+        if not snapshot:
+            snapshot = "I can’t access the workspace details right now, but I’m ready to help."
+
+        async def snapshot_gen():
+            async for chunk in simulate_streaming(snapshot, chunk_size=4):
+                yield chunk
+
+        await self.ui.stream_agent_response(snapshot_gen())
+
+    async def _respond_with_acknowledgement(self) -> None:
+        message = (
+            "Ready when you are. Try `help` for guidance or ask me to summarise a file like "
+            "`summarize README.md`."
+        )
+
+        async def ack_gen():
+            async for chunk in simulate_streaming(message, chunk_size=4):
+                yield chunk
+
+        await self.ui.stream_agent_response(ack_gen())
     
     async def run(self):
         """Main conversation loop"""
@@ -121,6 +200,24 @@ Remember:
                     yield chunk
             
             await self.ui.stream_agent_response(welcome_gen())
+
+            snapshot = await self._build_environment_snapshot()
+            if snapshot:
+                async def snapshot_gen():
+                    async for chunk in simulate_streaming(snapshot, chunk_size=4):
+                        yield chunk
+                await self.ui.stream_agent_response(snapshot_gen())
+
+            quick_tips = (
+                "Quick tips: `help` for options • `read_file README.md` to inspect docs • "
+                "`summarize docs/…` or `analyze data.csv` to get started."
+            )
+
+            async def tips_gen():
+                async for chunk in simulate_streaming(quick_tips, chunk_size=4):
+                    yield chunk
+
+            await self.ui.stream_agent_response(tips_gen())
             
             # Main conversation loop
             while self.conversation_active:
@@ -160,15 +257,28 @@ Remember:
         - Use appropriate tools
         - Stream response naturally
         """
+
+        stripped = user_input.strip()
+        if not stripped:
+            return
+
+        lowered = stripped.lower()
+
+        if self._is_small_talk_probe(stripped):
+            await self._respond_with_acknowledgement()
+            return
+        if self._looks_like_grounding_question(stripped):
+            await self._respond_with_grounding()
+            return
         
         # Determine if this is a web search request
-        is_web_search = any(keyword in user_input.lower() for keyword in [
+        is_web_search = any(keyword in lowered for keyword in [
             'google', 'search for', 'browse', 'look up', 'find on the web',
             'what does', 'who is', 'recent news'
         ])
         
         # Determine if this is a data analysis request
-        is_data_analysis = any(keyword in user_input.lower() for keyword in [
+        is_data_analysis = any(keyword in lowered for keyword in [
             'analyze', 'data', 'csv', 'plot', 'graph', 'test', 'regression',
             'correlation', 'statistics', 'mean', 'median', 'distribution'
         ])

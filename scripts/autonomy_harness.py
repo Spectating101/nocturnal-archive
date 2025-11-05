@@ -1289,6 +1289,73 @@ async def run_repo_refactor_showcase() -> Dict[str, Any]:
     return {"response": response, "ledger": ledger, "refactor_insights": insights, "quality_checks": guardrails}
 
 
+async def run_workspace_grounding_showcase() -> Dict[str, Any]:
+    agent = EnhancedNocturnalAgent()
+    agent.workflow.save_query_result = lambda *args, **kwargs: None
+    ledger: List[Dict[str, Any]] = []
+
+    def _grounding_factory(query: str, _history: Any, api_results: Any) -> str:
+        lower = query.lower()
+        if '"use_web_search"' in query or "use_web_search" in lower:
+            return json.dumps({"use_web_search": False, "reason": "Workspace context is local"})
+        if "shell command planner" in lower:
+            return json.dumps(
+                {
+                    "action": "execute",
+                    "command": "pwd",
+                    "reason": "Report the current working directory",
+                    "updates_context": False,
+                }
+            )
+        shell_output = api_results.get("shell_info", {}).get("output", "").strip()
+        listing_hint = "README.md, data.csv, notes.txt"
+        if shell_output:
+            return (
+                f"We are working inside {shell_output}. "
+                f'I can see key files such as {listing_hint}.'
+            )
+        return "Workspace grounding complete."
+
+    agent.call_backend_query = FakeBackend(ledger, response_factory=_grounding_factory)  # type: ignore[assignment]
+    agent.shell_session = _StubShell()
+
+    async def backend_ready() -> Tuple[bool, str]:
+        return True, ""
+
+    agent._ensure_backend_ready = backend_ready  # type: ignore[assignment]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        (tmp_path / "README.md").write_text("# Sample Project\nSome details here.", encoding="utf-8")
+        (tmp_path / "data.csv").write_text("col1,col2\n1,2\n3,4\n", encoding="utf-8")
+        (tmp_path / "notes.txt").write_text("Remember to cite all sources.", encoding="utf-8")
+
+        def fake_execute(cmd: str) -> str:
+            cleaned = cmd.strip()
+            if cleaned == "pwd":
+                return str(tmp_path)
+            if cleaned.startswith("ls"):
+                return "README.md\ndata.csv\nnotes.txt"
+            return ""
+
+        agent.execute_command = fake_execute  # type: ignore[assignment]
+        agent.file_context["current_cwd"] = str(tmp_path)
+
+        response = await agent.process_request(
+            ChatRequest(
+                question="Where are we right now? Summarize the workspace.",
+            )
+        )
+    await agent.close()
+
+    guardrails = {
+        "mentions_directory": str(tmp_path) in response.response,
+        "mentions_files": all(name in response.response for name in ("README.md", "data.csv", "notes.txt")),
+    }
+
+    return {"response": response, "ledger": ledger, "quality_checks": guardrails}
+
+
 SCENARIOS: List[Tuple[str, Any]] = [
     ("finance", run_finance_showcase),
     ("file_ops", run_local_file_showcase),
@@ -1302,6 +1369,7 @@ SCENARIOS: List[Tuple[str, Any]] = [
     ("conversation_memory", run_conversation_memory_showcase),
     ("multi_hop_research", run_multi_hop_research_showcase),
     ("repo_refactor", run_repo_refactor_showcase),
+    ("workspace_grounding", run_workspace_grounding_showcase),
 ]
 
 

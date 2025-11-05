@@ -1,0 +1,117 @@
+═══════════════════════════════════════════════════════════
+  CITE-AGENT INSTALLER
+  AI Research Assistant for Windows
+  Version 1.4.0
+═══════════════════════════════════════════════════════════
+
+📦 INSTALLATION INSTRUCTIONS:
+
+After extracting the zip file, you'll see:
+
+  📄 Install-Cite-Agent-GUI.ps1
+  📄 Install-Cite-Agent-GUI.bat
+  📄 THIS FILE
+
+─────────────────────────────────────────────────────────
+
+🚀 OPTION 1: Right-click the .ps1 file (RECOMMENDED)
+
+  1. Right-click "Install-Cite-Agent-GUI.ps1"
+  2. Select "Run with PowerShell"
+  3. GUI installer window opens
+  4. Click "Install" button
+  5. Wait 2 minutes
+  6. Done!
+
+─────────────────────────────────────────────────────────
+
+🚀 OPTION 2: Double-click the .bat file
+
+  1. Double-click "Install-Cite-Agent-GUI.bat"
+  2. GUI installer window opens
+  3. Click "Install" button
+  4. Wait 2 minutes
+  5. Done!
+
+─────────────────────────────────────────────────────────
+
+⚠️ If you see a security warning:
+
+  "Windows protected your PC" or similar message:
+
+  This is normal for scripts downloaded from the internet.
+
+  Click "More info" → "Run anyway"
+
+  Or right-click the .ps1 file → Properties →
+  Check "Unblock" → OK → Try again
+
+─────────────────────────────────────────────────────────
+
+✅ AFTER INSTALLATION:
+
+You can use Cite-Agent in 3 ways:
+
+  1. Double-click "Cite-Agent" icon on your Desktop
+
+  2. Search "Cite-Agent" in Windows Start Menu
+
+  3. Type "cite-agent" in any terminal/command prompt
+
+─────────────────────────────────────────────────────────
+
+📊 FOR R STUDIO USERS:
+
+  IMPORTANT: Restart R Studio after installation!
+
+  Then:
+  1. Open R Studio
+  2. Go to Terminal pane (usually at bottom)
+  3. Type: cite-agent
+  4. Press Enter
+  5. Cite-Agent launches in R Studio terminal!
+
+─────────────────────────────────────────────────────────
+
+❓ TROUBLESHOOTING:
+
+Problem: "The system cannot find the file specified"
+Solution: Make sure both .ps1 and .bat files are in the
+          same folder after extracting the zip.
+
+Problem: Script won't run / Security warning
+Solution: Right-click .ps1 → Properties → Check "Unblock"
+          → OK → Try again
+
+Problem: Installation fails during Python download
+Solution: Check your internet connection and firewall
+
+Problem: "cite-agent" command not found after install
+Solution: Restart your terminal or computer (PATH needs refresh)
+
+─────────────────────────────────────────────────────────
+
+📝 INSTALLATION LOG:
+
+If installation fails, check the log file at:
+
+  %LOCALAPPDATA%\Cite-Agent\logs\install.log
+
+To view it:
+  1. Press Win + R
+  2. Type: %LOCALAPPDATA%\Cite-Agent\logs
+  3. Press Enter
+  4. Open "install.log"
+
+─────────────────────────────────────────────────────────
+
+🆘 NEED HELP?
+
+Report issues at:
+https://github.com/Spectating101/cite-agent/issues
+
+Or contact support with your install.log file.
+
+─────────────────────────────────────────────────────────
+
+Thank you for using Cite-Agent! 🚀

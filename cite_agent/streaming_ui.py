@@ -5,7 +5,6 @@ Minimal, clean, conversational interface for data analysis assistant
 """
 
 import sys
-import time
 import asyncio
 from typing import Optional, AsyncGenerator
 from rich.console import Console
@@ -31,7 +30,8 @@ class StreamingChatUI:
         self.app_name = app_name
         self.working_dir = working_dir
         self.console = Console()
-        self.typing_speed = 0.015  # ~60 chars/sec
+        # Stream responses as full chunks (no artificial typing delay)
+        self.typing_speed = 0.0
         
     def show_header(self):
         """Display minimal header on startup"""
@@ -61,12 +61,15 @@ class StreamingChatUI:
         # No prefix for agent - just stream naturally
         buffer = ""
         
-        async for chunk in content_generator:
-            buffer += chunk
-            # Stream character by character for natural feel
-            for char in chunk:
-                self.console.print(char, end="", style="white")
-                await asyncio.sleep(self.typing_speed)
+        try:
+            async for chunk in content_generator:
+                buffer += chunk
+                self.console.print(chunk, end="", style="white")
+                if self.typing_speed:
+                    await asyncio.sleep(self.typing_speed)
+        except KeyboardInterrupt:
+            self.console.print("\n[dim]⏹️  Streaming interrupted by user.[/dim]")
+            return buffer
         
         self.console.print()  # Newline after response
         self.console.print()  # Extra space for readability
@@ -180,7 +183,8 @@ async def simulate_streaming(text: str, chunk_size: int = 5) -> AsyncGenerator[s
     for i in range(0, len(text), chunk_size):
         chunk = text[i:i + chunk_size]
         yield chunk
-        await asyncio.sleep(0.05)  # Simulate network delay
+        # No artificial delay; mimic immediate chunk availability
+        await asyncio.sleep(0)
 
 
 # Example usage

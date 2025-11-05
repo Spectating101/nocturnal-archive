@@ -3,7 +3,7 @@
 set -e
 
 echo "╔═══════════════════════════════════════════════════════════╗"
-echo "║  Installing Cite-Agent v1.2.7                             ║"
+echo "║  Installing Cite-Agent v1.4.0                             ║"
 echo "╚═══════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -75,4 +75,3 @@ else
     echo "   source $SHELL_RC"
     echo "   cite-agent --version"
 fi
-

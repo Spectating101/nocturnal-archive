@@ -1,0 +1,58 @@
+═══════════════════════════════════════════════════════════
+  CITE-AGENT INSTALLATION - QUICK FIX
+═══════════════════════════════════════════════════════════
+
+The automated Python installer failed on your system.
+This is a known issue with Python's silent installer.
+
+Here's the 2-step fix:
+
+═══════════════════════════════════════════════════════════
+
+STEP 1: Install Python Manually (2 minutes)
+
+1. Download Python:
+   https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe
+
+2. Run the installer
+
+3. IMPORTANT: Check these boxes:
+   ☑ Add Python to PATH
+   ☑ Install for all users (optional)
+
+4. Click "Install Now"
+
+5. Wait for installation to complete
+
+═══════════════════════════════════════════════════════════
+
+STEP 2: Install Cite-Agent (30 seconds)
+
+Open PowerShell and run:
+
+iwr -useb https://raw.githubusercontent.com/Spectating101/nocturnal-archive/production-backend-only/install-clean.ps1 | iex
+
+Done!
+
+═══════════════════════════════════════════════════════════
+
+TEST:
+
+Open a NEW PowerShell window and type:
+
+cite-agent --version
+
+You should see: cite-agent 1.4.0
+
+═══════════════════════════════════════════════════════════
+
+WHY DID THIS HAPPEN?
+
+Some systems don't allow silent Python installations due to:
+  - Antivirus software
+  - Corporate security policies
+  - Windows Defender settings
+
+The manual installation works around this.
+
+═══════════════════════════════════════════════════════════

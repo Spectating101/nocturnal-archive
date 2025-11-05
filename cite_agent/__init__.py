@@ -7,9 +7,9 @@ prior stacks preserved only in Git history, kept out of the runtime footprint.
 
 from .enhanced_ai_agent import EnhancedNocturnalAgent, ChatRequest, ChatResponse
 
-__version__ = "0.9.0b1"
-__author__ = "Nocturnal Archive Team"
-__email__ = "contact@nocturnal.dev"
+__version__ = "1.4.0"
+__author__ = "Cite Agent Team"
+__email__ = "contact@citeagent.dev"
 
 __all__ = [
     "EnhancedNocturnalAgent",
@@ -18,10 +18,10 @@ __all__ = [
 ]
 
 # Package metadata
-PACKAGE_NAME = "nocturnal-archive"
+PACKAGE_NAME = "cite-agent"
 PACKAGE_VERSION = __version__
-PACKAGE_DESCRIPTION = "Beta CLI agent for finance + research workflows"
-PACKAGE_URL = "https://github.com/Spectating101/nocturnal-archive"
+PACKAGE_DESCRIPTION = "Research and finance CLI copilot with shell, Archive, and FinSight tools"
+PACKAGE_URL = "https://github.com/Spectating101/cite-agent"
 
 def get_version():
     """Get the package version"""
@@ -30,22 +30,22 @@ def get_version():
 def quick_start():
     """Print quick start instructions"""
     print("""
-🚀 Nocturnal Archive Quick Start
-================================
+🚀 Cite Agent Quick Start
+=========================
 
 1. Install the package and CLI:
-   pip install nocturnal-archive
+   pip install cite-agent
 
-2. Configure your Groq key:
-   nocturnal --setup
+2. Configure your account or local keys:
+   cite-agent --setup
 
 3. Ask a question:
-   nocturnal "Compare Apple and Microsoft net income this quarter"
+   cite-agent "Compare Apple and Microsoft net income this quarter"
 
 4. Prefer embedding in code? Minimal example:
    ```python
    import asyncio
-   from nocturnal_archive import EnhancedNocturnalAgent, ChatRequest
+   from cite_agent import EnhancedNocturnalAgent, ChatRequest
 
    async def main():
        agent = EnhancedNocturnalAgent()

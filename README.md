@@ -157,6 +157,11 @@ cite-agent "我的p值是0.05，這顯著嗎？"
 cite-agent "天空是藍色的嗎？"
 ```
 
+#### Runtime Controls
+
+- Responses render immediately—there’s no artificial typing delay.
+- Press `Ctrl+C` while the agent is thinking or streaming to interrupt and ask a different question on the spot.
+
 ### Python API Reference
 
 #### EnhancedNocturnalAgent

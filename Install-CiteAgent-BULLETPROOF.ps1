@@ -23,7 +23,8 @@ $PYTHON_DOWNLOAD_URL = "https://www.python.org/ftp/python/$PYTHON_DOWNLOAD_VERSI
 $INSTALL_ROOT = "$env:LOCALAPPDATA\Cite-Agent"
 $VENV_PATH = "$INSTALL_ROOT\venv"
 $PYTHON_EMBEDDED_PATH = "$INSTALL_ROOT\python"
-$LOG_FILE = "$INSTALL_ROOT\logs\install-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+$TEMP_LOG = "$env:TEMP\cite-agent-install-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+$LOG_FILE = $TEMP_LOG  # Will be moved to final location after cleanup
 $MAX_RETRIES = 3
 $RETRY_DELAY = 2
 
@@ -46,7 +47,14 @@ function Initialize-Log {
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    "$timestamp | $Level | $Message" | Out-File $LOG_FILE -Append -Encoding UTF8
+
+    # Ensure log directory exists before writing
+    $logDir = Split-Path $LOG_FILE -Parent
+    if (-not (Test-Path $logDir)) {
+        New-Item -ItemType Directory -Path $logDir -Force -ErrorAction SilentlyContinue | Out-Null
+    }
+
+    "$timestamp | $Level | $Message" | Out-File $LOG_FILE -Append -Encoding UTF8 -ErrorAction SilentlyContinue
 
     switch ($Level) {
         "INFO"    { Write-Host "[*] $Message" -ForegroundColor Cyan }
@@ -54,6 +62,22 @@ function Write-Log {
         "WARNING" { Write-Host "[!] $Message" -ForegroundColor Yellow }
         "ERROR"   { Write-Host "[✗] $Message" -ForegroundColor Red }
         "PROGRESS" { Write-Host "    $Message" -ForegroundColor Gray }
+    }
+}
+
+function Move-LogToFinalLocation {
+    # Move temp log to final install directory
+    $finalLogDir = "$INSTALL_ROOT\logs"
+    $finalLogFile = "$finalLogDir\install-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+
+    if (-not (Test-Path $finalLogDir)) {
+        New-Item -ItemType Directory -Path $finalLogDir -Force | Out-Null
+    }
+
+    if (Test-Path $LOG_FILE) {
+        Copy-Item $LOG_FILE -Destination $finalLogFile -Force -ErrorAction SilentlyContinue
+        $script:LOG_FILE = $finalLogFile
+        Write-Log "Log moved to final location: $finalLogFile" -Level "SUCCESS"
     }
 }
 
@@ -665,6 +689,9 @@ function Start-Installation {
         # PHASE 1: Uninstall old installations
         Show-Progress -Activity "Installing Cite-Agent" -PercentComplete 5 -Status "Cleaning up old installations..."
         Remove-OldInstallation
+
+        # Move log to final location now that install directory is ready
+        Move-LogToFinalLocation
 
         # PHASE 2: Find or install Python
         Show-Progress -Activity "Installing Cite-Agent" -PercentComplete 10 -Status "Detecting Python..."
